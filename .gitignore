@@ -6,6 +6,11 @@
 .env.*
 !.env.example
 
+# Node/TypeScript outputs
+node_modules/
+dist/
+coverage/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

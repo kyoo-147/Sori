@@ -1,7 +1,7 @@
 //! Platform-neutral hold-to-talk hotkey contracts and state machine.
 //!
 //! OS adapters should translate native key notifications into [`HotkeyInput`]
-//! values and feed them to [`HotkeyState`]. The state machine deliberately
+//! values and feed them to [`HotkeyStateMachine`]. The state machine deliberately
 //! ignores duplicate notifications, making it safe to use with key-repeat.
 
 use crate::event::{Event, EventBus, EventKind, serde_json_like::Value};

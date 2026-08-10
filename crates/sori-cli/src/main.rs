@@ -17,6 +17,8 @@ enum Command {
     Status,
     /// Show the effective context defaults.
     Context,
+    /// Print benchmark scaffolding status.
+    Benchmark,
 }
 
 fn main() -> Result<()> {
@@ -25,6 +27,7 @@ fn main() -> Result<()> {
         Command::Doctor => doctor(),
         Command::Status => status(),
         Command::Context => context(),
+        Command::Benchmark => benchmark(),
     }
 }
 
@@ -40,6 +43,13 @@ fn doctor() -> Result<()> {
 
 fn status() -> Result<()> {
     println!("sorid: not running (IPC not implemented yet)");
+    Ok(())
+}
+
+fn benchmark() -> Result<()> {
+    println!("Sori benchmark");
+    println!("- benchmark runner: not wired yet");
+    println!("- route simulation: scaffold only");
     Ok(())
 }
 

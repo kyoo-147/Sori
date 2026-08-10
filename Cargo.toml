@@ -1,0 +1,25 @@
+[workspace]
+members = [
+  "crates/sori-core",
+  "crates/sori-cli",
+  "crates/sorid"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/kyoo-147/Sori"
+rust-version = "1.85"
+
+[workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+time = { version = "0.3", features = ["formatting", "macros", "serde"] }
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1.18", features = ["v4", "serde"] }

@@ -11,6 +11,9 @@ node_modules/
 dist/
 coverage/
 
+# Rust outputs
+target/
+
 # Local Lavish review artifacts
 .lavish/
 

@@ -1,5 +1,6 @@
 use anyhow::Result;
-use sori_core::{EventKind, InMemoryEventBus};
+use sori_core::InMemoryEventBus;
+use sorid::{DaemonConfig, DaemonRuntime, RuntimeState};
 use tracing::info;
 
 #[tokio::main]
@@ -11,16 +12,21 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    let config = DaemonConfig::default();
+    config.validate().map_err(anyhow::Error::msg)?;
     let events = InMemoryEventBus::default();
-    events.publish_kind(EventKind::AudioStarted);
-    info!("sorid scaffold started; IPC/audio/injection adapters are not wired yet");
+    let mut runtime = DaemonRuntime::new(events);
+    info!(
+        hotkey = %config.hotkey.binding,
+        persistence_path = ?config.persistence_path,
+        state = ?runtime.state(),
+        "sorid ready; platform adapters are integration boundaries"
+    );
 
-    #[cfg(unix)]
     tokio::signal::ctrl_c().await?;
-
-    #[cfg(not(unix))]
-    tokio::signal::ctrl_c().await?;
-
-    info!("sorid stopped");
+    runtime.shutdown()?;
+    if matches!(runtime.state(), RuntimeState::ShuttingDown) {
+        info!("sorid stopped gracefully");
+    }
     Ok(())
 }

@@ -212,6 +212,17 @@ mod tests {
     }
 
     #[test]
+    fn dsp_config_defaults_to_mono_resampled_audio() {
+        let config = DspPipelineConfig::default();
+        assert_eq!(config.target_sample_rate_hz, 16_000);
+        assert_eq!(config.target_channels, 1);
+        assert!(config.resample);
+        assert!(config.channel_mix);
+        assert!(!config.noise_suppression);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
     fn vad_stub_reports_state_transitions() {
         let mut vad = EnergyVadStub::new(0.1);
         assert_eq!(vad.process(&[0.0, 0.0]), VoiceActivity::Silence);

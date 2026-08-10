@@ -19,7 +19,8 @@ pub mod transcript;
 
 pub use audio::{
     AudioChunk, AudioDeviceInfo, AudioDeviceProvider, AudioEngine, AudioError, AudioFormat,
-    CaptureConfig, DspPipelineConfig, EnergyVadStub, VoiceActivity, VoiceActivityDetector,
+    CaptureConfig, DspPipelineConfig, EnergyVadStub, SampleFormat, VoiceActivity,
+    VoiceActivityDetector,
 };
 pub use benchmark::{
     AccuracyMetrics, BenchmarkResult, LatencyMetrics, MemoryMetrics, ReliabilityMetrics,

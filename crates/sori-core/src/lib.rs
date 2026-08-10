@@ -30,12 +30,13 @@ pub use benchmark::{
 pub use context::{ContextSnapshot, PrivacyMode, ProfileMode};
 pub use event::{Event, EventBus, EventKind, InMemoryEventBus};
 pub use history::{HistoryEntry, HistoryPolicy, HistoryRepository, InMemoryHistory};
-#[cfg(windows)]
-pub use hotkey::WindowsHotkeyBackend;
 pub use hotkey::{
-    HotkeyBackend, HotkeyError, HotkeyEvent, HotkeyInput, HotkeyState, HotkeyStateMachine,
+    FakeHotkeyBackend, FakeHotkeyRegistration, HotkeyBackend, HotkeyCombination, HotkeyError,
+    HotkeyEvent, HotkeyInput, HotkeyRegistration, HotkeyState, HotkeyStateMachine,
     UnsupportedHotkeyBackend,
 };
+#[cfg(windows)]
+pub use hotkey::{WindowsHotkeyBackend, WindowsHotkeyRegistration};
 pub use intent::{FastIntent, IntentRouter};
 pub use model::{
     ExternalProcessProvider, ExternalProcessSpec, ModelError, ModelId, ModelLicense, ModelManifest,

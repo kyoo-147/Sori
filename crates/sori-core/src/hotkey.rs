@@ -110,6 +110,118 @@ pub enum HotkeyError {
     AlreadyRunning,
     #[error("hotkey backend is not running")]
     NotRunning,
+    #[error("hotkey is already registered by another application")]
+    Conflict,
+    #[error("native hotkey operation failed with error code {0}")]
+    Native(u32),
+}
+
+/// A Windows virtual-key combination. Modifiers use the Win32 MOD_* bit values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HotkeyCombination {
+    pub modifiers: u32,
+    pub virtual_key: u32,
+}
+
+impl HotkeyCombination {
+    pub const fn new(modifiers: u32, virtual_key: u32) -> Self {
+        Self {
+            modifiers,
+            virtual_key,
+        }
+    }
+}
+
+/// The small native boundary used by the Windows backend. Keeping registration
+/// here makes lifecycle and conflict handling testable without Win32.
+pub trait HotkeyRegistration {
+    fn register(&mut self, hotkey: HotkeyCombination) -> Result<(), HotkeyError>;
+    fn unregister(&mut self) -> Result<(), HotkeyError>;
+}
+
+/// In-memory registration adapter for hold-to-talk tests and non-interactive CI.
+#[derive(Debug, Default)]
+pub struct FakeHotkeyRegistration {
+    pub register_calls: usize,
+    pub unregister_calls: usize,
+    pub fail_with: Option<HotkeyError>,
+    registered: bool,
+}
+
+impl HotkeyRegistration for FakeHotkeyRegistration {
+    fn register(&mut self, _hotkey: HotkeyCombination) -> Result<(), HotkeyError> {
+        self.register_calls += 1;
+        if let Some(error) = &self.fail_with {
+            return Err(error.clone());
+        }
+        self.registered = true;
+        Ok(())
+    }
+
+    fn unregister(&mut self) -> Result<(), HotkeyError> {
+        self.unregister_calls += 1;
+        self.registered = false;
+        Ok(())
+    }
+}
+
+/// A platform-independent backend harness. Feed native-like notifications to
+/// [`FakeHotkeyBackend::input`] to verify hold-to-talk behavior.
+#[derive(Debug)]
+pub struct FakeHotkeyBackend<R = FakeHotkeyRegistration> {
+    registration: R,
+    hotkey: HotkeyCombination,
+    running: bool,
+    state: HotkeyStateMachine,
+}
+
+impl FakeHotkeyBackend {
+    pub fn new(hotkey: HotkeyCombination) -> Self {
+        Self::with_registration(hotkey, FakeHotkeyRegistration::default())
+    }
+}
+
+impl<R: HotkeyRegistration> FakeHotkeyBackend<R> {
+    pub fn with_registration(hotkey: HotkeyCombination, registration: R) -> Self {
+        Self {
+            registration,
+            hotkey,
+            running: false,
+            state: HotkeyStateMachine::new(),
+        }
+    }
+
+    pub fn input(&mut self, input: HotkeyInput) -> Result<Option<HotkeyEvent>, HotkeyError> {
+        if !self.running {
+            return Err(HotkeyError::NotRunning);
+        }
+        Ok(self.state.apply(input))
+    }
+
+    pub fn registration(&self) -> &R {
+        &self.registration
+    }
+}
+
+impl<R: HotkeyRegistration> HotkeyBackend for FakeHotkeyBackend<R> {
+    fn start(&mut self) -> Result<(), HotkeyError> {
+        if self.running {
+            return Err(HotkeyError::AlreadyRunning);
+        }
+        self.registration.register(self.hotkey)?;
+        self.running = true;
+        Ok(())
+    }
+
+    fn stop(&mut self) -> Result<(), HotkeyError> {
+        if !self.running {
+            return Err(HotkeyError::NotRunning);
+        }
+        self.registration.unregister()?;
+        self.running = false;
+        self.state = HotkeyStateMachine::new();
+        Ok(())
+    }
 }
 
 /// Boundary for native registration and notification loops.
@@ -134,20 +246,135 @@ impl HotkeyBackend for UnsupportedHotkeyBackend {
     }
 }
 
-/// Windows registration placeholder. Native `RegisterHotKey` integration is
-/// intentionally deferred until manual Windows message-loop testing.
+/// Win32 registration adapter. It only owns registration; a host message loop
+/// should pass WM_HOTKEY messages to [`WindowsHotkeyBackend::handle_message`].
 #[cfg(windows)]
-#[derive(Debug, Default)]
-pub struct WindowsHotkeyBackend;
+#[derive(Debug)]
+pub struct WindowsHotkeyRegistration {
+    id: i32,
+}
 
 #[cfg(windows)]
-impl HotkeyBackend for WindowsHotkeyBackend {
+impl Default for WindowsHotkeyRegistration {
+    fn default() -> Self {
+        Self { id: 0x534f }
+    }
+}
+
+#[cfg(windows)]
+impl HotkeyRegistration for WindowsHotkeyRegistration {
+    fn register(&mut self, hotkey: HotkeyCombination) -> Result<(), HotkeyError> {
+        let success = unsafe {
+            windows_sys::Win32::UI::Input::KeyboardAndMouse::RegisterHotKey(
+                std::ptr::null_mut(),
+                self.id,
+                hotkey.modifiers,
+                hotkey.virtual_key,
+            )
+        };
+        if success != 0 {
+            return Ok(());
+        }
+        let code = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        if code == 1409 {
+            Err(HotkeyError::Conflict)
+        } else {
+            Err(HotkeyError::Native(code))
+        }
+    }
+
+    fn unregister(&mut self) -> Result<(), HotkeyError> {
+        let success = unsafe {
+            windows_sys::Win32::UI::Input::KeyboardAndMouse::UnregisterHotKey(
+                std::ptr::null_mut(),
+                self.id,
+            )
+        };
+        if success != 0 {
+            Ok(())
+        } else {
+            Err(HotkeyError::Native(unsafe {
+                windows_sys::Win32::Foundation::GetLastError()
+            }))
+        }
+    }
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+pub struct WindowsHotkeyBackend<R = WindowsHotkeyRegistration> {
+    registration: R,
+    hotkey: HotkeyCombination,
+    running: bool,
+    state: HotkeyStateMachine,
+}
+
+#[cfg(windows)]
+impl WindowsHotkeyBackend {
+    pub fn new(hotkey: HotkeyCombination) -> Self {
+        Self::with_registration(hotkey, WindowsHotkeyRegistration::default())
+    }
+}
+
+#[cfg(windows)]
+impl<R: HotkeyRegistration> WindowsHotkeyBackend<R> {
+    pub fn with_registration(hotkey: HotkeyCombination, registration: R) -> Self {
+        Self {
+            registration,
+            hotkey,
+            running: false,
+            state: HotkeyStateMachine::new(),
+        }
+    }
+
+    /// Translate a WM_HOTKEY notification into a normalized hold-to-talk input.
+    /// The caller supplies key-down/up notifications because RegisterHotKey
+    /// reports a completed combination rather than key release itself.
+    pub fn handle_input(&mut self, input: HotkeyInput) -> Result<Option<HotkeyEvent>, HotkeyError> {
+        if !self.running {
+            return Err(HotkeyError::NotRunning);
+        }
+        Ok(self.state.apply(input))
+    }
+
+    pub fn handle_message(
+        &mut self,
+        message: u32,
+        wparam: usize,
+        _lparam: isize,
+    ) -> Result<Option<HotkeyEvent>, HotkeyError> {
+        if message != windows_sys::Win32::UI::WindowsAndMessaging::WM_HOTKEY
+            || wparam != self.registration_id() as usize
+        {
+            return Ok(None);
+        }
+        self.handle_input(HotkeyInput::Pressed)
+    }
+
+    fn registration_id(&self) -> i32 {
+        0x534f
+    }
+}
+
+#[cfg(windows)]
+impl<R: HotkeyRegistration> HotkeyBackend for WindowsHotkeyBackend<R> {
     fn start(&mut self) -> Result<(), HotkeyError> {
-        Err(HotkeyError::Unsupported)
+        if self.running {
+            return Err(HotkeyError::AlreadyRunning);
+        }
+        self.registration.register(self.hotkey)?;
+        self.running = true;
+        Ok(())
     }
 
     fn stop(&mut self) -> Result<(), HotkeyError> {
-        Err(HotkeyError::Unsupported)
+        if !self.running {
+            return Err(HotkeyError::NotRunning);
+        }
+        self.registration.unregister()?;
+        self.running = false;
+        self.state = HotkeyStateMachine::new();
+        Ok(())
     }
 }
 
@@ -169,6 +396,41 @@ mod tests {
             Some(HotkeyEvent::Released)
         );
         assert_eq!(state.state(), HotkeyState::Idle);
+    }
+
+    #[test]
+    fn fake_backend_models_registration_and_hold_semantics() {
+        let hotkey = HotkeyCombination::new(0, 0x20);
+        let mut backend = FakeHotkeyBackend::new(hotkey);
+        assert_eq!(
+            backend.input(HotkeyInput::Pressed),
+            Err(HotkeyError::NotRunning)
+        );
+        backend.start().unwrap();
+        assert_eq!(
+            backend.input(HotkeyInput::Pressed).unwrap(),
+            Some(HotkeyEvent::Pressed)
+        );
+        assert_eq!(backend.input(HotkeyInput::Pressed).unwrap(), None);
+        assert_eq!(
+            backend.input(HotkeyInput::Released).unwrap(),
+            Some(HotkeyEvent::Released)
+        );
+        backend.stop().unwrap();
+        assert_eq!(backend.registration().register_calls, 1);
+        assert_eq!(backend.registration().unregister_calls, 1);
+    }
+
+    #[test]
+    fn fake_backend_preserves_registration_conflicts() {
+        let registration = FakeHotkeyRegistration {
+            fail_with: Some(HotkeyError::Conflict),
+            ..Default::default()
+        };
+        let mut backend =
+            FakeHotkeyBackend::with_registration(HotkeyCombination::new(0, 0x20), registration);
+        assert_eq!(backend.start(), Err(HotkeyError::Conflict));
+        assert_eq!(backend.registration().register_calls, 1);
     }
 
     #[test]

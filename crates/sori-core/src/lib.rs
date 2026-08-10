@@ -43,7 +43,7 @@ pub use model::{
     ModelProvider, ModelRoute, ModelRuntime, RuntimeStatus,
 };
 pub use permission::{ActionRisk, PermissionDecision, PermissionRequest};
-pub use pipeline::{PipelinePlan, PipelineStage};
+pub use pipeline::{DictationResult, PipelineError, PipelinePlan, PipelineStage, run_dictation};
 pub use routing::{
     RouteExplanation, RoutePolicy, RoutePreset, RouteSimulatorInput, RouteTarget, explain_route,
 };

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Sori",
+  "version": "0.1.0",
+  "identifier": "com.sori.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{ "title": "Sori", "width": 1100, "height": 720, "minWidth": 720, "minHeight": 480 }],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false }
+}

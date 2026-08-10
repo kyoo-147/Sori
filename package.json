@@ -9,7 +9,10 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "check": "npm run build && npm run test",
-    "tray:mock": "tsx src/tray/mock-shell.ts"
+    "tray:mock": "tsx src/tray/mock-shell.ts",
+    "desktop:dev": "npm --prefix apps/desktop run dev",
+    "desktop:build": "npm --prefix apps/desktop run build",
+    "desktop:check": "npm --prefix apps/desktop run check"
   },
   "engines": {
     "node": ">=22"

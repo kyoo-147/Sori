@@ -240,17 +240,23 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
             <div className="space-y-4 text-xs">
               <p className="text-[#5F6368]">Choose visual overlay style when dictation hotkey is held down.</p>
               <div className="grid grid-cols-2 gap-2">
-                {(['Dot', 'Pill', 'Waveform', 'Orb', 'Monochrome'] as const).map((st) => (
+                {([
+                  ['dot', 'Dot'],
+                  ['pill', 'Pill'],
+                  ['wave', 'Waveform'],
+                  ['orb', 'Orb'],
+                  ['monochrome', 'Monochrome'],
+                ] as const).map(([value, label]) => (
                   <button
-                    key={st}
-                    onClick={() => setSettings((prev) => ({ ...prev, overlayStyle: st as any }))}
+                    key={value}
+                    onClick={() => setSettings((prev) => ({ ...prev, overlayStyle: value }))}
                     className={`p-3 rounded-[10px] border text-left transition ${
-                      settings.overlayStyle === st
+                      settings.overlayStyle === value
                         ? 'bg-[#EEF2F6] border-[#2E4E6D] font-semibold text-[#24384C]'
                         : 'bg-white border-[#E2E4E8] text-[#5F6368]'
                     }`}
                   >
-                    {st} Style
+                    {label} Style
                   </button>
                 ))}
               </div>

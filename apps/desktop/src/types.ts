@@ -100,6 +100,7 @@ export interface BenchmarkResult {
   rtf: number; // Real-time factor
   insertionMs: number;
   passed: boolean;
+  isRecommended?: boolean;
 }
 
 export interface VoiceProfile {

@@ -25,7 +25,10 @@ pub use context::{ContextSnapshot, PrivacyMode, ProfileMode};
 pub use event::{Event, EventBus, EventKind, InMemoryEventBus};
 pub use history::{HistoryEntry, HistoryPolicy, HistoryRepository, InMemoryHistory};
 pub use intent::{FastIntent, IntentRouter};
-pub use model::{ModelId, ModelProvider, ModelRoute, ModelRuntime, RuntimeStatus};
+pub use model::{
+    ExternalProcessProvider, ExternalProcessSpec, ModelError, ModelId, ModelLicense, ModelManifest,
+    ModelProvider, ModelRoute, ModelRuntime, RuntimeStatus,
+};
 pub use permission::{ActionRisk, PermissionDecision, PermissionRequest};
 pub use pipeline::{PipelinePlan, PipelineStage};
 pub use routing::{

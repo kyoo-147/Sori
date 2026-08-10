@@ -1,5 +1,7 @@
 use crate::{AudioChunk, ContextSnapshot, Transcript};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ModelId(pub String);
@@ -18,6 +20,50 @@ pub struct ModelRoute {
     pub fallback: Vec<ModelId>,
 }
 
+/// Metadata needed to present and route a downloadable model without coupling
+/// the runtime to one model family.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelManifest {
+    pub id: ModelId,
+    pub display_name: String,
+    pub language: String,
+    pub backend: String,
+    pub quantization: Option<String>,
+    pub disk_size_bytes: Option<u64>,
+    pub ram_bytes: Option<u64>,
+    pub license: ModelLicense,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelLicense {
+    pub name: String,
+    pub url: Option<String>,
+    pub attribution: Option<String>,
+}
+
+/// A provider can expose a process invocation while leaving supervision,
+/// cancellation, and audio encoding to the host runtime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalProcessSpec {
+    pub executable: PathBuf,
+    pub arguments: Vec<String>,
+    pub environment: BTreeMap<String, String>,
+}
+
+impl ExternalProcessSpec {
+    pub fn new(executable: impl Into<PathBuf>) -> Self {
+        Self {
+            executable: executable.into(),
+            arguments: Vec::new(),
+            environment: BTreeMap::new(),
+        }
+    }
+
+    pub fn executable_path(&self) -> &Path {
+        &self.executable
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeStatus {
     pub model: ModelId,
@@ -30,8 +76,20 @@ pub struct RuntimeStatus {
 
 pub trait ModelProvider: Send + Sync {
     fn provider_name(&self) -> &'static str;
+    fn manifests(&self) -> &[ModelManifest] {
+        &[]
+    }
     fn can_transcribe(&self, model: &ModelId) -> bool;
     fn transcribe(&self, model: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError>;
+}
+
+pub trait ExternalProcessProvider: ModelProvider {
+    fn process_spec(
+        &self,
+        model: &ModelId,
+        input: &Path,
+        output: &Path,
+    ) -> Result<ExternalProcessSpec, ModelError>;
 }
 
 pub trait ModelRuntime: Send + Sync {

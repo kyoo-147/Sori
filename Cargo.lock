@@ -546,6 +546,7 @@ dependencies = [
  "clap",
  "sori-core",
  "sori-ipc",
+ "time",
 ]
 
 [[package]]

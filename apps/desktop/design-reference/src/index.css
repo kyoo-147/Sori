@@ -1,0 +1,12 @@
+/* The imported reference UI consumes the repository's canonical token layer. */
+@import '../../design-system/tokens.css';
+
+.sori-page-heading { font: 600 26px/32px var(--sori-font-sans); letter-spacing: -0.02em; color: var(--sori-text-primary); }
+.sori-section-heading { font: 600 18px/26px var(--sori-font-sans); letter-spacing: -0.01em; color: var(--sori-text-primary); }
+.sori-body-text { font: 400 14.5px/22px var(--sori-font-sans); color: var(--sori-text-secondary); }
+.sori-sidebar-text { font: 500 13.5px/20px var(--sori-font-sans); }
+.sori-button-text { font: 500 13px/18px var(--sori-font-sans); }
+.sori-meta-text { font: 400 12px/18px var(--sori-font-sans); color: var(--sori-text-tertiary); }
+
+body { margin: 0; background: var(--sori-bg-canvas); color: var(--sori-text-primary); font-family: var(--sori-font-sans); -webkit-font-smoothing: antialiased; }
+code, pre, kbd { font-family: var(--sori-font-mono); }

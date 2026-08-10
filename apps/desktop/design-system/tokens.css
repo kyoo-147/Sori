@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;450;500;600;700&display=swap');
+
+:root {
+  --sori-bg-canvas: #F6F6F4;
+  --sori-bg-app: #FBFBFA;
+  --sori-bg-sidebar: #F3F3F1;
+  --sori-bg-panel: #FFFFFF;
+  --sori-bg-panel-subtle: #F8F8F7;
+  --sori-bg-elevated: rgba(255, 255, 255, 0.72);
+  --sori-text-primary: #161616;
+  --sori-text-secondary: #5F6368;
+  --sori-text-tertiary: #858A90;
+  --sori-text-quiet: #A3A7AD;
+  --sori-text-inverse: #FFFFFF;
+  --sori-border-default: #E2E4E8;
+  --sori-border-soft: #ECEDEE;
+  --sori-border-strong: #CDD1D5;
+  --sori-border-focus: #BAC7D8;
+  --sori-fill-hover: #F0F1F2;
+  --sori-fill-active: #E9EBEE;
+  --sori-fill-selected: #E8EDF4;
+  --sori-fill-disabled: #F5F5F5;
+  --sori-accent-primary: #5C728A;
+  --sori-accent-primary-soft: #E8EEF4;
+  --sori-accent-primary-border: #C9D6E3;
+  --sori-accent-button-bg: #EEF2F6;
+  --sori-accent-button-text: #24384C;
+  --sori-accent-button-border: #D5E0EA;
+  --sori-accent-button-hover: #E1E8F0;
+  --sori-success-text: #1F6B43;
+  --sori-success-bg: #EAF6EE;
+  --sori-success-border: #CBE5D4;
+  --sori-warning-text: #8A5A16;
+  --sori-warning-bg: #FBF3E3;
+  --sori-warning-border: #EEDDB8;
+  --sori-error-text: #A33A3A;
+  --sori-error-bg: #F9EAEA;
+  --sori-error-border: #E8C5C5;
+  --sori-info-text: #3E607D;
+  --sori-info-bg: #EAF1F7;
+  --sori-info-border: #CADAE8;
+  --sori-font-sans: "Geist", "SF Pro Text", "SF Pro Display", "Avenir Next", "Inter", system-ui, -apple-system, sans-serif;
+  --sori-font-mono: "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  --sori-glass-light-bg: rgba(255, 255, 255, 0.68);
+  --sori-glass-light-filter: blur(18px) saturate(120%);
+  --sori-glass-strong-bg: rgba(255, 255, 255, 0.76);
+  --sori-glass-strong-filter: blur(24px) saturate(130%);
+  --sori-glass-overlay-bg: rgba(255, 255, 255, 0.82);
+  --sori-glass-overlay-radius: 18px;
+}
+
+.sori-glass { background: var(--sori-glass-light-bg); backdrop-filter: var(--sori-glass-light-filter); -webkit-backdrop-filter: var(--sori-glass-light-filter); border: 1px solid rgba(210, 214, 220, 0.72); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.65); }
+.sori-glass-strong { background: var(--sori-glass-strong-bg); backdrop-filter: var(--sori-glass-strong-filter); -webkit-backdrop-filter: var(--sori-glass-strong-filter); border: 1px solid rgba(203, 208, 214, 0.86); box-shadow: 0 12px 36px rgba(0, 0, 0, 0.06); }
+.sori-floating { background: var(--sori-glass-overlay-bg); backdrop-filter: var(--sori-glass-strong-filter); -webkit-backdrop-filter: var(--sori-glass-strong-filter); border: 1px solid rgba(203, 208, 214, 0.86); border-radius: var(--sori-glass-overlay-radius); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.07); }

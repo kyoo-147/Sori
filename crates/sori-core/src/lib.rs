@@ -8,6 +8,7 @@ pub mod audio;
 pub mod context;
 pub mod event;
 pub mod history;
+pub mod hotkey;
 pub mod intent;
 pub mod model;
 pub mod permission;
@@ -18,6 +19,12 @@ pub use audio::{AudioChunk, AudioEngine, AudioFormat, VoiceActivity};
 pub use context::{ContextSnapshot, PrivacyMode, ProfileMode};
 pub use event::{Event, EventBus, EventKind, InMemoryEventBus};
 pub use history::{HistoryEntry, HistoryPolicy, HistoryRepository, InMemoryHistory};
+#[cfg(windows)]
+pub use hotkey::WindowsHotkeyBackend;
+pub use hotkey::{
+    HotkeyBackend, HotkeyError, HotkeyEvent, HotkeyInput, HotkeyState, HotkeyStateMachine,
+    UnsupportedHotkeyBackend,
+};
 pub use intent::{FastIntent, IntentRouter};
 pub use model::{ModelId, ModelProvider, ModelRoute, ModelRuntime, RuntimeStatus};
 pub use permission::{ActionRisk, PermissionDecision, PermissionRequest};

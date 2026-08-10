@@ -6,6 +6,9 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventKind {
     AudioStarted,
+    HotkeyPressed,
+    HotkeyReleased,
+    HotkeyCancelled,
     VadSpeechStarted,
     AsrSelected,
     TranscriptPartial,

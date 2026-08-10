@@ -8,3 +8,5 @@ rust-version.workspace = true
 
 [dependencies]
 sori-core = { path = "../sori-core" }
+serde_json.workspace = true
+time.workspace = true

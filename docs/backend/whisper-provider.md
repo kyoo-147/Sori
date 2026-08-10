@@ -41,6 +41,20 @@ making Rust builds depend on CMake, CUDA, Metal, or platform toolchains.
 - Do not persist captured audio by default. Use bounded temporary files and remove
   them on success, failure, and cancellation.
 
-The placeholder provider currently returns an explicit `Inference` error from
-`transcribe`; this is deliberate until the daemon's process supervisor and audio
-serialization contracts are available.
+## Manual installation
+
+The provider expects a separately installed whisper.cpp CLI and model; it never
+vendors either one. Build or download `whisper-cli` (or the legacy `main` binary)
+and verify that it can run from a terminal. Configure the executable with
+`SORI_WHISPER_CPP_BIN` (or `WHISPER_CPP_BIN`) and the directory containing the
+model files with `SORI_WHISPER_MODEL_DIR` (or `WHISPER_CPP_MODEL_DIR`). A model
+manifest id is resolved as a file name below that directory (for example,
+`models/ggml-base.en.bin`). Missing binaries, directories, and model files are
+reported as provider errors before a process is launched.
+
+The command builder passes arguments directly (never through a shell), including
+`-m <model> -f <wav> -otxt|-oj|-osrt -of <output-prefix>`. The host supervisor
+should use `transcribe_with_runner` with its process runner and then remove the
+input/output temporary files. Text, whisper.cpp JSON, and SRT output are parsed
+by the provider. The placeholder `ModelProvider::transcribe` remains explicit
+because audio encoding and process supervision belong to the daemon.

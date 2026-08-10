@@ -13,7 +13,7 @@ pub struct HotkeyConfig {
 impl Default for HotkeyConfig {
     fn default() -> Self {
         Self {
-            binding: "Ctrl+Space".into(),
+            binding: "Alt+Space".into(),
         }
     }
 }
@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn defaults_are_safe_for_local_first_runtime() {
         let config = DaemonConfig::default();
-        assert_eq!(config.hotkey.binding, "Ctrl+Space");
+        assert_eq!(config.hotkey.binding, "Alt+Space");
         assert_eq!(config.audio.format.sample_rate_hz, 16_000);
         assert_eq!(config.audio.format.channels, 1);
         assert_eq!(config.route, RoutePreset::LocalFirst.policy());

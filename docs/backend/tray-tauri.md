@@ -6,6 +6,19 @@ Do not add Tauri dependencies to the workspace yet. The repository currently has
 
 The eventual client is a small Tauri application (React UI is optional) that runs in the tray, talks only to `sorid`, and opens full settings/studio surfaces on demand. It must not contain audio, model, or persistence logic.
 
+## Current scaffold
+
+The dependency-free TypeScript shell scaffold lives in `src/tray/`. It defines the v1 request/response types, keeps daemon status as the source of tray state, and exposes the agreed menu contract: Ready, Pause, Profile, Mic, Route, Settings, Diagnostics, and Quit. `TrayTransport` is intentionally an adapter boundary; it can be backed by the local IPC implementation from issue #18 without adding a network endpoint or Tauri dependencies.
+
+Until `sorid` has a real IPC adapter, run the deterministic mock shell with:
+
+```sh
+npm install
+npm run tray:mock
+```
+
+The mock prints a status payload and menu entries only. It is not a daemon or a platform tray process. Validate the contract with `npm run check`; the existing Rust validation remains unchanged. When issue #18 is available, implement `TrayTransport.send` using its newline-delimited JSON framing and preserve the request IDs, protocol version, method names, and status payload below.
+
 ## Staged implementation
 
 1. **Contract (now):** reserve a versioned request/response envelope and the tray operations below.

@@ -100,8 +100,14 @@ pub struct TextInjectionResult {
 pub enum TextInjectionError {
     #[error("target does not accept text")]
     TargetDoesNotAcceptText,
+    #[error("unsupported target application: {0}")]
+    UnsupportedTargetApp(String),
+    #[error("target requires elevated access")]
+    ElevatedTargetDenied,
     #[error("no usable text injection strategy for target")]
     NoUsableStrategy,
+    #[error("clipboard restore failed: {0}")]
+    ClipboardRestoreFailed(String),
     #[error("text injection adapter failed: {0}")]
     Adapter(String),
 }
@@ -229,10 +235,13 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
                     .set_clipboard_text(&request.text)
                     .and_then(|()| self.adapter.paste_from_clipboard());
                 let restore = self.adapter.restore_clipboard();
-                if let Err(error) = operation {
-                    return Err(TextInjectionError::Adapter(error));
+                if let Err(error) = restore {
+                    // Never report success after replacing the user's clipboard. The
+                    // restore error is deliberately distinct so callers can warn the
+                    // user and avoid retrying destructively.
+                    return Err(TextInjectionError::ClipboardRestoreFailed(error));
                 }
-                restore.map_err(TextInjectionError::Adapter)?;
+                operation.map_err(TextInjectionError::Adapter)?;
             }
             InjectionStrategy::Unavailable => unreachable!(),
         }
@@ -243,15 +252,20 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
     }
 }
 
-#[cfg(windows)]
 pub mod windows {
-    //! Windows boundary. An executable adapter can implement these operations with
-    //! `SendInput` and an explicitly scoped clipboard snapshot/restore transaction.
+    //! Windows injection policy boundary.
+    //!
+    //! The native implementation is intentionally supplied by an outer adapter
+    //! (typically `SendInput` plus a clipboard transaction). Keeping this type
+    //! platform-neutral lets CI exercise policy with fakes and prevents tests from
+    //! touching the user's desktop or clipboard.
     use super::*;
 
     pub struct WindowsTextInjector<A> {
         inner: AdapterTextInjector<A>,
+        elevated_target_access: bool,
     }
+
     impl<A> WindowsTextInjector<A> {
         pub fn new(adapter: A) -> Self {
             Self {
@@ -264,9 +278,18 @@ pub mod windows {
                         undo: true,
                     },
                 ),
+                elevated_target_access: false,
             }
         }
+
+        /// Opt in only after the host has explicitly established matching
+        /// integrity/elevation. This does not attempt to bypass UAC.
+        pub fn with_elevated_target_access(mut self, permitted: bool) -> Self {
+            self.elevated_target_access = permitted;
+            self
+        }
     }
+
     impl<A: TextInjectionAdapter> TextInjector for WindowsTextInjector<A> {
         fn capabilities(&self) -> InjectorCapabilities {
             self.inner.capabilities()
@@ -279,6 +302,15 @@ pub mod windows {
             target: &dyn TextTarget,
             request: &TextInjectionRequest,
         ) -> Result<TextInjectionResult, TextInjectionError> {
+            let capabilities = target.capabilities();
+            if !capabilities.accepts_text {
+                return Err(TextInjectionError::UnsupportedTargetApp(
+                    target.name().into(),
+                ));
+            }
+            if capabilities.requires_elevation && !self.elevated_target_access {
+                return Err(TextInjectionError::ElevatedTargetDenied);
+            }
             self.inner.inject(target, request)
         }
     }
@@ -372,6 +404,95 @@ mod tests {
                 }
             ),
             InjectionStrategy::Unavailable
+        );
+    }
+
+    #[derive(Default)]
+    struct FakeAdapter {
+        restore_error: Option<String>,
+        calls: Vec<&'static str>,
+    }
+
+    impl TextInjectionAdapter for FakeAdapter {
+        fn send_direct_input(&mut self, _: &str) -> Result<(), String> {
+            self.calls.push("direct");
+            Ok(())
+        }
+        fn snapshot_clipboard(&mut self) -> Result<(), String> {
+            self.calls.push("snapshot");
+            Ok(())
+        }
+        fn set_clipboard_text(&mut self, _: &str) -> Result<(), String> {
+            self.calls.push("set");
+            Ok(())
+        }
+        fn paste_from_clipboard(&mut self) -> Result<(), String> {
+            self.calls.push("paste");
+            Ok(())
+        }
+        fn restore_clipboard(&mut self) -> Result<(), String> {
+            self.calls.push("restore");
+            self.restore_error.clone().map_or(Ok(()), Err)
+        }
+        fn request_undo(&mut self) -> Result<(), String> {
+            self.calls.push("undo");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn reports_clipboard_restore_failure() {
+        let mut injector = AdapterTextInjector::new(
+            FakeAdapter {
+                restore_error: Some("clipboard locked".into()),
+                ..Default::default()
+            },
+            InjectorCapabilities {
+                direct_input: false,
+                clipboard: true,
+                clipboard_restore: true,
+                undo: false,
+            },
+        );
+        let target = Target(TextTargetCapabilities {
+            supports_direct_input: false,
+            ..TARGET
+        });
+        assert_eq!(
+            injector.inject(
+                &target,
+                &TextInjectionRequest {
+                    text: "x".into(),
+                    dry_run: false
+                }
+            ),
+            Err(TextInjectionError::ClipboardRestoreFailed(
+                "clipboard locked".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn windows_policy_rejects_elevated_and_unsupported_targets() {
+        let elevated = Target(TextTargetCapabilities {
+            requires_elevation: true,
+            ..TARGET
+        });
+        let unsupported = Target(TextTargetCapabilities::unavailable());
+        let mut injector = windows::WindowsTextInjector::new(FakeAdapter::default());
+        let request = TextInjectionRequest {
+            text: "x".into(),
+            dry_run: false,
+        };
+        assert_eq!(
+            injector.inject(&elevated, &request),
+            Err(TextInjectionError::ElevatedTargetDenied)
+        );
+        assert_eq!(
+            injector.inject(&unsupported, &request),
+            Err(TextInjectionError::UnsupportedTargetApp(
+                "test-target".into()
+            ))
         );
     }
 

@@ -23,11 +23,16 @@ context.
 
 | Target | Expected first strategy | Fallback | Checks |
 | --- | --- | --- | --- |
-| Browser text field | `SendInput`/direct input | Clipboard + paste | Focus survives insertion; multiline and non-ASCII text; clipboard is restored |
+| Notepad | `SendInput`/direct input | Clipboard + paste | Plain text, multiline and non-ASCII text; clipboard is restored |
 | VS Code editor | Direct input | Clipboard + paste | Undo removes the complete insertion; selections and tabs are preserved |
+| Browser text field | `SendInput`/direct input | Clipboard + paste | Focus survives insertion; multiline and non-ASCII text; clipboard is restored |
 | Chat app | Direct input | Clipboard + paste | No accidental send until explicit Enter; emoji/non-ASCII; clipboard restored |
 | Terminal | Direct input | Clipboard + paste | Shell does not execute inserted newline; prompt remains focused |
 | Elevated app | Direct input only when permitted | Report unavailable or request explicit elevation | Verify integrity-level policy; never bypass UAC or inject unexpectedly |
+| Unsupported/custom app | None | None | Report unsupported target; do not modify clipboard |
 
 Run these checks with a disposable clipboard value and a short, reversible test
-string. Do not use destructive clipboard tests in automated CI.
+string. For terminals, verify that inserted newlines do not execute commands. For
+elevated apps, test both a denied request and an explicitly permitted matching
+integrity level; never bypass UAC. Do not use destructive clipboard tests in
+automated CI.

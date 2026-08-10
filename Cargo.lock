@@ -582,10 +582,14 @@ name = "sorid"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "serde",
  "sori-core",
+ "thiserror",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

@@ -23,6 +23,10 @@ pub enum EventKind {
     TtsFinished,
     SpeakerVerified,
     SpeakerRejected,
+    DaemonReady,
+    DaemonPaused,
+    DaemonError,
+    DaemonShuttingDown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

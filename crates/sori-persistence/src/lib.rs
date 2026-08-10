@@ -1,6 +1,6 @@
 //! SQLite-backed persistence adapters for Sori's core repositories.
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use sori_core::{Event, EventBus, HistoryEntry, HistoryRepository};
 use std::path::Path;
 use std::sync::Mutex;
@@ -75,6 +75,78 @@ impl SqliteStore {
     pub fn try_purge_history(&self) -> Result<()> {
         self.connection()?.execute("DELETE FROM history", [])?;
         Ok(())
+    }
+
+    pub fn set_setting(&self, key: &str, value: &serde_json::Value) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json,
+                 updated_at = excluded.updated_at",
+            params![key, serde_json::to_string(value)?, unix_timestamp()],
+        )?;
+        Ok(())
+    }
+
+    pub fn setting(&self, key: &str) -> Result<Option<serde_json::Value>> {
+        let connection = self.connection()?;
+        let value = connection
+            .query_row(
+                "SELECT value_json FROM settings WHERE key = ?1",
+                [key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        value
+            .map(|json| serde_json::from_str(&json).map_err(PersistenceError::from))
+            .transpose()
+    }
+
+    pub fn save_model_manifest(&self, id: &str, manifest: &serde_json::Value) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO model_manifests (id, manifest_json, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(id) DO UPDATE SET manifest_json = excluded.manifest_json,
+                 updated_at = excluded.updated_at",
+            params![id, serde_json::to_string(manifest)?, unix_timestamp()],
+        )?;
+        Ok(())
+    }
+
+    pub fn model_manifest(&self, id: &str) -> Result<Option<serde_json::Value>> {
+        let connection = self.connection()?;
+        let value = connection
+            .query_row(
+                "SELECT manifest_json FROM model_manifests WHERE id = ?1",
+                [id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        value
+            .map(|json| serde_json::from_str(&json).map_err(PersistenceError::from))
+            .transpose()
+    }
+
+    pub fn save_model_route(&self, name: &str, route: &serde_json::Value) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO model_routes (name, route_json, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(name) DO UPDATE SET route_json = excluded.route_json,
+                 updated_at = excluded.updated_at",
+            params![name, serde_json::to_string(route)?, unix_timestamp()],
+        )?;
+        Ok(())
+    }
+
+    pub fn model_route(&self, name: &str) -> Result<Option<serde_json::Value>> {
+        let connection = self.connection()?;
+        let value = connection
+            .query_row(
+                "SELECT route_json FROM model_routes WHERE name = ?1",
+                [name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        value
+            .map(|json| serde_json::from_str(&json).map_err(PersistenceError::from))
+            .transpose()
     }
 
     pub fn try_publish_event(&self, event: &Event) -> Result<()> {
@@ -164,6 +236,10 @@ impl EventBus for SqliteStore {
     }
 }
 
+fn unix_timestamp() -> i64 {
+    OffsetDateTime::now_utc().unix_timestamp()
+}
+
 fn timestamp(
     seconds: i64,
     nanos: u32,
@@ -229,5 +305,32 @@ mod tests {
         };
         store.try_publish_event(&event).unwrap();
         assert_eq!(store.try_recent_events().unwrap(), vec![event]);
+    }
+
+    #[test]
+    fn settings_and_routes_round_trip() {
+        let database = NamedTempFile::new().unwrap();
+        let store = SqliteStore::open(database.path()).unwrap();
+        store
+            .set_setting("privacy.mode", &serde_json::json!("local-only"))
+            .unwrap();
+        store
+            .save_model_manifest("whisper", &serde_json::json!({"version": 1}))
+            .unwrap();
+        store
+            .save_model_route("default", &serde_json::json!({"model": "whisper"}))
+            .unwrap();
+        assert_eq!(
+            store.setting("privacy.mode").unwrap(),
+            Some(serde_json::json!("local-only"))
+        );
+        assert_eq!(
+            store.model_manifest("whisper").unwrap(),
+            Some(serde_json::json!({"version": 1}))
+        );
+        assert_eq!(
+            store.model_route("default").unwrap(),
+            Some(serde_json::json!({"model": "whisper"}))
+        );
     }
 }

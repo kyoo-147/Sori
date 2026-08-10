@@ -134,7 +134,10 @@ pub fn select_strategy(
     }
     if target.supports_direct_input && injector.direct_input {
         InjectionStrategy::DirectInput
-    } else if target.supports_clipboard_paste && injector.clipboard {
+    } else if target.supports_clipboard_paste && injector.clipboard && injector.clipboard_restore {
+        // Clipboard fallback is only safe when the adapter can restore the user's
+        // previous clipboard contents. A clipboard-only adapter would make a
+        // failed or cancelled injection destructive.
         InjectionStrategy::ClipboardPaste
     } else {
         InjectionStrategy::Unavailable
@@ -216,19 +219,20 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
                 .map_err(TextInjectionError::Adapter)?,
             InjectionStrategy::ClipboardPaste => {
                 // Snapshot/restore belongs to the platform adapter. This API deliberately
-                // has no implicit clipboard access, making tests side-effect free.
+                // has no implicit clipboard access, making tests side-effect free. Restore is
+                // attempted even when setting or pasting fails.
                 self.adapter
                     .snapshot_clipboard()
                     .map_err(TextInjectionError::Adapter)?;
-                self.adapter
+                let operation = self
+                    .adapter
                     .set_clipboard_text(&request.text)
-                    .map_err(TextInjectionError::Adapter)?;
-                self.adapter
-                    .paste_from_clipboard()
-                    .map_err(TextInjectionError::Adapter)?;
-                self.adapter
-                    .restore_clipboard()
-                    .map_err(TextInjectionError::Adapter)?;
+                    .and_then(|()| self.adapter.paste_from_clipboard());
+                let restore = self.adapter.restore_clipboard();
+                if let Err(error) = operation {
+                    return Err(TextInjectionError::Adapter(error));
+                }
+                restore.map_err(TextInjectionError::Adapter)?;
             }
             InjectionStrategy::Unavailable => unreachable!(),
         }
@@ -352,6 +356,22 @@ mod tests {
                 }
             ),
             InjectionStrategy::ClipboardPaste
+        );
+    }
+
+    #[test]
+    fn refuses_clipboard_without_restore_capability() {
+        assert_eq!(
+            select_strategy(
+                TARGET,
+                InjectorCapabilities {
+                    direct_input: false,
+                    clipboard: true,
+                    clipboard_restore: false,
+                    undo: false
+                }
+            ),
+            InjectionStrategy::Unavailable
         );
     }
 

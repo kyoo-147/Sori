@@ -168,7 +168,7 @@ impl VoiceActivityDetector for EnergyVadStub {
     }
 }
 
-pub trait AudioEngine: Send + Sync {
+pub trait AudioEngine {
     fn input_format(&self) -> AudioFormat;
     fn next_chunk(&mut self) -> Result<Option<AudioChunk>, AudioError>;
 }

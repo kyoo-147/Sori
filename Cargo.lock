@@ -413,6 +413,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sori-provider-whisper"
+version = "0.1.0"
+dependencies = [
+ "sori-core",
+]
+
+[[package]]
 name = "sorid"
 version = "0.1.0"
 dependencies = [

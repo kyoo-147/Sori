@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/sori-core",
+  "crates/sori-provider-whisper",
   "crates/sori-cli",
   "crates/sorid"
 ]

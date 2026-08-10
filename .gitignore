@@ -11,6 +11,12 @@ node_modules/
 dist/
 coverage/
 
+# Local Lavish review artifacts
+.lavish/
+
+# Local UI reference screenshots
+UI/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

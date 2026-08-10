@@ -14,26 +14,33 @@ requested format and chunk size.
 - `VoiceActivityDetector` is the VAD boundary. `EnergyVadStub` is deterministic
   test scaffolding, not a production detector.
 
-CPAL is intentionally not a dependency in this scaffold. Adding it would pull
-platform-specific native backend behavior into the core crate before a concrete
-adapter and supported-device matrix exist. The contracts can be validated on
-Windows and Linux CI without requiring an audio device. A future adapter crate
-can depend on CPAL and translate its device/configuration errors to
-`AudioError`; this keeps the core build portable and makes that dependency an
-explicit platform integration decision.
+The `sori-audio` crate contains the CPAL adapter. It translates native device
+and stream errors to `AudioError` and keeps CPAL types out of `sori-core`.
+`CpalAudioEngine::start` selects the configured device (or the OS default),
+starts a callback-backed bounded channel, and `stop` drops the stream. The
+callback uses `try_send`, so a slow consumer drops packets rather than blocking
+the audio thread. `next_chunk` drains the channel into the VAD-ready `f32`
+chunk shape; native channel layouts are mixed to mono for now. Resampling and
+production DSP remain future work.
+
+The core contracts and adapter conversion tests are hardware-independent. No
+microphone is opened during `cargo test`.
 
 ## Manual microphone testing plan
 
-1. Grant Sori microphone permission in the operating system privacy settings.
+1. On Windows, open **Settings → Privacy & security → Microphone** and enable
+   **Microphone access** and **Let desktop apps access your microphone** for the
+   terminal/daemon host. Restart Sori after changing this setting.
 2. Enumerate input devices and confirm the expected default device name and id.
 3. Start capture with the default `CaptureConfig`; verify the selected device,
-   sample rate, channel count, and chunk duration in diagnostics.
+   native sample rate, channel count, and chunk duration in diagnostics.
 4. Speak, pause, and speak again. Confirm the VAD sequence is
    `SpeechStarted`, `SpeechContinues`, `SpeechEnded` and that silence does not
    create transcript work.
 5. Test a non-default input device and unplug it during capture; report a clear
    `DeviceUnavailable` error and ensure the daemon remains usable.
 6. Repeat on Windows and Linux with Bluetooth and USB microphones, including a
-   device whose native rate differs from 16 kHz, once the CPAL adapter exists.
+   device whose native rate differs from 16 kHz. The current scaffold reports
+   the native rate; resampling is not implemented yet.
 7. Confirm that raw audio is not persisted by default and that stopping capture
    releases the device.

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use sori_core::{ContextSnapshot, PrivacyMode, ProfileMode};
+use sori_ipc::{IpcClient, LocalIpcClient, Request, Response};
 
 #[derive(Debug, Parser)]
 #[command(name = "sori", version, about = "Sori voice runtime CLI")]
@@ -13,7 +14,7 @@ struct Cli {
 enum Command {
     /// Print local runtime readiness checks.
     Doctor,
-    /// Print daemon status placeholder until IPC is wired.
+    /// Print daemon status.
     Status,
     /// Show the effective context defaults.
     Context,
@@ -35,14 +36,41 @@ fn doctor() -> Result<()> {
     println!("Sori doctor");
     println!("- platform: {}", std::env::consts::OS);
     println!("- architecture: {}", std::env::consts::ARCH);
-    println!("- daemon IPC: not wired yet");
+
+    match LocalIpcClient::connect() {
+        Ok(client) => match client.request(Request::Doctor)? {
+            Response::Doctor(result) => {
+                for check in result.checks {
+                    println!(
+                        "- {}: {} ({})",
+                        check.name,
+                        if check.ok { "ok" } else { "failed" },
+                        check.detail
+                    );
+                }
+            }
+            _ => println!("- daemon IPC: invalid response"),
+        },
+        Err(_) => println!("- daemon IPC: unavailable (is sorid running?)"),
+    }
     println!("- audio backend: not wired yet");
     println!("- text injection: not wired yet");
     Ok(())
 }
 
 fn status() -> Result<()> {
-    println!("sorid: not running (IPC not implemented yet)");
+    match LocalIpcClient::connect() {
+        Ok(client) => match client.request(Request::Status)? {
+            Response::Status(status) => println!(
+                "sorid: {} (profile={:?}, privacy={:?})",
+                if status.running { "running" } else { "stopped" },
+                status.profile,
+                status.privacy
+            ),
+            _ => println!("sorid: invalid IPC response"),
+        },
+        Err(_) => println!("sorid: not running (daemon IPC unavailable)"),
+    }
     Ok(())
 }
 

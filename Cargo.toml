@@ -4,7 +4,8 @@ members = [
   "crates/sori-provider-whisper",
   "crates/sori-cli",
   "crates/sorid",
-  "crates/sori-persistence"
+  "crates/sori-persistence",
+  "crates/sori-ipc"
 ]
 resolver = "2"
 

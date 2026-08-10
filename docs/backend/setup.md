@@ -48,7 +48,7 @@ These are next implementation tracks, not blockers for the current scaffold:
 - Local IPC transport.
 - SQLite persistence.
 - `whisper.cpp` provider.
-- Tray/Tauri client.
+- Tray/Tauri client. See [Tray/Tauri client](tray-tauri.md) for the staged plan and IPC contract.
 
 ## Captain action required
 

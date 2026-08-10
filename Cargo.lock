@@ -574,7 +574,9 @@ dependencies = [
 name = "sori-provider-whisper"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "sori-core",
+ "time",
 ]
 
 [[package]]

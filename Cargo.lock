@@ -545,6 +545,7 @@ dependencies = [
  "anyhow",
  "clap",
  "sori-core",
+ "sori-ipc",
 ]
 
 [[package]]
@@ -552,6 +553,18 @@ name = "sori-core"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "thiserror",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "sori-ipc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sori-core",
  "thiserror",
  "time",
  "uuid",

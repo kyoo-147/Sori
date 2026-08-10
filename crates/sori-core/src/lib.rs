@@ -15,6 +15,7 @@ pub mod model;
 pub mod permission;
 pub mod pipeline;
 pub mod routing;
+pub mod text_injection;
 pub mod transcript;
 
 pub use audio::{
@@ -44,5 +45,11 @@ pub use permission::{ActionRisk, PermissionDecision, PermissionRequest};
 pub use pipeline::{PipelinePlan, PipelineStage};
 pub use routing::{
     RouteExplanation, RoutePolicy, RoutePreset, RouteSimulatorInput, RouteTarget, explain_route,
+};
+pub use text_injection::{
+    AdapterTextInjector, ClipboardPolicy, InjectionPlan, InjectionStrategy, InjectorCapabilities,
+    TextInjectionAdapter, TextInjectionError, TextInjectionRequest, TextInjectionResult,
+    TextInjector, TextTarget, TextTargetCapabilities, UndoRestoreAttempt, UndoRestoreStatus,
+    select_strategy,
 };
 pub use transcript::{Transcript, TranscriptSegment};

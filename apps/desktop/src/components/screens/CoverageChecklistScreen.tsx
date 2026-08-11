@@ -32,7 +32,6 @@ export const CoverageChecklistScreen: React.FC<CoverageChecklistScreenProps> = (
 }) => {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<string | null>(null);
-  const [daemonStatus, setDaemonStatus] = useState<'running' | 'restarting'>('running');
 
   const doctorChecklist = checks.length > 0
     ? checks.map((check) => ({
@@ -47,13 +46,11 @@ export const CoverageChecklistScreen: React.FC<CoverageChecklistScreenProps> = (
   const allPassed = passedCount === doctorChecklist.length && doctorChecklist.length > 0;
 
   const handleTestInjection = () => {
-    setTestResult('Text injection payload successfully delivered to focused input window.');
-    setTimeout(() => setTestResult(null), 3000);
+    setTestResult('Text injection is not wired in this preview; no payload was delivered.');
   };
 
   const handleRestartDaemon = () => {
-    setDaemonStatus('restarting');
-    setTimeout(() => setDaemonStatus('running'), 1200);
+    setTestResult('Daemon restart is not wired in this preview. Start sorid separately, then run Doctor Check.');
   };
 
   const handleRefreshDoctor = async () => {
@@ -152,7 +149,7 @@ export const CoverageChecklistScreen: React.FC<CoverageChecklistScreenProps> = (
             className="px-4 py-2 bg-white hover:bg-[#F0F1F2] text-[#2B2F33] border border-[#E2E4E8] rounded-[10px] text-xs font-medium transition flex items-center gap-1.5"
           >
             <RefreshCw className="w-3.5 h-3.5 text-[#5C728A]" />
-            <span>{daemonStatus === 'restarting' ? 'Restarting daemon…' : 'Restart Daemon (`sorid`)'}</span>
+            <span>Restart Daemon (`sorid`) — not wired</span>
           </button>
 
           <button

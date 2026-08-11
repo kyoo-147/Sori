@@ -55,11 +55,11 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#4E7A61] animate-pulse" />
             <h1 className="text-[20px] leading-[28px] font-semibold text-[#1C1B19] tracking-[-0.01em]">
-              Sori is ready — Hold <kbd className="px-2 py-0.5 bg-[rgba(235,230,223,0.5)] text-[#1C1B19] border border-[rgba(92,84,75,0.12)] rounded-[6px] font-mono text-[12px] font-semibold">{settings.hotkey}</kbd> to dictate
+              Sori preview — Try a local capture
             </h1>
           </div>
           <p className="sori-body-text text-xs text-[#68635D]">
-            Text will be inserted directly at your cursor in any focused window. Route: <span className="font-mono text-[#1C1B19] font-medium">Local · Whisper Q5 (65ms)</span>
+            Browser capture and sample prompts update this preview only. OS hotkeys, microphone routing, and text injection are not connected yet.
           </p>
         </div>
 
@@ -134,7 +134,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({
           <div className="relative space-y-2">
             <div className="flex items-center justify-between text-[11px] text-[#98928A] font-mono">
               <span>{activeAppMock === 'vscode' ? 'src/router.rs' : activeAppMock === 'terminal' ? 'zsh — local daemon' : '#general-dev'}</span>
-              <span className="text-[#4E7A61] font-medium">Ready for Voice Injection</span>
+              <span className="text-[#9A7442] font-medium">Preview target · no OS injection</span>
             </div>
 
             <textarea
@@ -142,7 +142,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({
               onChange={(e) => setInputText(e.target.value)}
               rows={6}
               className="w-full bg-[rgba(242,238,232,0.6)] border border-[rgba(92,84,75,0.12)] rounded-[12px] p-3.5 font-mono text-[12px] leading-[20px] font-normal text-[#1C1B19] focus:outline-none focus:bg-white focus:border-[rgba(92,84,75,0.25)] resize-none"
-              placeholder="Hold hotkey and speak to insert text..."
+              placeholder="Use a sample prompt or type here to preview output..."
             />
 
             {/* Quick Voice Simulation Triggers */}
@@ -194,7 +194,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({
             {lastInserted && (
               <div className="text-xs text-[#4E7A61] font-mono flex items-center gap-1.5 bg-[#EAF3ED] px-3 py-1 rounded-[8px] border border-[rgba(78,122,97,0.22)] font-medium">
                 <CheckCircle2 className="w-3.5 h-3.5 text-[#4E7A61]" />
-                Inserted via Native OS Automation
+                Preview text updated locally
               </div>
             )}
           </div>

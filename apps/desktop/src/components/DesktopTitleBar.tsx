@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppSettings } from '../types';
 import type { DaemonStatus, RuntimeSource } from '../runtime-client';
-import { Mic, Monitor, Tablet, Smartphone, Flame, Command, CircleDot } from 'lucide-react';
+import { Mic, Monitor, Tablet, Smartphone, Flame, Command, CircleDot, Menu, X } from 'lucide-react';
 
 interface DesktopTitleBarProps {
   settings: AppSettings;
@@ -17,6 +17,8 @@ interface DesktopTitleBarProps {
   runtimeStatus: DaemonStatus;
   runtimeError: string | null;
   onTogglePaused: () => void;
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
 }
 
 export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
@@ -31,9 +33,19 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   runtimeStatus,
   runtimeError,
   onTogglePaused,
+  sidebarOpen,
+  onToggleSidebar,
 }) => {
   return (
-    <div className="min-h-12 bg-[rgba(250,248,245,0.86)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.08)] px-3 sm:px-4 flex items-center justify-between gap-3 select-none text-[13px] text-[#68635D]">
+    <div className="min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.10)] px-3 sm:px-4 flex items-center justify-between gap-3 select-none text-[13px] text-[#68635D] shadow-[0_1px_8px_rgba(40,34,28,0.03)]">
+      <button
+        type="button"
+        onClick={onToggleSidebar}
+        aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+        className="md:hidden sori-tactile-btn rounded-[9px] p-1.5"
+      >
+        {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+      </button>
       {/* Left: product command context. Native OS chrome owns close/minimize/maximize. */}
       <div className="min-w-0 flex items-center gap-2.5">
         <div className="hidden sm:flex h-7 w-7 items-center justify-center rounded-[9px] border border-[rgba(92,84,75,0.10)] bg-white/70 text-[#5E564E] shadow-2xs" aria-hidden="true">
@@ -51,10 +63,12 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         </div>
       </div>
 
-      {/* Center: Live Speech Hotkey Button & Warm Model Indicator */}
-      <div className="flex items-center gap-2.5">
+      {/* Center: local preview action and runtime status */}
+      <div className="flex items-center gap-2.5 min-w-0">
         <button
           onClick={toggleListening}
+          title="Browser preview only — daemon microphone capture is not connected"
+          aria-label={isListening ? 'Stop browser microphone preview' : 'Start browser microphone preview'}
           className={`px-3.5 py-1.5 rounded-[12px] font-medium transition-all flex items-center gap-2 text-[12px] border ${
             isListening
               ? 'bg-[#A75850] text-white border-[#A75850] animate-pulse'
@@ -62,13 +76,13 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           }`}
         >
           <Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce text-white' : 'text-[#68635D]'}`} />
-          <span>{isListening ? 'Listening (Release)...' : `Hold ${settings.hotkey} to speak`}</span>
+          <span className="hidden sm:inline">{isListening ? 'Preview listening…' : 'Preview capture'}</span>
         </button>
 
-        <button onClick={onTogglePaused} disabled={runtimeSource === 'unavailable'} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs disabled:opacity-50">
+        <button onClick={onTogglePaused} disabled={runtimeSource === 'unavailable' || runtimeSource === 'mock'} title={runtimeSource === 'mock' ? 'Daemon controls are unavailable in preview mode' : undefined} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs disabled:opacity-50">
           {runtimeStatus.paused ? 'Resume daemon' : 'Pause daemon'}
         </button>
-        <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs">
+        <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs">
           <Flame className="w-3.5 h-3.5 text-[#98928A]" />
           <span>Route: Local · Whisper Q5</span>
         </div>
@@ -86,7 +100,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           }`}
         >
           <span className={`w-2 h-2 rounded-full ${trayOpen ? 'bg-[#4E7A61]' : 'bg-[#98928A]'}`} />
-          <span>System Tray</span>
+          <span className="hidden sm:inline">Quick controls</span>
         </button>
 
         {/* Viewport Switcher - Translucent Warm Track */}
@@ -96,7 +110,8 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
             className={`p-1 rounded-[6px] transition-all ${
               deviceView === 'desktop' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
             }`}
-            title="Desktop View"
+            aria-label="Desktop preview"
+            title="Desktop preview"
           >
             <Monitor className="w-3.5 h-3.5" />
           </button>
@@ -105,7 +120,8 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
             className={`p-1 rounded-[6px] transition-all ${
               deviceView === 'tablet' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
             }`}
-            title="Tablet Simulator (768px)"
+            aria-label="Tablet preview"
+            title="Tablet preview (768px)"
           >
             <Tablet className="w-3.5 h-3.5" />
           </button>
@@ -114,7 +130,8 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
             className={`p-1 rounded-[6px] transition-all ${
               deviceView === 'mobile' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
             }`}
-            title="Mobile Simulator (375px)"
+            aria-label="Mobile preview"
+            title="Mobile preview (375px)"
           >
             <Smartphone className="w-3.5 h-3.5" />
           </button>

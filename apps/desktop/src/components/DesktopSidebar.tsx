@@ -21,12 +21,16 @@ interface DesktopSidebarProps {
   settings: AppSettings;
   setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
   openSettingsModal: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   activeScreen,
   setActiveScreen,
   openSettingsModal,
+  isOpen = true,
+  onClose,
 }) => {
   const coreNav: { id: ActiveScreen; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Home', icon: <Home className="w-4 h-4" /> },
@@ -50,7 +54,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   ];
 
   return (
-    <aside className="w-60 bg-[rgba(235,231,225,0.72)] backdrop-blur-2xl border-r border-[rgba(92,84,75,0.08)] flex flex-col justify-between h-full select-none text-[#1C1B19]">
+    <aside className={`${isOpen ? 'flex' : 'hidden'} md:flex w-60 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-xl bg-[rgba(235,231,225,0.96)] backdrop-blur-2xl border-r border-[rgba(92,84,75,0.08)] flex-col justify-between h-full select-none text-[#1C1B19]`}>
+      <button type="button" aria-label="Close navigation" onClick={onClose} className="md:hidden absolute top-3 right-3 text-[#68635D] p-1">×</button>
       {/* Top Search & Nav */}
       <div className="p-3 space-y-3.5 overflow-y-auto custom-scrollbar">
         {/* Search Input Box */}

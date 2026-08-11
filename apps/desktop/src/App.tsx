@@ -63,9 +63,10 @@ export default function App() {
   const [isListening, setIsListening] = useState<boolean>(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [trayOpen, setTrayOpen] = useState<boolean>(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
-  const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, profile: 'Basic', privacy: 'LocalOnly', version: null });
+  const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly', version: null });
   const [runtimeSource, setRuntimeSource] = useState<RuntimeSource>('unavailable');
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
@@ -195,6 +196,8 @@ export default function App() {
           runtimeStatus={runtimeStatus}
           runtimeError={runtimeError}
           onTogglePaused={() => setPaused(!runtimeStatus.paused)}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((open) => !open)}
         />
 
         {/* Main Application Window Shell */}
@@ -206,7 +209,18 @@ export default function App() {
             settings={settings}
             setSettings={setSettings}
             openSettingsModal={() => setIsSettingsModalOpen(true)}
+            isOpen={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
           />
+
+          {sidebarOpen && (
+            <button
+              type="button"
+              aria-label="Close navigation"
+              onClick={() => setSidebarOpen(false)}
+              className="md:hidden fixed inset-0 z-30 bg-[#1C1B1A]/20"
+            />
+          )}
 
           {/* Tray Quick Controls Popover */}
           <TrayQuickControls

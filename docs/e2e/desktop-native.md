@@ -32,11 +32,12 @@ It performs:
 4. Waits for `http://127.0.0.1:17373/ipc` to return `Status`.
 5. Launches `apps/desktop/src-tauri/target/debug/sori-desktop.exe`.
 6. Verifies the native window title `Sori` appears.
-7. Verifies daemon status is still `running` while the desktop process is alive.
-8. Terminates both processes.
+7. On Windows, brings the window to the foreground and performs real OS mouse clicks against the app window: Transcripts nav, Diagnostics/System area, and a top action region.
+8. Verifies daemon status is still `running` while the desktop process is alive after those clicks.
+9. Terminates both processes.
 
-This proves the real desktop shell launches while a real backend daemon is reachable. It does not yet test OS hotkey, microphone, overlay, or text injection.
+This proves the real desktop shell launches, accepts native mouse input, and stays connected to a real backend daemon. It does not yet test OS hotkey, microphone, overlay, or text injection.
 
 ## Manual stronger checks
 
-When a GUI automation/use-computer tool is available, extend this test to click Home/Diagnostics and assert the UI shows backend source `native` or `backend`.
+When a richer GUI automation/use-computer tool is available, extend this test to assert rendered text after each click and capture screenshots for visual diffing. The current test already performs real OS-level clicks, but it verifies stability/backend connectivity rather than DOM content.

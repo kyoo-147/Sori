@@ -64,6 +64,40 @@ async function waitForWindowTitle(processName: string, title: string, timeoutMs 
   throw new Error(`desktop window title "${title}" did not appear`);
 }
 
+async function clickWindowRelative(processName: string, x: number, y: number): Promise<void> {
+  if (process.platform !== 'win32') {
+    console.log(`Skipping coordinate click (${x}, ${y}) on non-Windows platform.`);
+    return;
+  }
+  const script = String.raw`
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class NativeClick {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+  public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+}
+"@
+$p = Get-Process ${processName} -ErrorAction Stop | Select-Object -First 1
+$r = New-Object NativeClick+RECT
+[NativeClick]::GetWindowRect($p.MainWindowHandle, [ref]$r) | Out-Null
+[NativeClick]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+Start-Sleep -Milliseconds 250
+$cx = $r.Left + ${x}
+$cy = $r.Top + ${y}
+[NativeClick]::SetCursorPos($cx, $cy) | Out-Null
+[NativeClick]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero)
+Start-Sleep -Milliseconds 80
+[NativeClick]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+Write-Host "clicked $cx,$cy"
+`;
+  const result = await run('powershell.exe', ['-NoProfile', '-Command', script]);
+  if (result.code !== 0) throw new Error(`failed to click native desktop window at ${x},${y}`);
+}
+
 async function main(): Promise<void> {
   console.log('Building backend daemon, desktop web assets, and Tauri debug app...');
   const daemonBuild = await run('cargo', ['build', '-p', 'sorid']);
@@ -88,6 +122,13 @@ async function main(): Promise<void> {
     appProcess.stdout.on('data', (chunk) => process.stdout.write(`[desktop] ${chunk}`));
     appProcess.stderr.on('data', (chunk) => process.stderr.write(`[desktop] ${chunk}`));
     await waitForWindowTitle('sori-desktop', 'Sori');
+    console.log('Clicking native desktop UI controls...');
+    await clickWindowRelative('sori-desktop', 86, 160); // Transcripts nav row
+    await delay(500);
+    await clickWindowRelative('sori-desktop', 86, 520); // Diagnostics/System area
+    await delay(500);
+    await clickWindowRelative('sori-desktop', 1010, 78); // Simulate Dictation/top action region when available
+    await delay(500);
 
     const status = await fetch('http://127.0.0.1:17373/ipc', {
       method: 'POST',

@@ -11,9 +11,12 @@ export interface DaemonStatus {
   version: string | null;
 }
 
-export type RuntimeSource = 'backend' | 'mock' | 'unavailable';
+export type RuntimeSource = 'native' | 'backend' | 'mock' | 'unavailable';
 export interface RuntimeResult<T> { data: T; source: RuntimeSource; error: string | null }
-export interface IpcTransport { request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown> }
+export interface IpcTransport {
+  request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown>;
+  readonly source?: Exclude<RuntimeSource, 'mock' | 'unavailable'>;
+}
 
 const unavailable: DaemonStatus = { daemon: 'unavailable', activity: 'error', paused: false, profile: 'Basic', privacy: 'LocalOnly', version: null };
 const viteEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
@@ -44,11 +47,57 @@ export function mapStatus(value: unknown): DaemonStatus {
 }
 
 export class HttpIpcTransport implements IpcTransport {
+  readonly source = 'backend' as const;
   constructor(private readonly url = endpoint, private readonly fetchImpl: typeof fetch = fetch) {}
   async request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown> {
     const response = await this.fetchImpl(this.url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(requestShape(operation, params)) });
     if (!response.ok) throw new Error(`IPC request failed (${response.status})`);
     return response.json();
+  }
+}
+
+type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+type TauriWindow = { __TAURI_INTERNALS__?: unknown };
+const tauriInvoke: TauriInvoke = async <T>(command: string, args?: Record<string, unknown>) => {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<T>(command, args);
+};
+
+/** Native boundary, injectable so browser tests never need a Tauri runtime. */
+export class NativeIpcTransport implements IpcTransport {
+  readonly source = 'native' as const;
+  constructor(
+    private readonly invokeImpl: TauriInvoke = tauriInvoke,
+    private readonly available: () => boolean = () => Boolean((globalThis as TauriWindow).__TAURI_INTERNALS__),
+  ) {}
+  async request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown> {
+    if (!this.available()) throw new Error('Tauri runtime is unavailable');
+    return this.invokeImpl('sori_ipc', { request: requestShape(operation, params) });
+  }
+}
+
+/** Prefer Tauri in the desktop shell, then retain the browser HTTP path. */
+export class DesktopIpcTransport implements IpcTransport {
+  private activeSource: Exclude<RuntimeSource, 'mock' | 'unavailable'> = 'native';
+  constructor(
+    private readonly native: IpcTransport = new NativeIpcTransport(),
+    private readonly http: IpcTransport = new HttpIpcTransport(),
+  ) {}
+  get source() { return this.activeSource; }
+  async request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown> {
+    try {
+      const value = await this.native.request(operation, params);
+      this.activeSource = 'native';
+      return value;
+    } catch (nativeError) {
+      try {
+        const value = await this.http.request(operation, params);
+        this.activeSource = 'backend';
+        return value;
+      } catch (httpError) {
+        throw new Error(`Native IPC: ${errorText(nativeError)}; HTTP IPC: ${errorText(httpError)}`);
+      }
+    }
   }
 }
 
@@ -63,7 +112,7 @@ export class MockRuntimeClient {
 export class RuntimeClient {
   private readonly mock = new MockRuntimeClient();
   private usingMock = false;
-  constructor(private readonly transport: IpcTransport = new HttpIpcTransport()) {}
+  constructor(private readonly transport: IpcTransport = new DesktopIpcTransport()) {}
   async status(): Promise<RuntimeResult<DaemonStatus>> { return this.call('status', mapStatus, unavailable); }
   async pause(): Promise<RuntimeResult<DaemonStatus>> { return this.control('pause'); }
   async resume(): Promise<RuntimeResult<DaemonStatus>> { return this.control('resume'); }
@@ -77,7 +126,7 @@ export class RuntimeClient {
     }
   }
   private async call<T>(operation: IpcOperation, mapper: (value: unknown) => T, fallback: T): Promise<RuntimeResult<T>> {
-    try { return { data: mapper(await this.transport.request(operation)), source: 'backend', error: null }; }
+    try { return { data: mapper(await this.transport.request(operation)), source: this.transport.source ?? 'backend', error: null }; }
     catch (error) {
       if (operation === 'status') { this.usingMock = true; const mock = await this.mock.status(); return { ...mock, error: errorText(error) } as RuntimeResult<T>; }
       return { data: fallback, source: 'unavailable', error: errorText(error) };

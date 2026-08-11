@@ -1,11 +1,12 @@
 use anyhow::Result;
-use sori_core::{EventBus, InMemoryEventBus, PrivacyMode, ProfileMode};
+use sori_core::{PrivacyMode, ProfileMode};
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
     IpcEvent, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse, Request, Response,
     StatusResponse,
 };
-use sorid::{DaemonConfig, DaemonRuntime, RuntimeState};
+use sori_persistence::SqliteStore;
+use sorid::{DaemonConfig, DaemonRuntime, RuntimeState, SharedEventBus};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tracing::info;
@@ -21,8 +22,10 @@ async fn main() -> Result<()> {
 
     let config = DaemonConfig::default();
     config.validate().map_err(anyhow::Error::msg)?;
-    let events = InMemoryEventBus::default();
-    let runtime = Arc::new(Mutex::new(DaemonRuntime::new(events.clone())));
+    let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
+    let runtime = Arc::new(Mutex::new(DaemonRuntime::new(SharedEventBus(Arc::clone(
+        &store,
+    )))));
     let endpoint: SocketAddr = DEFAULT_ENDPOINT.parse().expect("valid IPC endpoint");
     let server = LocalIpcServer::bind(endpoint).await?;
     info!(
@@ -33,7 +36,7 @@ async fn main() -> Result<()> {
     );
 
     let handler_runtime = Arc::clone(&runtime);
-    let handler_events = events.clone();
+    let handler_store = Arc::clone(&store);
     let handler_config = config.clone();
     let server_task = server.serve(move |request| {
         let mut runtime = handler_runtime
@@ -47,31 +50,44 @@ async fn main() -> Result<()> {
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
             }),
-            Request::Doctor => Response::Doctor(DoctorResponse {
-                checks: vec![
-                    DoctorCheck {
-                        name: "daemon".into(),
-                        ok: true,
-                        detail: "sorid is reachable over loopback".into(),
-                    },
-                    DoctorCheck {
-                        name: "ipc-bind".into(),
-                        ok: true,
-                        detail: format!("bound to {DEFAULT_ENDPOINT}"),
-                    },
-                ],
-            }),
+            Request::Doctor => {
+                let sqlite_ok = handler_store.migration_status().unwrap_or(false);
+                Response::Doctor(DoctorResponse {
+                    checks: vec![
+                        DoctorCheck {
+                            name: "daemon".into(),
+                            ok: true,
+                            detail: "sorid is reachable over loopback".into(),
+                        },
+                        DoctorCheck {
+                            name: "ipc-bind".into(),
+                            ok: true,
+                            detail: format!("bound to {DEFAULT_ENDPOINT}"),
+                        },
+                        DoctorCheck {
+                            name: "sqlite".into(),
+                            ok: sqlite_ok,
+                            detail: if sqlite_ok {
+                                "SQLite open and migrations applied"
+                            } else {
+                                "SQLite migration check failed"
+                            }
+                            .into(),
+                        },
+                    ],
+                })
+            }
             Request::ConfigSummary => Response::ConfigSummary(ConfigSummaryResponse {
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
                 history_enabled: !handler_config.persistence_path.as_os_str().is_empty(),
             }),
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
-                events: handler_events
-                    .recent()
+                events: handler_store
+                    .try_recent_events_limit(usize::from(limit))
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
                     .into_iter()
                     .rev()
-                    .take(usize::from(limit))
                     .map(IpcEvent::from)
                     .collect(),
             }),

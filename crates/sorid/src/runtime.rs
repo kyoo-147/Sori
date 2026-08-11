@@ -29,10 +29,12 @@ pub struct DaemonRuntime<B> {
 
 impl<B: EventBus> DaemonRuntime<B> {
     pub fn new(events: B) -> Self {
-        Self {
+        let runtime = Self {
             state: RuntimeState::Ready,
             events,
-        }
+        };
+        runtime.publish(EventKind::DaemonReady, Value::Null);
+        runtime
     }
 
     pub fn state(&self) -> &RuntimeState {
@@ -124,6 +126,7 @@ mod tests {
                 .map(|event| event.kind.clone())
                 .collect::<Vec<_>>(),
             vec![
+                EventKind::DaemonReady,
                 EventKind::DaemonPaused,
                 EventKind::DaemonReady,
                 EventKind::DaemonShuttingDown

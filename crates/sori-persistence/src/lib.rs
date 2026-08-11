@@ -166,12 +166,18 @@ impl SqliteStore {
     }
 
     pub fn try_recent_events(&self) -> Result<Vec<Event>> {
+        self.try_recent_events_limit(usize::MAX)
+    }
+
+    pub fn try_recent_events_limit(&self, limit: usize) -> Result<Vec<Event>> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
             "SELECT id, at_seconds, at_nanos, kind, payload_json
-             FROM events ORDER BY at_seconds ASC, at_nanos ASC",
+             FROM (SELECT id, at_seconds, at_nanos, kind, payload_json
+                   FROM events ORDER BY at_seconds DESC, at_nanos DESC LIMIT ?1)
+             ORDER BY at_seconds ASC, at_nanos ASC",
         )?;
-        let rows = statement.query_map([], |row| {
+        let rows = statement.query_map([limit as i64], |row| {
             let at = timestamp(row.get(1)?, row.get(2)?).map_err(to_sqlite_error)?;
             Ok(Event {
                 id: row.get::<_, String>(0)?.parse().map_err(to_sqlite_error)?,
@@ -183,6 +189,26 @@ impl SqliteStore {
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+    }
+
+    /// Verifies that the migration-created tables are available.
+    pub fn migration_status(&self) -> Result<bool> {
+        let connection = self.connection()?;
+        let count: i64 = connection.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('events', 'history', 'settings')",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count == 3)
+    }
+
+    pub fn try_purge_events_older_than(&self, age: time::Duration) -> Result<usize> {
+        let cutoff = OffsetDateTime::now_utc() - age;
+        let deleted = self.connection()?.execute(
+            "DELETE FROM events WHERE at_seconds < ?1 OR (at_seconds = ?1 AND at_nanos < ?2)",
+            params![cutoff.unix_timestamp(), cutoff.nanosecond()],
+        )?;
+        Ok(deleted)
     }
 
     pub fn try_recent_history(&self, limit: usize) -> Result<Vec<HistoryEntry>> {

@@ -1041,6 +1041,7 @@ dependencies = [
  "serde",
  "sori-core",
  "sori-ipc",
+ "sori-persistence",
  "thiserror 2.0.20",
  "time",
  "tokio",

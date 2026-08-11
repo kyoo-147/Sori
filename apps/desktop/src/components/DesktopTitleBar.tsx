@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppSettings } from '../types';
 import type { DaemonStatus, RuntimeSource } from '../runtime-client';
-import { Mic, Monitor, Tablet, Smartphone, Flame } from 'lucide-react';
+import { Mic, Monitor, Tablet, Smartphone, Flame, Command, CircleDot } from 'lucide-react';
 
 interface DesktopTitleBarProps {
   settings: AppSettings;
@@ -33,23 +33,19 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   onTogglePaused,
 }) => {
   return (
-    <div className="h-12 bg-[rgba(248,245,241,0.85)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.08)] px-4 flex items-center justify-between select-none text-[13px] text-[#68635D]">
-      {/* Left: Window Controls & Title */}
-      <div className="flex items-center gap-3">
-        {/* Traffic Light Buttons */}
-        <div className="flex items-center gap-1.5 mr-1">
-          <div className="w-3 h-3 rounded-full bg-[#E56A54] border border-black/10 hover:opacity-80 cursor-pointer" />
-          <div className="w-3 h-3 rounded-full bg-[#E5B54A] border border-black/10 hover:opacity-80 cursor-pointer" />
-          <div className="w-3 h-3 rounded-full bg-[#52B868] border border-black/10 hover:opacity-80 cursor-pointer" />
+    <div className="min-h-12 bg-[rgba(250,248,245,0.86)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.08)] px-3 sm:px-4 flex items-center justify-between gap-3 select-none text-[13px] text-[#68635D]">
+      {/* Left: product command context. Native OS chrome owns close/minimize/maximize. */}
+      <div className="min-w-0 flex items-center gap-2.5">
+        <div className="hidden sm:flex h-7 w-7 items-center justify-center rounded-[9px] border border-[rgba(92,84,75,0.10)] bg-white/70 text-[#5E564E] shadow-2xs" aria-hidden="true">
+          <Command className="h-3.5 w-3.5" />
         </div>
-
-        {/* App Title */}
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-[#1C1B19] tracking-tight">Sori Desktop</span>
-          <span title={runtimeError ?? undefined} className={`text-[10px] px-2 py-0.5 rounded-full border ${runtimeSource === 'backend' ? 'bg-[#EAF6EE] text-[#1F6B43] border-[#CBE5D4]' : runtimeSource === 'mock' ? 'bg-[#FFF5DD] text-[#8A6418] border-[#EBD9A8]' : 'bg-[#F9EBEA] text-[#A75850] border-[#E8C6C2]'}`}>
+        <div className="min-w-0 flex items-center gap-2">
+          <span className="hidden md:inline font-semibold text-[#1C1B19] tracking-tight">Command Center</span>
+          <span title={runtimeError ?? undefined} className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border ${runtimeSource === 'backend' ? 'bg-[#EAF6EE] text-[#1F6B43] border-[#CBE5D4]' : runtimeSource === 'mock' ? 'bg-[#FFF5DD] text-[#8A6418] border-[#EBD9A8]' : 'bg-[#F9EBEA] text-[#A75850] border-[#E8C6C2]'}`}>
+            <CircleDot className="h-2.5 w-2.5" aria-hidden="true" />
             {runtimeSource === 'backend' ? 'Backend' : runtimeSource === 'mock' ? 'Mock fallback' : 'Unavailable'}
           </span>
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-[rgba(235,230,223,0.5)] text-[#68635D] font-mono border border-[rgba(92,84,75,0.08)]">
+          <span className="hidden sm:inline text-[11px] px-2 py-0.5 rounded-full bg-[rgba(235,230,223,0.5)] text-[#68635D] font-mono border border-[rgba(92,84,75,0.08)]">
             v0.2
           </span>
         </div>

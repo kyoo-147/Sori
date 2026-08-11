@@ -4,6 +4,34 @@ import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const OCU_PACKAGE = 'open-computer-use@0.3.1';
+const OCU_STATE_ARGS = { app: 'sori-desktop', text_limit: 1200, max_tree_nodes: 4000 };
+
+type OcuCall = { tool: string; args: Record<string, unknown> };
+type OcuCallResult = {
+  result?: {
+    content?: Array<{ type: string; text?: string }>;
+    isError?: boolean;
+  };
+  tool?: string;
+};
+
+type NavExpectation = {
+  label: string;
+  expected: string[];
+};
+
+const NAV_FLOWS: NavExpectation[] = [
+  { label: 'Home', expected: ['Sori is ready', 'Simulate Dictation'] },
+  { label: 'Transcripts', expected: ['Transcripts Timeline', 'Local voice capture audit log'] },
+  { label: 'Vocabulary', expected: ['Vocabulary', 'voice macro expansions'] },
+  { label: 'Voice Edit', expected: ['Voice Edit', 'natural edit instructions'] },
+  { label: 'Models & Routing', expected: ['Models & Routing', 'Speech-to-Text'] },
+  { label: 'Benchmarks', expected: ['Benchmarks', 'p50/p95 latency'] },
+  { label: 'Extensions', expected: ['Extensions', 'INSTALLED EXTENSIONS'] },
+  { label: 'Privacy', expected: ['Privacy', 'Local Data & Storage Retention'] },
+  { label: 'Diagnostics', expected: ['Diagnostics', '11-Point System Integrity Check'] },
+  { label: 'Settings', expected: ['Sori System Settings', 'Hotkey'] },
+];
 
 function desktopBinaryPath(): string {
   return resolve('apps', 'desktop', 'src-tauri', 'target', 'debug', process.platform === 'win32' ? 'sori-desktop.exe' : 'sori-desktop');
@@ -76,14 +104,6 @@ async function waitForWindowTitle(processName: string, title: string, timeoutMs 
   throw new Error(`desktop window title "${title}" did not appear`);
 }
 
-type OcuCallResult = {
-  result?: {
-    content?: Array<{ type: string; text?: string }>;
-    isError?: boolean;
-  };
-  tool?: string;
-};
-
 function textFromResult(result: OcuCallResult | undefined): string {
   return result?.result?.content?.filter((item) => item.type === 'text').map((item) => item.text ?? '').join('\n') ?? '';
 }
@@ -94,7 +114,16 @@ function assertIncludes(text: string, expected: string, label: string): void {
   }
 }
 
-async function runOcuSequence(callsFile: string): Promise<OcuCallResult[]> {
+function findButtonIndex(accessibilityText: string, label: string): string {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = accessibilityText.match(new RegExp(`\\n\\s*(\\d+) button ${escapedLabel}(?: Secondary Actions| Frame|$)`));
+  if (!match?.[1]) throw new Error(`could not find button index for ${label}`);
+  return match[1];
+}
+
+async function runOcuSequence(calls: OcuCall[], tmpDir: string, name: string): Promise<OcuCallResult[]> {
+  const callsFile = resolve(tmpDir, `${name}.json`);
+  writeFileSync(callsFile, JSON.stringify(calls, null, 2));
   const npmCommand = process.platform === 'win32' ? 'cmd.exe' : 'npx';
   const npmArgs = process.platform === 'win32'
     ? ['/c', 'npx', '-y', OCU_PACKAGE, 'call', '--calls-file', callsFile]
@@ -133,18 +162,6 @@ async function main(): Promise<void> {
 
   const tmpDir = resolve('.tmp', 'e2e-ocu');
   mkdirSync(tmpDir, { recursive: true });
-  const callsFile = resolve(tmpDir, 'calls.json');
-  writeFileSync(callsFile, JSON.stringify([
-    // WebView2 sometimes exposes only the top-level panes on the first accessibility snapshot.
-    // Take an initial snapshot, click the app surface once, then assert against the hydrated tree.
-    { tool: 'get_app_state', args: { app: 'sori-desktop', text_limit: 1000, max_tree_nodes: 3000 } },
-    { tool: 'click', args: { app: 'sori-desktop', x: 100, y: 100 } },
-    { tool: 'get_app_state', args: { app: 'sori-desktop', text_limit: 1000, max_tree_nodes: 3000 } },
-    { tool: 'click', args: { app: 'sori-desktop', element_index: '31' } },
-    { tool: 'get_app_state', args: { app: 'sori-desktop', text_limit: 1000, max_tree_nodes: 3000 } },
-    { tool: 'click', args: { app: 'sori-desktop', element_index: '41' } },
-    { tool: 'get_app_state', args: { app: 'sori-desktop', text_limit: 1000, max_tree_nodes: 3000 } },
-  ], null, 2));
 
   const daemon = spawn(resolve('target', 'debug', 'sorid.exe'), [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
   daemon.stdout.on('data', (chunk) => process.stdout.write(`[sorid] ${chunk}`));
@@ -159,18 +176,35 @@ async function main(): Promise<void> {
     await waitForWindowTitle('sori-desktop', 'Sori');
     await delay(2_000);
 
-    console.log('Running Open Computer Use semantic state/click sequence...');
-    const results = await runOcuSequence(callsFile);
-    const homeState = textFromResult(results[2]);
-    const transcriptsState = textFromResult(results[4]);
-    const diagnosticsState = textFromResult(results[6]);
+    console.log('Hydrating WebView2 accessibility tree through Open Computer Use...');
+    const hydrated = await runOcuSequence([
+      { tool: 'get_app_state', args: OCU_STATE_ARGS },
+      { tool: 'click', args: { app: 'sori-desktop', x: 100, y: 100 } },
+      { tool: 'get_app_state', args: OCU_STATE_ARGS },
+    ], tmpDir, 'hydrate');
+    let currentState = textFromResult(hydrated[2]);
 
-    assertIncludes(homeState, 'Sori is ready', 'initial OCU state');
-    assertIncludes(homeState, 'button Transcripts', 'initial OCU state');
-    assertIncludes(transcriptsState, 'Transcripts Timeline', 'post-Transcripts click OCU state');
-    assertIncludes(transcriptsState, 'Local voice capture audit log', 'post-Transcripts click OCU state');
-    assertIncludes(diagnosticsState, 'Diagnostics', 'post-Diagnostics click OCU state');
-    assertIncludes(diagnosticsState, '11-Point System Integrity Check', 'post-Diagnostics click OCU state');
+    assertIncludes(currentState, 'Sori is ready', 'hydrated OCU state');
+    assertIncludes(currentState, 'button Transcripts', 'hydrated OCU state');
+    assertIncludes(currentState, 'Command Center', 'Windows command bar state');
+    if (currentState.includes('Sori Desktop')) {
+      throw new Error('Windows desktop UI still renders the old fake titlebar label');
+    }
+
+    console.log('Running complete navigation semantic userflow...');
+    for (const flow of NAV_FLOWS) {
+      const elementIndex = findButtonIndex(currentState, flow.label);
+      const results = await runOcuSequence([
+        { tool: 'get_app_state', args: OCU_STATE_ARGS },
+        { tool: 'click', args: { app: 'sori-desktop', element_index: elementIndex } },
+        { tool: 'get_app_state', args: OCU_STATE_ARGS },
+      ], tmpDir, `nav-${flow.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`);
+      currentState = textFromResult(results[2]);
+      for (const expected of flow.expected) {
+        assertIncludes(currentState, expected, `${flow.label} screen OCU state`);
+      }
+      console.log(`- ${flow.label}: ok`);
+    }
 
     const status = await fetch('http://127.0.0.1:17373/ipc', {
       method: 'POST',
@@ -180,7 +214,7 @@ async function main(): Promise<void> {
     }).then((response) => response.json()) as { Status?: { running?: boolean } };
     if (status.Status?.running !== true) throw new Error('daemon status was not running during OCU desktop smoke');
 
-    console.log('PASS: Open Computer Use clicked Sori native desktop UI and asserted semantic screen state.');
+    console.log('PASS: Open Computer Use clicked all primary Sori desktop flows and asserted semantic screen state.');
   } finally {
     if (appProcess) await stop(appProcess);
     await stop(daemon);

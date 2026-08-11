@@ -48,6 +48,13 @@ export const ModelManagerScreen: React.FC<ModelManagerScreenProps> = ({
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto p-4 md:p-6 text-[#1C1B1A] font-sans">
+      <div className="border-b border-[#E6E3DD] pb-4">
+        <h1 className="sori-page-heading">Models & Routing</h1>
+        <p className="sori-body-text mt-0.5">
+          Choose local speech engines, route presets, and optional model fallbacks without blocking dictation.
+        </p>
+      </div>
+
       {/* Top Main Segment Tabs */}
       <div className="bg-[#EFECE6] border border-[#E6E3DD] p-1.5 rounded-[16px] flex items-center justify-center max-w-xl mx-auto shadow-2xs">
         <button

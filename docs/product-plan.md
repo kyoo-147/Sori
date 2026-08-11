@@ -2,50 +2,27 @@
 
 ## Product thesis
 
-Start Sori as a narrow **voice-to-useful-output workspace**: upload or capture audio, preserve an evidence-backed transcript, and generate a structured brief with timestamps, decisions, follow-ups, and exportable artifacts.
+Sori is a local-first programmable voice runtime for desktop. The first useful path is Windows dictation: hold a hotkey, speak, transcribe locally, and insert text into the focused app. The long-term product adds programmable routing, voice editing, snippets, harnesses, and permissioned actions without making normal dictation depend on an agent.
 
-This is intentionally narrower than a generic voice assistant or meeting bot. The first validation target is multilingual interview/research audio, with creator repurposing and Korean learning kept as later options.
+## Current MVP truth
 
-## Milestones
+The repository already has the Rust daemon (`sorid`), loopback IPC, SQLite persistence, and a React/Tauri shell. These are working architectural boundaries and diagnostics surfaces. The real hotkey, microphone, Whisper, and text-injection path is not complete, so the product is not yet an install-to-dictation release.
 
-### Phase 0 — Foundation (current)
+## MVP sequence
 
-- Establish TypeScript modular-monolith skeleton.
-- Define durable domain boundaries: projects, artifacts, runs, events, approvals.
-- Keep storage local-first and replaceable.
-- Add a small HTTP health/API boundary and testable in-memory repositories.
+1. Prove daemon/IPC/SQLite lifecycle and diagnostics.
+2. Integrate Windows hotkey and microphone capture.
+3. Run a local Whisper provider.
+4. Insert or copy transcript text safely into the focused app.
+5. Validate first-run permissions and the complete path on Windows.
 
-### Phase 1 — Prototype workflow
+## Later direction
 
-- Audio artifact registration and metadata.
-- Transcript artifact import or adapter stub for transcription providers.
-- Structured brief generation adapter with evidence links.
-- Local UI or CLI for: create project → add audio → run workflow → review output.
+- Provider abstraction, model manager, benchmark, and routing.
+- Context-aware dictation and voice edit.
+- History, dictionary, snippets, and retention controls.
+- Permissioned harnesses, tools, extensions, and agent actions.
+- Optional TTS and voice identity.
+- macOS second; Linux later with explicit X11/Wayland limitations.
 
-### Phase 2 — Trust and validation
-
-- Consent/retention settings per project.
-- Deletion/export flows.
-- Cost and usage accounting per run.
-- 15–20 customer interviews and 20–30 concierge-processed recordings.
-
-### Phase 3 — Pilot
-
-- Replace local storage adapters with SQLite/object storage adapters.
-- Add authentication boundary if hosted collaboration is validated.
-- Add integrations for one destination such as Notion, Google Docs, or Slack.
-
-## Near-term implementation priorities
-
-1. Keep all product state behind repository interfaces.
-2. Treat model/tool output as untrusted and auditable.
-3. Store run events append-only; derive current state from events.
-4. Make every expensive or external side effect explicit and cancellable.
-5. Avoid premature vector databases, microservices, or cloud lock-in.
-
-## Open decisions for the captain
-
-- First beachhead: researchers/interviewers, meeting-heavy teams, creators, or Korean learning?
-- First client: local web app, desktop shell, CLI, or hosted browser app?
-- First transcription path: import transcripts, local model, or hosted API?
-- Required privacy posture for pilot data retention and provider training opt-out?
+See the [MVP capability matrix](mvp-capability-matrix.md) for implementation status; product screens and contracts are not claims of completed runtime behavior.

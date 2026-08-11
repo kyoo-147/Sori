@@ -1,41 +1,26 @@
 # Sori implementation schedule
 
-This schedule is ordered so work can continue automatically while the captain is away. Each task should keep tests passing and preserve the local-first architecture boundary.
+This schedule reflects the current Rust daemon + desktop-shell MVP. It separates shipped boundaries from the work required for first real dictation.
 
-## Done
+## Done / implemented
 
-- Product plan and market/technology research captured.
-- TypeScript/Fastify modular-monolith foundation.
-- Project, artifact, and run domain boundaries.
-- In-memory repositories and run lifecycle events.
-- Basic tests and CI workflow.
+- Rust workspace with `sorid`, core contracts, CLI, IPC, provider, audio, and injection boundaries.
+- `sorid` lifecycle runtime and loopback IPC contract/transport.
+- SQLite migration and lifecycle-event persistence.
+- React/Tauri desktop shell with native IPC bridge and browser/mock fallback.
+- Desktop status/doctor surfaces and deterministic tests.
 
-## Next task queue
+## Scaffold / next integration queue
 
-1. **SQLite metadata adapter**
-   - Add migrations for `projects`, `artifacts`, `runs`, and `run_events`.
-   - Keep repository interfaces unchanged.
-   - Add tests shared between memory and SQLite adapters.
+1. Wire a Windows global hold-to-talk hotkey into `sorid`.
+2. Add Windows microphone capture, VAD, and permission/error reporting.
+3. Execute the Whisper provider against a packaged or explicitly configured model.
+4. Connect transcript output to the Windows text-injection adapter, including blocked-app fallback.
+5. Run an end-to-end Windows smoke test: hotkey → audio → ASR → injection → SQLite history.
+6. Harden tray lifecycle, permissions, packaging, signing, and recovery behavior.
 
-2. **Filesystem artifact store**
-   - Add content-addressed storage under a configurable local data directory.
-   - Record SHA-256, content type, size, and original filename.
-   - Add delete/export primitives before real user audio.
+## Deferred after the first working path
 
-3. **Workflow skeleton**
-   - Define `transcribe_audio` and `generate_brief` run step types.
-   - Implement stub adapters that consume text fixtures and produce a brief artifact.
-   - Preserve evidence references and timestamps in structured output.
+Model routing/benchmarking, voice edit, dictionary/snippets, extensions/agent actions, TTS, and macOS/Linux production support remain product direction rather than current MVP commitments.
 
-4. **Local UI or CLI**
-   - Minimal path: create project, register audio/transcript artifact, start workflow, inspect run events.
-   - Keep the UI replaceable; do not couple it to Pi/Herdr terminal state.
-
-5. **Trust baseline**
-   - Add retention policy fields.
-   - Add export/delete operations.
-   - Add an approval state for external API/model calls.
-
-## Push blocker
-
-GitHub push requires authentication on this machine. Run `gh auth login` or configure a credential helper/token, then push `main`.
+For the status of each boundary, see [MVP capability matrix](mvp-capability-matrix.md).

@@ -1,132 +1,41 @@
-# Backend architecture review: API, runtime, DB, FE/BE integration
+# Backend architecture review: daemon, IPC, DB, and desktop integration
 
-This review accompanies the Lavish artifact at `.lavish/backend-architecture-review.html`.
+## Current architecture
+
+```text
+React/Tauri shell → Tauri command bridge → loopback IPC → sorid (Rust) → SQLite
+```
+
+The Rust daemon, local transport, SQLite store, and native desktop bridge exist. The older TypeScript/Fastify API under `src/` is a separate prototype and is not the desktop runtime API.
 
 ## Current API surfaces
 
-### HTTP prototype API
+### Rust local IPC
 
-Implemented in `src/adapters/http/app.ts`; storage is in-memory and separate from `sorid`/SQLite.
+Implemented in `crates/sori-ipc` and consumed by `sorid` and the Tauri command bridge. It supports status, doctor, configuration summary, pause/resume, and recent events. The endpoint is loopback/local-only; it is not a network product API.
 
-| Method | Path | Purpose |
+### Tauri/React client
+
+`apps/desktop` prefers the native `sori_ipc` command, which forwards canonical requests to the daemon. Browser development can fall back to the HTTP prototype or mock data. Those fallbacks are explicitly non-native preview paths.
+
+## Persistence
+
+`sori-persistence` applies the initial SQLite migration and `sorid` persists lifecycle events. Recent events and doctor checks can be read through IPC. Retention/purge policy and richer history queries remain follow-up work.
+
+## Runtime status
+
+Implemented: daemon lifecycle, loopback control/diagnostics, SQLite event persistence, native shell bridge, and UI status/doctor rendering.
+
+Scaffold: platform hotkey, microphone/audio/VAD, Whisper execution, and text injection. Their contracts and tests do not constitute a working end-to-end voice path.
+
+## Priority gaps
+
+| Priority | Gap | Exit condition |
 |---|---|---|
-| GET | `/health` | Generic service health. |
-| GET | `/projects` | List in-memory projects. |
-| POST | `/projects` | Create project. |
-| GET | `/projects/:projectId/artifacts` | List project artifacts. |
-| POST | `/projects/:projectId/artifacts` | Create project artifact. |
-| GET | `/projects/:projectId/runs` | List project runs. |
-| POST | `/projects/:projectId/runs` | Create run and queued event. |
-| GET | `/runs/:runId/events` | List run events. |
+| P0 | Windows hotkey + microphone path | Hold-to-talk produces captured audio in `sorid`. |
+| P0 | Whisper execution | A configured local model returns a transcript. |
+| P0 | Text injection | Transcript reaches a focused supported app, with clear fallback errors. |
+| P1 | First-run permissions/recovery | Windows permission failures are actionable and repeatable. |
+| P1 | Packaging/signing | A manually testable Windows desktop bundle exists. |
 
-Assessment: this is not the real desktop runtime API. It should be marked dev/prototype or split from the Sori Desktop daemon path.
-
-### Rust local IPC contract
-
-Implemented in `crates/sori-ipc`.
-
-Requests currently defined:
-
-- `Status`
-- `Doctor`
-- `ConfigSummary`
-- `RecentEvents { limit }`
-
-Assessment: contract is a good start, but `LocalIpcClient::connect()` currently always returns `Unavailable`, so no real daemon transport exists.
-
-### TS tray/frontend protocol
-
-Implemented in:
-
-- `src/tray/protocol.ts`
-- `src/frontend/ipc-bridge.ts`
-
-Assessment: UI can map mock/backend-like shapes, but TypeScript and Rust contracts can drift. Rust IPC should become the source of truth, with mirrored/generated TS types.
-
-## Runtime system status
-
-Current layers:
-
-```text
-React/Vite UI -> TS RuntimeClient mock/fallback -> no real IPC transport -> sorid lifecycle runtime -> core/audio/asr/injection/persistence scaffolds
-```
-
-What works now:
-
-- `sori smoke dictation`: fake E2E pipeline.
-- `sorid`: starts, logs Ready, waits for Ctrl+C.
-- Rust tests cover core/persistence/ipc/provider/audio logic.
-- Desktop UI builds and runs in Vite.
-
-Main gap:
-
-- `sori status`/`sori doctor` cannot talk to `sorid` because no local IPC server/client transport is implemented.
-
-## SQLite schema
-
-Migration: `crates/sori-persistence/src/migrations/001_initial.sql`.
-
-Tables:
-
-- `settings(key, value_json, updated_at)`
-- `history(id, at_seconds, at_nanos, active_app, transcript_json, intent_json, route_json, inserted_text)`
-- `events(id, at_seconds, at_nanos, kind, payload_json)`
-- `model_manifests(id, manifest_json, updated_at)`
-- `model_routes(name, route_json, updated_at)`
-
-Indexes:
-
-- `history_at_idx` on `(at_seconds DESC, at_nanos DESC)`
-- `events_at_idx` on `(at_seconds DESC, at_nanos DESC)`
-
-Assessment:
-
-- Good local-first MVP schema.
-- Needs migration versioning.
-- Needs retention/purge-by-age support.
-- Querying by app/model/language will be limited because many fields are JSON blobs.
-
-## FE/BE coupling issues
-
-| Priority | Issue | Fix |
-|---|---|---|
-| P0 | No real daemon IPC transport. | Implement local pipe/socket server in `sorid` and real `LocalIpcClient`. |
-| P0 | HTTP API is unrelated to Sori Desktop runtime. | Mark dev/prototype or remove from product path. |
-| P1 | Rust IPC and TS tray protocol are separate contracts. | Make Rust IPC the source of truth and mirror/generate TS types. |
-| P1 | `sorid` uses `InMemoryEventBus`, not `SqliteStore`. | Open SQLite in daemon and serve recent events/history from it. |
-| P1 | Missing Pause/Resume and recent history in Rust IPC. | Extend IPC requests/responses. |
-| P1 | UI still uses mock initial data. | Route UI through RuntimeClient/Tauri transport with mock fallback only for preview. |
-
-## Implementation plan
-
-### Phase A: Contract lock
-
-- Extend `sori-ipc::Request` with `Pause`, `Resume`, `RecentHistory { limit }`, `RouteSummary`, `PermissionSummary`.
-- Extend `StatusResponse` with daemon state, activity, paused, hotkey, route/model.
-- Add TS mirror contract or JSON schema.
-
-### Phase B: Local transport
-
-- Windows-first named pipe: `\\.\pipe\sori-daemon`.
-- macOS/Linux later Unix socket.
-- Use framed JSON request/response.
-- Local user session only; no network.
-
-### Phase C: `sorid` integration
-
-- Boot daemon with config + SQLite store.
-- Start IPC server task.
-- Serve status/doctor/config/events/history.
-- Implement pause/resume state changes.
-
-### Phase D: CLI/UI connection
-
-- Update `sori status/doctor` to use real IPC.
-- Add Tauri command bridge from UI to daemon IPC.
-- Keep browser mock fallback for Vite preview.
-
-### Phase E: Tests
-
-- Spawn `sorid` on temp pipe/socket and temp SQLite DB.
-- Assert CLI `status`, `doctor`, `pause/resume`, `recent-events` work.
-- Add UI RuntimeClient mapping tests for real IPC shapes.
+See [MVP capability matrix](../mvp-capability-matrix.md) for the concise status contract.

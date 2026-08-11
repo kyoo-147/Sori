@@ -2,7 +2,7 @@
 
 ## Status
 
-Sori is in early product discovery. This README is the current PRD and should be treated as the source of truth until the repository grows a dedicated PRD structure.
+Sori is an early Windows-first desktop MVP. The current repository contains a Rust daemon (`sorid`), loopback IPC, SQLite persistence, and a React/Tauri desktop shell. The end-to-end voice path is not complete yet: native hotkey capture, microphone capture, Whisper execution, and text injection remain scaffold/future work. See the [MVP capability matrix](docs/mvp-capability-matrix.md).
 
 Repository: <https://github.com/kyoo-147/Sori>
 
@@ -41,6 +41,16 @@ Priority:
 3. Linux later, with honest X11/Wayland limitations.
 
 ## High-level architecture
+
+Current implementation truth:
+
+```text
+React/Tauri shell → loopback IPC bridge → sorid (Rust) → SQLite
+                                      ↘ lifecycle/diagnostic contracts
+```
+
+The boundaries for audio, hotkey, ASR, and injection exist, but their real platform adapters are not yet wired into a working dictation path. The larger pipeline below is the product direction, not a claim about current implementation.
+
 
 ```text
 CLI / Tray / Overlay / Full UI
@@ -652,17 +662,14 @@ sori dictionary
 
 ## MVP plan
 
-### V0.1
+### Current MVP foundation
 
-- Rust daemon.
-- Windows.
-- Hotkey.
-- Audio/VAD.
-- `whisper.cpp`.
-- Text injection.
-- Dot overlay.
-- Tray.
-- Model abstraction.
+- Rust daemon and lifecycle control.
+- Loopback IPC and SQLite event persistence.
+- React/Tauri desktop shell with diagnostics.
+- Contracts/scaffolds for Windows hotkey, audio/VAD, `whisper.cpp`, and text injection.
+
+The foundation is implemented; the real hotkey → microphone → Whisper → injection path is still integration work.
 
 ### V0.2
 
@@ -697,9 +704,9 @@ sori dictionary
 - Add one snippet.
 - Model abstraction exists even though `whisper.cpp` is first.
 
-## Current repository scaffold
+## Current repository
 
-The repository currently contains an early TypeScript/Fastify foundation from a prior scaffold. That scaffold is not the final Sori runtime architecture; it should be replaced or migrated once the Rust daemon MVP begins.
+The Rust workspace and `apps/desktop` are the active Sori runtime path. The older TypeScript/Fastify API under `src/` is a separate prototype and is not the desktop product backend. The desktop UI may use mock/HTTP fallback outside the native shell; that fallback is not evidence that voice capture or insertion works.
 
 Existing scripts:
 

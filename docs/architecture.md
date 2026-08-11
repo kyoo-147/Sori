@@ -1,50 +1,34 @@
 # Sori architecture
 
-## Baseline
+## Current implementation
 
-Sori starts as a local-first TypeScript modular monolith. The foundation separates domain logic from adapters so the first prototype can run locally while still leaving a path to PostgreSQL, object storage, hosted workers, and agent orchestration.
-
-```text
-HTTP/API adapter
-      |
-Application services
-      |
-Domain modules: projects, artifacts, runs
-      |
-Repository interfaces
-      |
-Storage adapters: memory now, SQLite/filesystem next
-```
-
-## Domain modules
-
-- **Projects**: user-visible workspace for a research/interview/audio workflow.
-- **Artifacts**: audio, transcript, generated brief, export, and supporting files. Large bytes live outside the metadata store.
-- **Runs**: durable jobs that transform artifacts. Runs emit append-only events and expose a derived current state.
-
-## Run lifecycle
+Sori's active product architecture is a local-first Rust daemon with a desktop shell:
 
 ```text
-queued -> running -> waiting_approval -> completed
-                  \-> failed
-                  \-> cancelled
+React/Tauri shell → loopback IPC → sorid (Rust) → SQLite
+                                      ↘ lifecycle/diagnostics
 ```
 
-Every transition should be recorded as an event with actor, timestamp, and machine-readable payload. Notifications are not authority; stored events are.
+The daemon, local IPC, SQLite persistence, and shell bridge are implemented. The Windows hotkey, microphone/audio, Whisper execution, and text injection boundaries are present as scaffolds but are not yet a complete voice path.
 
-## Agent boundary
+The older TypeScript modular monolith under `src/` remains a separate prototype/API surface and is not the desktop runtime backend.
 
-Pi, Firstmate, and Herdr are operator/development orchestration tools for this repository. Sori product code must not depend on terminal rendering or a specific harness. Future agent integration should use an `AgentRunner` adapter with typed inputs, capability scopes, approval policies, cancellation, and audit events.
+## Runtime boundaries
 
-## Storage direction
+- **Daemon**: owns lifecycle state and will own the voice pipeline.
+- **IPC**: local-only control and diagnostics contract.
+- **SQLite**: local metadata and lifecycle-event persistence.
+- **Desktop**: React UI hosted by Tauri; no audio, ASR, injection, or persistence logic.
+- **Adapters**: platform hotkey/audio/injection and model providers remain replaceable.
 
-- Current scaffold: in-memory repositories for fast tests and API shape.
-- Next: SQLite metadata and filesystem artifacts.
-- Later hosted mode: PostgreSQL plus object storage.
+## Product direction
 
-## Security defaults
+The intended hot path is:
 
-- Model/tool outputs are untrusted until validated.
-- No irreversible action without an explicit approval transition.
-- Secrets do not enter prompts, artifacts, git, or logs.
-- Retention/export/delete behavior must exist before real user audio pilots.
+```text
+hold hotkey → capture audio → local ASR → transcript → safe text injection
+```
+
+Routing, context, history, dictionary, snippets, extensions, permissions, and agent actions build on this foundation. They are not all MVP-complete.
+
+See [MVP capability matrix](mvp-capability-matrix.md) for status.

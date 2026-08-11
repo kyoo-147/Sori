@@ -12,7 +12,8 @@
     "tray:mock": "tsx src/tray/mock-shell.ts",
     "desktop:dev": "npm --prefix apps/desktop run dev",
     "desktop:build": "npm --prefix apps/desktop run build",
-    "desktop:check": "npm --prefix apps/desktop run check"
+    "desktop:check": "npm --prefix apps/desktop run check",
+    "e2e:desktop-backend": "tsx scripts/e2e-desktop-backend.ts"
   },
   "engines": {
     "node": ">=22"

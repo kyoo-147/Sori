@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapStatus, requestShape } from '../apps/desktop/src/runtime-client';
+import { mapStatus, requestShape } from '../apps/desktop/src/runtime-client.js';
 
 describe('desktop runtime IPC boundary', () => {
   it('creates canonical serde externally tagged requests', () => {

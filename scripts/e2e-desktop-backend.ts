@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export const DEFAULT_IPC_URL = 'http://127.0.0.1:17373';
+export const DEFAULT_IPC_URL = 'http://127.0.0.1:17373/ipc';
 
 export function parseEndpoint(value = process.env.SORI_IPC_URL ?? DEFAULT_IPC_URL): URL {
   const url = new URL(value);
@@ -20,8 +20,13 @@ export async function waitForEndpoint(url: URL, timeoutMs = 15_000): Promise<boo
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(750) });
-      if (response.ok || response.status < 500) return true;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify('Status'),
+        signal: AbortSignal.timeout(750),
+      });
+      if (response.ok) return true;
     } catch { /* daemon is not ready yet */ }
     await delay(150);
   }
@@ -82,13 +87,23 @@ async function main(): Promise<void> {
       }
     }
 
-    const direct = await fetch(new URL('/status', endpoint), { signal: AbortSignal.timeout(2_000) });
+    const direct = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify('Status'),
+      signal: AbortSignal.timeout(2_000),
+    });
     if (!direct.ok) throw new Error(`direct IPC status request returned HTTP ${direct.status}`);
-    const status = await direct.json() as { running?: boolean; protocol_version?: number };
-    if (status.running !== true) throw new Error('direct IPC status response did not report running=true');
+    const response = await direct.json() as { Status?: { running?: boolean; protocol_version?: number } };
+    const status = response.Status;
+    if (status?.running !== true) throw new Error('direct IPC status response did not report running=true');
     if (typeof status.protocol_version !== 'number') throw new Error('direct IPC status response omitted protocol_version');
 
-    await run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'desktop:build']);
+    if (process.platform === 'win32') {
+      await run('cmd.exe', ['/c', 'npm', 'run', 'desktop:build']);
+    } else {
+      await run('npm', ['run', 'desktop:build']);
+    }
     console.log('PASS: desktop build and real sorid IPC compatibility check completed.');
   } finally {
     await stop(daemon);

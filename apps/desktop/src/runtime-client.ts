@@ -5,6 +5,8 @@ export type IpcRequest =
   | 'Status'
   | 'Doctor'
   | 'ConfigSummary'
+  | 'Pause'
+  | 'Resume'
   | { RecentEvents: { limit: number } };
 
 export interface DaemonStatus {
@@ -21,7 +23,8 @@ export interface RuntimeResult<T> { data: T; source: RuntimeSource; error: strin
 export interface IpcTransport { request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown> }
 
 const unavailable: DaemonStatus = { daemon: 'unavailable', activity: 'error', paused: false, profile: 'Basic', privacy: 'LocalOnly', version: null };
-const endpoint = import.meta.env.VITE_SORI_IPC_URL || 'http://127.0.0.1:17373/ipc';
+const viteEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+const endpoint = viteEnv?.VITE_SORI_IPC_URL || 'http://127.0.0.1:17373/ipc';
 
 function record(value: unknown): Record<string, unknown> { return value && typeof value === 'object' ? value as Record<string, unknown> : {}; }
 function text(value: unknown, fallback: string | null = null): string | null { return typeof value === 'string' ? value : fallback; }
@@ -39,8 +42,8 @@ export function requestShape(operation: IpcOperation, params: Record<string, unk
     case 'doctor': return 'Doctor';
     case 'config_summary': return 'ConfigSummary';
     case 'recent_events': return { RecentEvents: { limit: Number(params.limit ?? 10) } };
-    case 'pause':
-    case 'resume': throw new Error('pause/resume is not available in the current daemon IPC contract');
+    case 'pause': return 'Pause' as IpcRequest;
+    case 'resume': return 'Resume' as IpcRequest;
   }
 }
 
@@ -78,12 +81,21 @@ export class RuntimeClient {
   private usingMock = false;
   constructor(private readonly transport: IpcTransport = new HttpIpcTransport()) {}
   async status(): Promise<RuntimeResult<DaemonStatus>> { return this.call('status', mapStatus, unavailable); }
-  async pause(): Promise<RuntimeResult<DaemonStatus>> { return this.usingMock ? this.mock.pause() : this.call('pause', mapStatus, unavailable); }
-  async resume(): Promise<RuntimeResult<DaemonStatus>> { return this.usingMock ? this.mock.resume() : this.call('resume', mapStatus, unavailable); }
+  async pause(): Promise<RuntimeResult<DaemonStatus>> { return this.control('pause'); }
+  async resume(): Promise<RuntimeResult<DaemonStatus>> { return this.control('resume'); }
+  private async control(operation: 'pause' | 'resume'): Promise<RuntimeResult<DaemonStatus>> {
+    if (this.usingMock) return operation === 'pause' ? this.mock.pause() : this.mock.resume();
+    try {
+      await this.transport.request(operation);
+      return this.status();
+    } catch (error) {
+      return { data: unavailable, source: 'unavailable', error: errorText(error) };
+    }
+  }
   private async call<T>(operation: IpcOperation, mapper: (value: unknown) => T, fallback: T): Promise<RuntimeResult<T>> {
     try { return { data: mapper(await this.transport.request(operation)), source: 'backend', error: null }; }
     catch (error) {
-      if (operation === 'status') { this.usingMock = true; const mock = await this.mock.status(); return { ...mock, error: errorText(error) }; }
+      if (operation === 'status') { this.usingMock = true; const mock = await this.mock.status(); return { ...mock, error: errorText(error) } as RuntimeResult<T>; }
       return { data: fallback, source: 'unavailable', error: errorText(error) };
     }
   }

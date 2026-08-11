@@ -1,7 +1,8 @@
 //! Non-blocking daemon lifecycle state machine.
 
 use sori_core::{
-    AudioChunk, EventBus, EventKind, ModelError, ModelId, ModelProvider, Transcript,
+    AudioCaptureEngine, AudioChunk, AudioError, EnergyVadStub, EventBus, EventKind, ModelError,
+    ModelId, ModelProvider, Transcript, VoiceActivity, VoiceActivityDetector,
     event::serde_json_like::Value,
 };
 use std::sync::Arc;
@@ -28,6 +29,13 @@ pub struct DaemonRuntime<B> {
     state: RuntimeState,
     events: B,
     provider: Option<Arc<dyn ModelProvider>>,
+    audio: Option<Box<dyn AudioCaptureEngine>>,
+    audio_session: Option<AudioSession>,
+}
+
+struct AudioSession {
+    vad: EnergyVadStub,
+    chunks: usize,
 }
 
 impl<B: EventBus> DaemonRuntime<B> {
@@ -36,6 +44,8 @@ impl<B: EventBus> DaemonRuntime<B> {
             state: RuntimeState::Ready,
             events,
             provider: None,
+            audio: None,
+            audio_session: None,
         };
         runtime.publish(EventKind::DaemonReady, Value::Null);
         runtime
@@ -46,9 +56,97 @@ impl<B: EventBus> DaemonRuntime<B> {
             state: RuntimeState::Ready,
             events,
             provider: Some(provider),
+            audio: None,
+            audio_session: None,
         };
         runtime.publish(EventKind::DaemonReady, Value::Null);
         runtime
+    }
+
+    pub fn set_audio_engine(&mut self, engine: Box<dyn AudioCaptureEngine>) {
+        self.audio = Some(engine);
+    }
+
+    pub fn audio_available(&self) -> bool {
+        self.audio.is_some()
+    }
+
+    /// Start the real input stream. Success is reported only after CPAL starts it.
+    pub fn start_audio(&mut self) -> Result<(), AudioError> {
+        if self.audio_session.is_some() {
+            return Err(AudioError::Pipeline(
+                "dictation session is already running".into(),
+            ));
+        }
+        let engine = self.audio.as_mut().ok_or_else(|| {
+            AudioError::BackendUnavailable("microphone capture is unavailable".into())
+        })?;
+        let device = match engine.start_capture() {
+            Ok(device) => device,
+            Err(error) => {
+                self.publish(EventKind::AudioError, Value::String(error.to_string()));
+                return Err(error);
+            }
+        };
+        self.audio_session = Some(AudioSession {
+            vad: EnergyVadStub::new(0.02),
+            chunks: 0,
+        });
+        self.publish(EventKind::AudioStarted, Value::String(device.name));
+        Ok(())
+    }
+
+    /// Consume at most 64 chunks; ASR and insertion intentionally remain separate.
+    pub fn stop_audio(&mut self, cancelled: bool) -> Result<usize, AudioError> {
+        let mut session = self
+            .audio_session
+            .take()
+            .ok_or_else(|| AudioError::Pipeline("no dictation session is running".into()))?;
+        let result: Result<usize, AudioError> = (|| {
+            for _ in 0..64 {
+                let next = self
+                    .audio
+                    .as_mut()
+                    .ok_or_else(|| {
+                        AudioError::BackendUnavailable("microphone capture is unavailable".into())
+                    })?
+                    .next_chunk()?;
+                let Some(chunk) = next else { break };
+                session.chunks += 1;
+                self.publish(
+                    EventKind::AudioChunkCaptured,
+                    Value::Number(session.chunks as i64),
+                );
+                match session.vad.process(&chunk.samples) {
+                    VoiceActivity::SpeechStarted => {
+                        self.publish(EventKind::VadSpeechStarted, Value::Null)
+                    }
+                    VoiceActivity::SpeechEnded => {
+                        self.publish(EventKind::VadSpeechEnded, Value::Null);
+                        break;
+                    }
+                    VoiceActivity::Silence | VoiceActivity::SpeechContinues => {}
+                }
+            }
+            if let Some(engine) = self.audio.as_mut() {
+                engine.stop_capture();
+            }
+            Ok(session.chunks)
+        })();
+        if let Err(error) = &result {
+            if let Some(engine) = self.audio.as_mut() {
+                engine.stop_capture();
+            }
+            self.publish(EventKind::AudioError, Value::String(error.to_string()));
+        }
+        if cancelled {
+            self.publish(EventKind::DictationCancelled, Value::Null);
+        }
+        self.publish(
+            EventKind::AudioStopped,
+            Value::Number(session.chunks as i64),
+        );
+        result
     }
 
     /// Transcribe captured chunks through the configured provider boundary.
@@ -132,7 +230,87 @@ impl<B: EventBus> DaemonRuntime<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sori_core::{EventKind, InMemoryEventBus};
+    use sori_core::{AudioEngine, AudioFormat, EventKind, InMemoryEventBus, SampleFormat};
+    struct FakeCapture {
+        chunks: Vec<AudioChunk>,
+        started: bool,
+        stopped: bool,
+    }
+    impl AudioEngine for FakeCapture {
+        fn input_format(&self) -> sori_core::AudioFormat {
+            sori_core::AudioFormat {
+                sample_rate_hz: 16_000,
+                channels: 1,
+                sample_format: sori_core::SampleFormat::F32,
+            }
+        }
+        fn next_chunk(&mut self) -> Result<Option<AudioChunk>, AudioError> {
+            Ok(if self.chunks.is_empty() {
+                None
+            } else {
+                Some(self.chunks.remove(0))
+            })
+        }
+    }
+    impl AudioCaptureEngine for FakeCapture {
+        fn start_capture(&mut self) -> Result<sori_core::AudioDeviceInfo, AudioError> {
+            self.started = true;
+            Ok(sori_core::AudioDeviceInfo {
+                id: "fake".into(),
+                name: "fake microphone".into(),
+                is_default_input: true,
+            })
+        }
+        fn stop_capture(&mut self) {
+            self.stopped = true;
+        }
+        fn is_running(&self) -> bool {
+            self.started && !self.stopped
+        }
+    }
+
+    #[test]
+    fn fake_capture_session_publishes_vad_and_stop_without_asr() {
+        let events = InMemoryEventBus::default();
+        let mut runtime = DaemonRuntime::new(events.clone());
+        runtime.set_audio_engine(Box::new(FakeCapture {
+            chunks: vec![
+                AudioChunk {
+                    captured_at: time::OffsetDateTime::UNIX_EPOCH,
+                    format: AudioFormat {
+                        sample_rate_hz: 16_000,
+                        channels: 1,
+                        sample_format: SampleFormat::F32,
+                    },
+                    samples: vec![0.5],
+                },
+                AudioChunk {
+                    captured_at: time::OffsetDateTime::UNIX_EPOCH,
+                    format: AudioFormat {
+                        sample_rate_hz: 16_000,
+                        channels: 1,
+                        sample_format: SampleFormat::F32,
+                    },
+                    samples: vec![0.0],
+                },
+            ],
+            started: false,
+            stopped: false,
+        }));
+        runtime.start_audio().unwrap();
+        assert_eq!(runtime.stop_audio(false).unwrap(), 2);
+        let kinds = events
+            .recent()
+            .into_iter()
+            .map(|event| event.kind)
+            .collect::<Vec<_>>();
+        assert!(kinds.contains(&EventKind::AudioStarted));
+        assert!(kinds.contains(&EventKind::AudioChunkCaptured));
+        assert!(kinds.contains(&EventKind::VadSpeechStarted));
+        assert!(kinds.contains(&EventKind::VadSpeechEnded));
+        assert!(kinds.contains(&EventKind::AudioStopped));
+    }
+
     #[test]
     fn lifecycle_transitions_publish_events() {
         let events = InMemoryEventBus::default();

@@ -168,6 +168,14 @@ impl VoiceActivityDetector for EnergyVadStub {
     }
 }
 
+/// A capture engine with an explicit lifecycle. Implementations must only report
+/// success after the native input stream is actually running.
+pub trait AudioCaptureEngine: AudioEngine + Send {
+    fn start_capture(&mut self) -> Result<AudioDeviceInfo, AudioError>;
+    fn stop_capture(&mut self);
+    fn is_running(&self) -> bool;
+}
+
 pub trait AudioEngine {
     fn input_format(&self) -> AudioFormat;
     fn next_chunk(&mut self) -> Result<Option<AudioChunk>, AudioError>;

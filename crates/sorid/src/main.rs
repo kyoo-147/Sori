@@ -1,4 +1,5 @@
 use anyhow::Result;
+use sori_audio::CpalAudioController;
 use sori_core::{ModelId, ModelLicense, ModelManifest, PrivacyMode, ProfileMode};
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
@@ -56,10 +57,15 @@ async fn main() -> Result<()> {
     };
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
     let events = SharedEventBus(Arc::clone(&store));
-    let runtime = Arc::new(Mutex::new(match whisper_provider {
+    let mut daemon = match whisper_provider {
         Some(provider) => DaemonRuntime::new_with_provider(events, provider),
         None => DaemonRuntime::new(events),
-    }));
+    };
+    match CpalAudioController::new(Default::default()) {
+        Ok(audio) => daemon.set_audio_engine(Box::new(audio)),
+        Err(error) => info!(detail = %error, "microphone adapter unavailable"),
+    }
+    let runtime = Arc::new(Mutex::new(daemon));
     let endpoint: SocketAddr = DEFAULT_ENDPOINT.parse().expect("valid IPC endpoint");
     let server = LocalIpcServer::bind(endpoint).await?;
     info!(
@@ -78,6 +84,18 @@ async fn main() -> Result<()> {
             .map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
         let response = match request {
             Request::Status => Response::Status(status_response(&runtime, &handler_config)),
+            Request::DictationStart => {
+                runtime.start_audio().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Control(ControlResponse { accepted: true, detail: "microphone capture started".into() })
+            }
+            Request::DictationStop => {
+                let chunks = runtime.stop_audio(false).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Control(ControlResponse { accepted: true, detail: format!("microphone capture stopped after {chunks} chunks; no transcript was produced") })
+            }
+            Request::DictationCancel => {
+                let chunks = runtime.stop_audio(true).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") })
+            }
             Request::Dictation { model, audio } => Response::Transcript(
                 runtime
                     .transcribe(&model, &audio)
@@ -115,9 +133,12 @@ async fn main() -> Result<()> {
                         },
                         DoctorCheck {
                             name: "audio".into(),
-                            ok: false,
-                            detail: "unavailable: native microphone capture adapter is not wired"
-                                .into(),
+                            ok: runtime.audio_available(),
+                            detail: if runtime.audio_available() {
+                                "CPAL adapter configured; permission and device are verified when a session starts".into()
+                            } else {
+                                "unavailable: CPAL microphone adapter could not be configured".into()
+                            },
                         },
                         DoctorCheck {
                             name: "whisper".into(),

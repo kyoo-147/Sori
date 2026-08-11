@@ -4,11 +4,11 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Host, SampleFormat as CpalSampleFormat, Stream, StreamConfig};
 use sori_core::{
-    AudioChunk, AudioDeviceInfo, AudioDeviceProvider, AudioEngine, AudioError, AudioFormat,
-    CaptureConfig, SampleFormat,
+    AudioCaptureEngine, AudioChunk, AudioDeviceInfo, AudioDeviceProvider, AudioEngine, AudioError,
+    AudioFormat, CaptureConfig, SampleFormat,
 };
 use std::collections::VecDeque;
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use time::OffsetDateTime;
 
 pub struct CpalAudioDeviceProvider {
@@ -192,9 +192,7 @@ impl CpalAudioEngine {
             }
             _ => unreachable!(),
         };
-        stream
-            .play()
-            .map_err(|error| AudioError::Pipeline(error.to_string()))?;
+        stream.play().map_err(classify_stream_error)?;
         self.packets = Some(rx);
         self.errors = Some(error_rx);
         self.pending.clear();
@@ -236,9 +234,10 @@ impl AudioEngine for CpalAudioEngine {
                     return Err(AudioError::Pipeline(error));
                 }
             }
-            match packets.recv() {
+            match packets.recv_timeout(std::time::Duration::from_millis(100)) {
                 Ok(packet) => self.pending.extend(packet),
-                Err(_) => return Ok(None),
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => return Ok(None),
             }
         }
         let samples = self
@@ -250,6 +249,126 @@ impl AudioEngine for CpalAudioEngine {
             format: self.input_format(),
             samples,
         }))
+    }
+}
+
+/// Send-owned controller. CPAL's stream stays on its worker thread because
+/// CPAL intentionally does not mark streams Send on every backend.
+pub struct CpalAudioController {
+    config: CaptureConfig,
+    format: AudioFormat,
+    commands: Option<mpsc::Sender<()>>,
+    chunks: Option<Receiver<Result<AudioChunk, AudioError>>>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl CpalAudioController {
+    pub fn new(config: CaptureConfig) -> Result<Self, AudioError> {
+        config.validate()?;
+        Ok(Self {
+            format: config.format.clone(),
+            config,
+            commands: None,
+            chunks: None,
+            worker: None,
+        })
+    }
+}
+
+impl AudioEngine for CpalAudioController {
+    fn input_format(&self) -> AudioFormat {
+        self.format.clone()
+    }
+
+    fn next_chunk(&mut self) -> Result<Option<AudioChunk>, AudioError> {
+        let chunks = match self.chunks.as_ref() {
+            Some(chunks) => chunks,
+            None => return Ok(None),
+        };
+        chunks
+            .recv()
+            .map(|chunk| chunk.map(Some))
+            .map_err(|_| AudioError::Pipeline("audio worker stopped".into()))?
+    }
+}
+
+impl AudioCaptureEngine for CpalAudioController {
+    fn start_capture(&mut self) -> Result<AudioDeviceInfo, AudioError> {
+        if self.worker.is_some() {
+            return Err(AudioError::Pipeline("capture is already running".into()));
+        }
+        let config = self.config.clone();
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let (command_tx, command_rx) = mpsc::channel();
+        let (chunk_tx, chunk_rx) = mpsc::sync_channel(8);
+        let worker = std::thread::spawn(move || {
+            let mut engine = match CpalAudioEngine::new(config) {
+                Ok(engine) => engine,
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                    return;
+                }
+            };
+            let device = match engine.start() {
+                Ok(device) => device,
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                    return;
+                }
+            };
+            let format = engine.input_format();
+            let _ = ready_tx.send(Ok((device, format)));
+            loop {
+                if command_rx.try_recv().is_ok() {
+                    break;
+                }
+                match engine.next_chunk() {
+                    Ok(Some(chunk)) => {
+                        if chunk_tx.send(Ok(chunk)).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        let _ = chunk_tx.send(Err(error));
+                        break;
+                    }
+                }
+            }
+            engine.stop();
+        });
+        let (device, format) = ready_rx
+            .recv()
+            .map_err(|_| AudioError::Pipeline("audio worker failed to start".into()))??;
+        self.commands = Some(command_tx);
+        self.chunks = Some(chunk_rx);
+        self.worker = Some(worker);
+        self.format = format;
+        Ok(device)
+    }
+
+    fn stop_capture(&mut self) {
+        if let Some(command) = self.commands.take() {
+            let _ = command.send(());
+        }
+        self.chunks.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+
+    fn is_running(&self) -> bool {
+        self.worker.is_some()
+    }
+}
+
+fn classify_stream_error(error: impl ToString) -> AudioError {
+    let message = error.to_string();
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("access is denied") || lower.contains("permission") {
+        AudioError::MissingPermission
+    } else {
+        AudioError::Pipeline(message)
     }
 }
 
@@ -269,7 +388,7 @@ fn build_stream_f32(
             },
             None,
         )
-        .map_err(|e| AudioError::Pipeline(e.to_string()))
+        .map_err(classify_stream_error)
 }
 fn build_stream_i16(
     device: &Device,
@@ -293,7 +412,7 @@ fn build_stream_i16(
             },
             None,
         )
-        .map_err(|e| AudioError::Pipeline(e.to_string()))
+        .map_err(classify_stream_error)
 }
 fn build_stream_u16(
     device: &Device,
@@ -320,7 +439,7 @@ fn build_stream_u16(
             },
             None,
         )
-        .map_err(|e| AudioError::Pipeline(e.to_string()))
+        .map_err(classify_stream_error)
 }
 fn send_samples(data: &[f32], tx: &SyncSender<Packet>, channels: usize) {
     let mono = if channels <= 1 {

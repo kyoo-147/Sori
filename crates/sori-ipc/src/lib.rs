@@ -26,6 +26,9 @@ pub const DEFAULT_ENDPOINT: &str = "127.0.0.1:17373";
 pub enum Request {
     Status,
     /// Submit one captured audio buffer to the daemon's configured provider.
+    DictationStart,
+    DictationStop,
+    DictationCancel,
     Dictation {
         model: ModelId,
         audio: Vec<AudioChunk>,
@@ -413,7 +416,10 @@ impl Transport for MockTransport {
             .map_err(|_| IpcError::Transport("state lock poisoned".into()))?;
         Ok(match request {
             Request::Status => Response::Status(state.status.clone()),
-            Request::Dictation { .. } => {
+            Request::DictationStart
+            | Request::DictationStop
+            | Request::DictationCancel
+            | Request::Dictation { .. } => {
                 return Err(IpcError::Transport(
                     "mock transport does not execute dictation".into(),
                 ));

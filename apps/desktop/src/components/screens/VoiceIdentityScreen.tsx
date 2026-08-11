@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { VoiceProfile } from '../../types';
+import { HistoryItem, VoiceProfile } from '../../types';
 import {
   Shield,
   Lock,
@@ -16,11 +16,15 @@ import {
 interface VoiceIdentityScreenProps {
   voiceProfile: VoiceProfile;
   setVoiceProfile: React.Dispatch<React.SetStateAction<VoiceProfile>>;
+  history: HistoryItem[];
+  setHistory: React.Dispatch<React.SetStateAction<HistoryItem[]>>;
 }
 
 export const VoiceIdentityScreen: React.FC<VoiceIdentityScreenProps> = ({
   voiceProfile,
   setVoiceProfile,
+  history,
+  setHistory,
 }) => {
   const [saveTranscripts, setSaveTranscripts] = useState<boolean>(true);
   const [retentionDays, setRetentionDays] = useState<number>(30);
@@ -62,7 +66,8 @@ export const VoiceIdentityScreen: React.FC<VoiceIdentityScreenProps> = ({
 
   const handleDeleteHistory = () => {
     if (deleteConfirmInput !== 'DELETE') return;
-    setDeleteSuccessMsg('Local transcripts database cleared successfully.');
+    setHistory([]);
+    setDeleteSuccessMsg('Local transcript history cleared from this UI session.');
     setIsDeleteModalOpen(false);
     setDeleteConfirmInput('');
     setTimeout(() => setDeleteSuccessMsg(null), 3000);
@@ -226,7 +231,15 @@ export const VoiceIdentityScreen: React.FC<VoiceIdentityScreenProps> = ({
             Delete Local History...
           </button>
           <button
-            onClick={() => alert('Exporting local SQLite database to sori_export.json...')}
+            onClick={() => {
+              const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), history }, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = 'sori-export.json';
+              link.click();
+              URL.revokeObjectURL(url);
+            }}
             className="px-4 py-2 bg-white hover:bg-[#F0F1F2] text-[#2B2F33] border border-[#E2E4E8] rounded-[10px] text-xs font-medium transition flex items-center gap-1.5"
           >
             <Download className="w-3.5 h-3.5 text-[#5C728A]" />

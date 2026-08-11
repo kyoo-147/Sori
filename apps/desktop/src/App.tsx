@@ -321,7 +321,12 @@ export default function App() {
             )}
 
             {(activeScreen === 'voice-id' || activeScreen === 'privacy') && (
-              <VoiceIdentityScreen voiceProfile={voiceProfile} setVoiceProfile={setVoiceProfile} />
+              <VoiceIdentityScreen
+                voiceProfile={voiceProfile}
+                setVoiceProfile={setVoiceProfile}
+                history={history}
+                setHistory={setHistory}
+              />
             )}
 
             {activeScreen === 'assistant-voice' && (

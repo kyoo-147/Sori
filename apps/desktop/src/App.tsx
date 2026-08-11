@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ActiveScreen,
   AppSettings,
@@ -45,21 +45,22 @@ import { AssistantVoiceScreen } from './components/screens/AssistantVoiceScreen'
 import { CoverageChecklistScreen } from './components/screens/CoverageChecklistScreen';
 import { SystemDesignScreen } from './components/screens/SystemDesignScreen';
 import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
+import { readPreference, readSettings, writePreference } from './preferences';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
-  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [settings, setSettings] = useState<AppSettings>(() => readSettings(defaultSettings));
   const [models, setModels] = useState<ModelInfo[]>(initialModels);
   const [routes, setRoutes] = useState<RouteRule[]>(initialRoutes);
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>(initialDictionary);
   const [snippets, setSnippets] = useState<Snippet[]>(initialSnippets);
-  const [extensions, setExtensions] = useState<ExtensionItem[]>(initialExtensions);
+  const [extensions, setExtensions] = useState<ExtensionItem[]>(() => readPreference('extensions', initialExtensions));
   const [history, setHistory] = useState<HistoryItem[]>(initialHistory);
   const [benchmarkResults] = useState<BenchmarkResult[]>(initialBenchmarkResults);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
   const [assistantVoice, setAssistantVoice] = useState<AssistantVoiceSettings>(defaultAssistantVoice);
 
-  const [deviceView, setDeviceView] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+  const [deviceView, setDeviceView] = useState<'desktop' | 'tablet' | 'mobile'>(() => readPreference('deviceView', 'desktop'));
   const [isListening, setIsListening] = useState<boolean>(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [trayOpen, setTrayOpen] = useState<boolean>(false);
@@ -72,17 +73,29 @@ export default function App() {
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
 
-  useEffect(() => {
-    let mounted = true;
-    Promise.all([runtimeClient.status(), runtimeClient.doctor()]).then(([statusResult, doctorResult]) => {
-      if (!mounted) return;
-      setRuntimeStatus(statusResult.data);
-      setRuntimeSource(statusResult.source);
-      setRuntimeError(statusResult.error ?? doctorResult.error);
-      setDoctorChecks(doctorResult.data);
-    });
-    return () => { mounted = false; };
+  const refreshRuntime = useCallback(async () => {
+    const [statusResult, doctorResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor()]);
+    setRuntimeStatus(statusResult.data);
+    setRuntimeSource(statusResult.source);
+    setRuntimeError(statusResult.error ?? doctorResult.error);
+    setDoctorChecks(doctorResult.data);
   }, [runtimeClient]);
+
+  useEffect(() => {
+    refreshRuntime().catch(() => undefined);
+  }, [refreshRuntime]);
+
+  useEffect(() => {
+    writePreference('settings', settings);
+  }, [settings]);
+
+  useEffect(() => {
+    writePreference('extensions', extensions);
+  }, [extensions]);
+
+  useEffect(() => {
+    writePreference('deviceView', deviceView);
+  }, [deviceView]);
 
   const setPaused = async (paused: boolean) => {
     const result = await (paused ? runtimeClient.pause() : runtimeClient.resume());
@@ -252,7 +265,7 @@ export default function App() {
           />
 
           {/* Main Content View Container */}
-          <main className="flex-1 overflow-y-auto bg-[#FAF8F5] p-4 md:p-6 custom-scrollbar">
+          <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FAF8F5] p-3 sm:p-4 md:p-6 custom-scrollbar">
             {(activeScreen === 'playground' || activeScreen === 'home') && (
               <OverviewScreen
                 settings={settings}
@@ -321,7 +334,13 @@ export default function App() {
             {activeScreen === 'system-design' && <SystemDesignScreen />}
 
             {(activeScreen === 'coverage' || activeScreen === 'diagnostics') && (
-              <CoverageChecklistScreen checks={doctorChecks} runtimeSource={runtimeSource} />
+              <CoverageChecklistScreen
+                checks={doctorChecks}
+                runtimeSource={runtimeSource}
+                runtimeStatus={runtimeStatus}
+                runtimeError={runtimeError}
+                onRefresh={refreshRuntime}
+              />
             )}
           </main>
         </div>
@@ -332,6 +351,8 @@ export default function App() {
             <div className="w-full max-w-3xl relative animate-in fade-in zoom-in-95 duration-200">
               <StudioSettingsScreen settings={settings} setSettings={setSettings} />
               <button
+                type="button"
+                aria-label="Close settings"
                 onClick={() => setIsSettingsModalOpen(false)}
                 className="absolute top-4 right-4 text-[#94928E] hover:text-[#1C1B1A] p-1"
               >

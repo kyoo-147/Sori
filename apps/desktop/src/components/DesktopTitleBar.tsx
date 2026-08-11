@@ -37,7 +37,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   onToggleSidebar,
 }) => {
   return (
-    <div className="min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.10)] px-3 sm:px-4 flex items-center justify-between gap-3 select-none text-[13px] text-[#68635D] shadow-[0_1px_8px_rgba(40,34,28,0.03)]">
+    <div className="min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.10)] px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D] shadow-[0_1px_8px_rgba(40,34,28,0.03)]">
       <button
         type="button"
         onClick={onToggleSidebar}
@@ -79,7 +79,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           <span className="hidden sm:inline">{isListening ? 'Preview listening…' : 'Preview capture'}</span>
         </button>
 
-        <button onClick={onTogglePaused} disabled={runtimeSource === 'unavailable' || runtimeSource === 'mock'} title={runtimeSource === 'mock' ? 'Daemon controls are unavailable in preview mode' : undefined} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs disabled:opacity-50">
+        <button onClick={onTogglePaused} aria-label={runtimeStatus.paused ? 'Resume Sori daemon' : 'Pause Sori daemon'} disabled={runtimeSource === 'unavailable' || runtimeSource === 'mock'} title={runtimeSource === 'mock' ? 'Daemon controls are unavailable in preview mode' : undefined} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs disabled:opacity-50">
           {runtimeStatus.paused ? 'Resume daemon' : 'Pause daemon'}
         </button>
         <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs">
@@ -92,7 +92,11 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
       <div className="flex items-center gap-2">
         {/* Tray Toggle */}
         <button
+          type="button"
           onClick={() => setTrayOpen(!trayOpen)}
+          aria-expanded={trayOpen}
+          aria-controls="tray-quick-controls"
+          aria-label={trayOpen ? 'Close quick controls' : 'Open quick controls'}
           className={`px-3 py-1.5 rounded-[12px] border text-[12px] font-medium transition-all flex items-center gap-1.5 ${
             trayOpen
               ? 'bg-[rgba(221,217,211,0.46)] border-[rgba(91,84,77,0.15)] text-[#1C1B19] font-semibold'
@@ -104,7 +108,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         </button>
 
         {/* Viewport Switcher - Translucent Warm Track */}
-        <div className="flex items-center bg-[rgba(216,211,204,0.30)] p-1 rounded-[10px] border border-[rgba(92,84,75,0.08)]">
+        <div aria-label="Preview viewport" className="flex items-center bg-[rgba(216,211,204,0.30)] p-1 rounded-[10px] border border-[rgba(92,84,75,0.08)]">
           <button
             onClick={() => setDeviceView('desktop')}
             className={`p-1 rounded-[6px] transition-all ${

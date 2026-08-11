@@ -42,7 +42,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
   const overlayStyles: OverlayStyle[] = ['dot', 'pill', 'wave', 'orb', 'monochrome'];
 
   return (
-    <div className="fixed top-14 right-6 z-40 w-80 sori-floating p-5 shadow-xl text-[#1C1B19] animate-in fade-in zoom-in-95 duration-200 border border-[rgba(255,255,255,0.7)]">
+    <div id="tray-quick-controls" role="dialog" aria-label="Sori quick controls" className="fixed top-14 right-2 sm:right-6 z-40 w-[calc(100vw-1rem)] max-w-80 sori-floating p-5 shadow-xl text-[#1C1B19] animate-in fade-in zoom-in-95 duration-200 border border-[rgba(255,255,255,0.7)]">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-[rgba(92,84,75,0.08)]">
         <div className="flex items-center gap-2">
@@ -53,7 +53,9 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
           </span>
         </div>
         <button
+          type="button"
           onClick={onClose}
+          aria-label="Close quick controls"
           className="text-[#98928A] hover:text-[#1C1B19] p-1 rounded-md hover:bg-[rgba(235,230,223,0.5)] transition"
         >
           <X className="w-4 h-4" />
@@ -87,7 +89,9 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
         <div className="grid grid-cols-2 gap-1.5">
           {profiles.map((prof) => (
             <button
+              type="button"
               key={prof}
+              aria-pressed={settings.activeProfile === prof}
               onClick={() => setSettings((prev) => ({ ...prev, activeProfile: prof }))}
               className={`px-2.5 py-1.5 rounded-[10px] text-xs font-medium flex items-center justify-between transition-all ${
                 settings.activeProfile === prof
@@ -108,7 +112,9 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
         <div className="flex flex-wrap gap-1">
           {overlayStyles.map((style) => (
             <button
+              type="button"
               key={style}
+              aria-pressed={settings.overlayStyle === style}
               onClick={() => setSettings((prev) => ({ ...prev, overlayStyle: style }))}
               className={`px-2.5 py-1 rounded-[8px] text-xs capitalize transition-all ${
                 settings.overlayStyle === style

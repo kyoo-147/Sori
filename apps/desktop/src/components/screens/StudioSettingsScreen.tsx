@@ -27,6 +27,9 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
   const [selectedMic, setSelectedMic] = useState<string>('realtek');
   const [isTestingMic, setIsTestingMic] = useState<boolean>(false);
   const [micTestMsg, setMicTestMsg] = useState<string | null>(null);
+  const [injectionStrategy, setInjectionStrategy] = useState<'automation' | 'clipboard'>('automation');
+  const [startOnLogin, setStartOnLogin] = useState(false);
+  const [minimizeToTray, setMinimizeToTray] = useState(false);
 
   const mainTabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { id: 'General', label: 'General', icon: <Sliders className="w-3.5 h-3.5" /> },
@@ -186,8 +189,8 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
                 >
                   {isTestingMic ? 'Testing...' : 'Test Microphone'}
                 </button>
-                <button className="px-4 py-2 bg-white hover:bg-[#F0F1F2] text-[#2B2F33] rounded-[10px] font-medium transition border border-[#E2E4E8]">
-                  Manage Priority
+                <button type="button" disabled aria-disabled="true" title="Runtime support is not installed yet" className="px-4 py-2 bg-white text-[#858A90] rounded-[10px] font-medium border border-[#E2E4E8] cursor-not-allowed">
+                  Manage Priority (preview)
                 </button>
               </div>
             </div>
@@ -227,7 +230,7 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
               <p className="text-[#5F6368]">General application behavior and theme preferences.</p>
               <div className="p-3 bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] space-y-2">
                 <div className="font-semibold text-[#161616]">Language & Region</div>
-                <select className="w-full bg-white border border-[#E2E4E8] rounded-[8px] p-2 text-xs">
+                <select disabled aria-label="Language and region preview" className="w-full bg-white border border-[#E2E4E8] rounded-[8px] p-2 text-xs text-[#858A90]" title="Runtime support is not installed yet">
                   <option>English (US)</option>
                   <option>Vietnamese (Tiếng Việt)</option>
                   <option>Bilingual Auto-Detect (EN / VI)</option>
@@ -270,11 +273,11 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
                 <div className="font-semibold text-[#161616]">Injection Strategy</div>
                 <div className="space-y-1.5">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="inj" defaultChecked className="accent-[#2E4E6D]" />
+                    <input type="radio" name="inj" checked={injectionStrategy === 'automation'} onChange={() => setInjectionStrategy('automation')} className="accent-[#2E4E6D]" />
                     <span>OS UI Automation API (Direct Synthetic Keystrokes)</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="inj" className="accent-[#2E4E6D]" />
+                    <input type="radio" name="inj" checked={injectionStrategy === 'clipboard'} onChange={() => setInjectionStrategy('clipboard')} className="accent-[#2E4E6D]" />
                     <span>Clipboard Buffer Injection + Auto Restore</span>
                   </label>
                 </div>
@@ -288,11 +291,11 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
               <div className="p-3 bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] space-y-2">
                 <label className="flex items-center justify-between cursor-pointer">
                   <span className="font-semibold text-[#161616]">Start Sori daemon automatically on login</span>
-                  <input type="checkbox" defaultChecked className="w-4 h-4 accent-[#2E4E6D]" />
+                  <input type="checkbox" checked={startOnLogin} onChange={(e) => setStartOnLogin(e.target.checked)} className="w-4 h-4 accent-[#2E4E6D]" />
                 </label>
                 <label className="flex items-center justify-between cursor-pointer">
                   <span className="font-semibold text-[#161616]">Minimize to system tray on close</span>
-                  <input type="checkbox" defaultChecked className="w-4 h-4 accent-[#2E4E6D]" />
+                  <input type="checkbox" checked={minimizeToTray} onChange={(e) => setMinimizeToTray(e.target.checked)} className="w-4 h-4 accent-[#2E4E6D]" />
                 </label>
               </div>
             </div>
@@ -303,7 +306,7 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
               <div className="p-4 bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] space-y-2">
                 <div className="font-semibold text-[#161616]">{activeTab} Configuration</div>
                 <p className="text-[#5F6368]">
-                  Detailed preferences and local parameters for {activeTab.toLowerCase()}. All settings persist locally in local config file (`sori_config.json`).
+                  Detailed preferences and local parameters for {activeTab.toLowerCase()}. Runtime-backed controls are preview-only until the Sori daemon is installed.
                 </p>
               </div>
             </div>

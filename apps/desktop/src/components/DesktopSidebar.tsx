@@ -32,6 +32,11 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   isOpen = true,
   onClose,
 }) => {
+  const navigate = (screen: ActiveScreen) => {
+    setActiveScreen(screen);
+    onClose?.();
+  };
+
   const coreNav: { id: ActiveScreen; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Home', icon: <Home className="w-4 h-4" /> },
     { id: 'transcripts', label: 'Transcripts', icon: <Clock className="w-4 h-4" /> },
@@ -55,7 +60,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
   return (
     <aside className={`${isOpen ? 'flex' : 'hidden'} md:flex w-60 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-xl bg-[rgba(235,231,225,0.96)] backdrop-blur-2xl border-r border-[rgba(92,84,75,0.08)] flex-col justify-between h-full select-none text-[#1C1B19]`}>
-      <button type="button" aria-label="Close navigation" onClick={onClose} className="md:hidden absolute top-3 right-3 text-[#68635D] p-1">×</button>
+      <button type="button" aria-label="Close navigation" onClick={onClose} className="md:hidden absolute top-3 right-3 text-[#68635D] p-2 rounded-md hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#6E7A80]">×</button>
       {/* Top Search & Nav */}
       <div className="p-3 space-y-3.5 overflow-y-auto custom-scrollbar">
         {/* Search Input Box */}
@@ -63,11 +68,12 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[#98928A]" />
           <input
             type="text"
+            aria-label="Search Sori"
             placeholder="Search Sori..."
             className="w-full bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] rounded-[10px] pl-8 pr-12 py-1.5 text-[12.5px] text-[#1C1B19] placeholder-[#B2AEA8] focus:outline-none focus:bg-white focus:border-[rgba(92,84,75,0.25)] transition-all shadow-2xs"
           />
           <span className="absolute right-2.5 top-2 text-[10px] text-[#98928A] font-mono bg-white/70 px-1 rounded border border-[rgba(92,84,75,0.12)]">
-            ⌘K
+            Ctrl+K
           </span>
         </div>
 
@@ -176,7 +182,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             Prototype Flows
           </div>
           <button
-            onClick={() => setActiveScreen('onboarding')}
+            onClick={() => navigate('onboarding')}
+            aria-current={activeScreen === 'onboarding' ? 'page' : undefined}
             className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
               activeScreen === 'onboarding'
                 ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
@@ -193,9 +200,10 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       <div className="p-3 border-t border-[rgba(92,84,75,0.08)] space-y-1 bg-[rgba(230,225,218,0.3)]">
         <button
           onClick={() => {
-            setActiveScreen('settings');
+            navigate('settings');
             openSettingsModal();
           }}
+          aria-current={activeScreen === 'settings' ? 'page' : undefined}
           className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-[13px] font-medium transition-all ${
             activeScreen === 'settings'
               ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'

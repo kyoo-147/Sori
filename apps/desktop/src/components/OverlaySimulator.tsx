@@ -29,7 +29,7 @@ export const OverlaySimulator: React.FC<OverlaySimulatorProps> = ({
   const waveHeights = [20, 45, 80, 50, 30, 65, 90, 40, 25];
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 pointer-events-auto max-w-sm w-full transition-all duration-300">
+    <div className="fixed bottom-2 right-2 sm:bottom-6 sm:right-6 z-50 pointer-events-auto w-[calc(100vw-1rem)] max-w-sm transition-all duration-300">
       {/* Error / Permission Gate Prompt */}
       {errorMessage ? (
         <div className="sori-floating p-4 text-[#1C1B19] space-y-2 animate-in fade-in slide-in-from-bottom-2 border border-[rgba(255,255,255,0.7)]">
@@ -39,7 +39,7 @@ export const OverlaySimulator: React.FC<OverlaySimulatorProps> = ({
               <span>Permission / Hardware Error</span>
             </div>
             {onCloseError && (
-              <button onClick={onCloseError} className="text-[#98928A] hover:text-[#1C1B19]">
+              <button type="button" onClick={onCloseError} aria-label="Close error message" className="text-[#98928A] hover:text-[#1C1B19] p-1 rounded-md">
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
@@ -81,7 +81,9 @@ export const OverlaySimulator: React.FC<OverlaySimulatorProps> = ({
               <span className="text-[#98928A] mr-1">Style:</span>
               {(['dot', 'pill', 'wave', 'orb', 'monochrome'] as OverlayStyle[]).map((style) => (
                 <button
+                  type="button"
                   key={style}
+                  aria-pressed={overlayStyle === style}
                   onClick={() => onStyleChange(style)}
                   className={`px-2 py-0.5 rounded-full capitalize transition-all ${
                     overlayStyle === style ? 'bg-[rgba(255,254,251,0.9)] text-[#1C1B19] font-semibold border border-white/80' : 'hover:text-[#1C1B19]'
@@ -132,7 +134,7 @@ export const OverlaySimulator: React.FC<OverlaySimulatorProps> = ({
 
           {/* WAVE STYLE */}
           {overlayStyle === 'wave' && (
-            <div className="sori-floating p-3.5 flex flex-col gap-2 min-w-[220px]">
+            <div className="sori-floating p-3.5 flex flex-col gap-2 w-full sm:min-w-[220px]">
               <div className="flex items-center justify-between text-xs text-[#68635D]">
                 <span className="flex items-center gap-1 font-semibold text-[#1C1B19]">
                   <Mic className="w-3.5 h-3.5 text-[#68635D]" />

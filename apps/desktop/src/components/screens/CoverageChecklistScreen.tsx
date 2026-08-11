@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { DoctorCheck, RuntimeSource } from '../../runtime-client';
+import type { DaemonStatus, DoctorCheck, RuntimeSource } from '../../runtime-client';
 import {
   Activity,
   CheckCircle2,
@@ -18,15 +18,21 @@ import {
 interface CoverageChecklistScreenProps {
   checks?: DoctorCheck[];
   runtimeSource?: RuntimeSource;
+  runtimeStatus?: DaemonStatus;
+  runtimeError?: string | null;
+  onRefresh?: () => Promise<void>;
 }
 
 export const CoverageChecklistScreen: React.FC<CoverageChecklistScreenProps> = ({
   checks = [],
   runtimeSource = 'unavailable',
+  runtimeStatus,
+  runtimeError,
+  onRefresh,
 }) => {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [daemonStatus, setDaemonStatus] = useState<'running' | 'restarting'>('running');
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [daemonStatus, setDaemonStatus] = useState<'running' | 'restarting'>('running');
 
   const doctorChecklist = checks.length > 0
     ? checks.map((check) => ({
@@ -40,26 +46,34 @@ export const CoverageChecklistScreen: React.FC<CoverageChecklistScreenProps> = (
   const passedCount = doctorChecklist.filter((item) => item.status === 'Passed').length;
   const allPassed = passedCount === doctorChecklist.length && doctorChecklist.length > 0;
 
+  const handleTestInjection = () => {
+    setTestResult('Text injection payload successfully delivered to focused input window.');
+    setTimeout(() => setTestResult(null), 3000);
+  };
+
   const handleRestartDaemon = () => {
     setDaemonStatus('restarting');
-    setTimeout(() => {
-      setDaemonStatus('running');
-    }, 1200);
+    setTimeout(() => setDaemonStatus('running'), 1200);
+  };
+
+  const handleRefreshDoctor = async () => {
+    setIsRefreshing(true);
+    try {
+      await onRefresh?.();
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const statusPillClass = allPassed
     ? 'text-[#1F6B43] bg-[#EAF6EE] border-[#CBE5D4]'
     : 'text-[#8A6418] bg-[#FFF5DD] border-[#EBD9A8]';
 
-  const handleTestInjection = () => {
-    setTestResult('Text injection payload successfully delivered to focused input window.');
-    setTimeout(() => setTestResult(null), 3000);
-  };
-
-  const handleRefreshDoctor = () => {
-    setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 800);
-  };
+  const statusLabel = runtimeStatus?.paused
+    ? 'Paused'
+    : runtimeStatus?.activity === 'error'
+      ? 'Error'
+      : runtimeStatus?.activity ?? 'Unknown';
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto p-4 md:p-6 text-[#161616]">
@@ -70,6 +84,7 @@ export const CoverageChecklistScreen: React.FC<CoverageChecklistScreenProps> = (
           <p className="sori-body-text mt-0.5">
             Real daemon doctor checklist for audio capture, local IPC, storage, and text injection readiness.
           </p>
+          <p className="text-[11px] text-[#858A90] mt-1" title={runtimeError ?? undefined}>Runtime: {statusLabel}</p>
         </div>
 
         <button
@@ -137,7 +152,7 @@ export const CoverageChecklistScreen: React.FC<CoverageChecklistScreenProps> = (
             className="px-4 py-2 bg-white hover:bg-[#F0F1F2] text-[#2B2F33] border border-[#E2E4E8] rounded-[10px] text-xs font-medium transition flex items-center gap-1.5"
           >
             <RefreshCw className="w-3.5 h-3.5 text-[#5C728A]" />
-            <span>Restart Daemon (`sorid`)</span>
+            <span>{daemonStatus === 'restarting' ? 'Restarting daemon…' : 'Restart Daemon (`sorid`)'}</span>
           </button>
 
           <button

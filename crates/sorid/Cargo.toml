@@ -11,6 +11,7 @@ anyhow.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 sori-core = { path = "../sori-core" }
+sori-ipc = { path = "../sori-ipc" }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

@@ -13,11 +13,12 @@ transaction, paste, and make a best-effort restore. The result and
 `UndoRestoreAttempt` representation must report that restoration/undo was only
 attempted, not guaranteed.
 
-On Windows, the scaffold in `sori_core::text_injection::windows` is the boundary
-for a future `SendInput` and clipboard implementation. It intentionally does
-not call the OS itself. Adapters should also refuse or clearly report elevated
-integrity-level mismatches rather than silently injecting into another security
-context.
+On Windows, `WindowsTextInjector::native()` now provides a concrete UTF-16
+`SendInput` adapter. It deliberately advertises direct input only: clipboard
+snapshot/restore and undo remain unsupported, so the runtime cannot claim a
+clipboard fallback it cannot safely perform. Adapters should also refuse or
+clearly report elevated integrity-level mismatches rather than silently
+injecting into another security context.
 
 ## Manual application matrix
 

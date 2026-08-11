@@ -268,16 +268,20 @@ pub mod windows {
 
     impl<A> WindowsTextInjector<A> {
         pub fn new(adapter: A) -> Self {
+            Self::with_capabilities(
+                adapter,
+                InjectorCapabilities {
+                    direct_input: true,
+                    clipboard: true,
+                    clipboard_restore: true,
+                    undo: true,
+                },
+            )
+        }
+
+        pub fn with_capabilities(adapter: A, capabilities: InjectorCapabilities) -> Self {
             Self {
-                inner: AdapterTextInjector::new(
-                    adapter,
-                    InjectorCapabilities {
-                        direct_input: true,
-                        clipboard: true,
-                        clipboard_restore: true,
-                        undo: true,
-                    },
-                ),
+                inner: AdapterTextInjector::new(adapter, capabilities),
                 elevated_target_access: false,
             }
         }
@@ -287,6 +291,98 @@ pub mod windows {
         pub fn with_elevated_target_access(mut self, permitted: bool) -> Self {
             self.elevated_target_access = permitted;
             self
+        }
+    }
+
+    #[cfg(windows)]
+    #[derive(Debug, Default)]
+    pub struct WindowsSendInputAdapter;
+
+    #[cfg(windows)]
+    impl WindowsSendInputAdapter {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+
+    #[cfg(windows)]
+    impl TextInjectionAdapter for WindowsSendInputAdapter {
+        fn send_direct_input(&mut self, text: &str) -> Result<(), String> {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+                INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+            };
+            let mut inputs = Vec::with_capacity(text.encode_utf16().count() * 2);
+            for code_unit in text.encode_utf16() {
+                let key = KEYBDINPUT {
+                    wVk: 0,
+                    wScan: code_unit,
+                    dwFlags: KEYEVENTF_UNICODE,
+                    time: 0,
+                    dwExtraInfo: 0,
+                };
+                inputs.push(INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 { ki: key },
+                });
+                inputs.push(INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                            ..key
+                        },
+                    },
+                });
+            }
+            if inputs.is_empty() {
+                return Ok(());
+            }
+            let sent = unsafe {
+                windows_sys::Win32::UI::Input::KeyboardAndMouse::SendInput(
+                    inputs.len() as u32,
+                    inputs.as_ptr(),
+                    std::mem::size_of::<INPUT>() as i32,
+                )
+            };
+            if sent == inputs.len() as u32 {
+                Ok(())
+            } else {
+                let error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+                Err(format!(
+                    "SendInput sent {sent}/{} events (error {error})",
+                    inputs.len()
+                ))
+            }
+        }
+        fn snapshot_clipboard(&mut self) -> Result<(), String> {
+            Err("Windows clipboard fallback is not wired; direct SendInput only".into())
+        }
+        fn set_clipboard_text(&mut self, _: &str) -> Result<(), String> {
+            Err("Windows clipboard fallback is not wired; direct SendInput only".into())
+        }
+        fn paste_from_clipboard(&mut self) -> Result<(), String> {
+            Err("Windows clipboard fallback is not wired; direct SendInput only".into())
+        }
+        fn restore_clipboard(&mut self) -> Result<(), String> {
+            Err("Windows clipboard fallback is not wired; direct SendInput only".into())
+        }
+        fn request_undo(&mut self) -> Result<(), String> {
+            Err("Windows undo is not wired".into())
+        }
+    }
+
+    #[cfg(windows)]
+    impl WindowsTextInjector<WindowsSendInputAdapter> {
+        pub fn native() -> Self {
+            Self::with_capabilities(
+                WindowsSendInputAdapter::new(),
+                InjectorCapabilities {
+                    direct_input: true,
+                    clipboard: false,
+                    clipboard_restore: false,
+                    undo: false,
+                },
+            )
         }
     }
 

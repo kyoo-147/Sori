@@ -47,6 +47,8 @@ pub use pipeline::{DictationResult, PipelineError, PipelinePlan, PipelineStage, 
 pub use routing::{
     RouteExplanation, RoutePolicy, RoutePreset, RouteSimulatorInput, RouteTarget, explain_route,
 };
+#[cfg(windows)]
+pub use text_injection::windows::WindowsSendInputAdapter;
 pub use text_injection::windows::WindowsTextInjector;
 pub use text_injection::{
     AdapterTextInjector, ClipboardPolicy, InjectionPlan, InjectionStrategy, InjectorCapabilities,

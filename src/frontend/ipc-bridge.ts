@@ -1,4 +1,5 @@
 import type { DaemonStatus, TrayResponse } from '../tray/protocol.js';
+import { responsePayload, type IpcOperation as ContractOperation, type IpcResponseMap } from '../../apps/desktop/src/ipc-contract.js';
 
 /** View models deliberately contain no transport-specific enums or serde shapes. */
 export interface DaemonStatusView {
@@ -27,7 +28,7 @@ export interface TranscriptView {
   status: 'partial' | 'final' | 'event';
 }
 
-export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'pause' | 'resume';
+export type IpcOperation = ContractOperation;
 export interface IpcTransport { request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown>; }
 export interface RuntimeResult<T> { data: T; source: 'backend' | 'tray' | 'mock'; error: string | null; }
 
@@ -43,8 +44,8 @@ function string(value: unknown, fallback: string | null = null): string | null {
 }
 function unwrap(value: unknown, tag: string): Record<string, unknown> {
   const root = object(value);
-  const pascal = tag.split('_').map((part) => part[0].toUpperCase() + part.slice(1)).join('');
-  const tagged = object(root[tag] ?? root[pascal]);
+  const variant = tag.split('_').map((part) => part[0].toUpperCase() + part.slice(1)).join('') as keyof IpcResponseMap;
+  const tagged = object(responsePayload(value, variant));
   return Object.keys(tagged).length > 0 ? tagged : root;
 }
 function failure(error: unknown): string {

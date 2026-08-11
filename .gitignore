@@ -14,6 +14,12 @@ coverage/
 # Rust outputs
 target/
 
+# Local runtime/e2e artifacts
+.tmp/
+sori.db
+*.db-shm
+*.db-wal
+
 # Local Lavish review artifacts
 .lavish/
 

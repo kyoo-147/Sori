@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.sori.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run desktop:dev -- --port 1420",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run desktop:build",
     "frontendDist": "../dist"
   },
   "app": {

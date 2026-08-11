@@ -13,7 +13,8 @@
     "desktop:dev": "npm --prefix apps/desktop run dev",
     "desktop:build": "npm --prefix apps/desktop run build",
     "desktop:check": "npm --prefix apps/desktop run check",
-    "e2e:desktop-backend": "tsx scripts/e2e-desktop-backend.ts"
+    "e2e:desktop-backend": "tsx scripts/e2e-desktop-backend.ts",
+    "e2e:desktop-native": "tsx scripts/e2e-desktop-native.ts"
   },
   "engines": {
     "node": ">=22"

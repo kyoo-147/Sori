@@ -39,6 +39,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
   if (!isOpen) return null;
 
   const profiles: AppSettings['activeProfile'][] = ['Coding', 'Writing', 'Vietnamese', 'General'];
+  const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
   const overlayStyles: OverlayStyle[] = ['dot', 'pill', 'wave', 'orb', 'monochrome'];
 
   return (
@@ -49,7 +50,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
           <div className="w-2.5 h-2.5 rounded-full bg-[#4E7A61] animate-pulse"></div>
           <span className="font-bold text-sm text-[#1C1B19]">Sori System Tray</span>
           <span className="text-[11px] px-2 py-0.5 rounded-full bg-[rgba(235,230,223,0.6)] text-[#68635D] font-mono border border-[rgba(92,84,75,0.08)]">
-            {runtimeSource === 'backend' ? 'Backend Active' : runtimeSource === 'mock' ? 'Mock Fallback' : 'Unavailable'}
+            {runtimeConnected ? (runtimeSource === 'native' ? 'Native Active' : 'Backend Active') : runtimeSource === 'mock' ? 'Mock Fallback' : 'Unavailable'}
           </span>
         </div>
         <button

@@ -62,7 +62,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     <aside className={`${isOpen ? 'flex' : 'hidden'} md:flex w-60 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-xl bg-[rgba(235,231,225,0.96)] backdrop-blur-2xl border-r border-[rgba(92,84,75,0.08)] flex-col justify-between h-full select-none text-[#1C1B19]`}>
       <button type="button" aria-label="Close navigation" onClick={onClose} className="md:hidden absolute top-3 right-3 text-[#68635D] p-2 rounded-md hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#6E7A80]">×</button>
       {/* Top Search & Nav */}
-      <div className="p-3 space-y-3.5 overflow-y-auto custom-scrollbar">
+      <div className="p-3 space-y-3.5 overflow-y-auto custom-scrollbar" role="navigation" aria-label="Primary Sori navigation">
         {/* Search Input Box */}
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[#98928A]" />
@@ -85,6 +85,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               <button
                 key={item.id}
                 onClick={() => setActiveScreen(item.id)}
+                aria-label={item.label}
+                aria-current={isActive ? 'page' : undefined}
                 className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
                   isActive
                     ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
@@ -110,6 +112,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 <button
                   key={item.id}
                   onClick={() => setActiveScreen(item.id)}
+                  aria-label={item.label}
+                  aria-current={isActive ? 'page' : undefined}
                   className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
                     isActive
                       ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
@@ -136,6 +140,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 <button
                   key={item.id}
                   onClick={() => setActiveScreen(item.id)}
+                  aria-label={item.label}
+                  aria-current={isActive ? 'page' : undefined}
                   className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
                     isActive
                       ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
@@ -162,6 +168,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 <button
                   key={item.id}
                   onClick={() => setActiveScreen(item.id)}
+                  aria-label={item.label}
+                  aria-current={isActive ? 'page' : undefined}
                   className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
                     isActive
                       ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'

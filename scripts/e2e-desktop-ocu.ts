@@ -21,7 +21,7 @@ type NavExpectation = {
 };
 
 const NAV_FLOWS: NavExpectation[] = [
-  { label: 'Home', expected: ['Sori is ready', 'Simulate Dictation'] },
+  { label: 'Home', expected: ['Sori preview — Try a local capture', 'Simulate Dictation'] },
   { label: 'Transcripts', expected: ['Transcripts Timeline', 'Local voice capture audit log'] },
   { label: 'Vocabulary', expected: ['Vocabulary', 'voice macro expansions'] },
   { label: 'Voice Edit', expected: ['Voice Edit', 'natural edit instructions'] },
@@ -114,6 +114,12 @@ function assertIncludes(text: string, expected: string, label: string): void {
   }
 }
 
+function looksLikeWebViewAccessibilityLimitation(text: string): boolean {
+  const normalized = text.toLowerCase();
+  const hasExpectedUi = ['home', 'command center', 'sori preview'].some((label) => normalized.includes(label));
+  return !hasExpectedUi && (normalized.includes('webview') || normalized.includes('region'));
+}
+
 function findButtonIndex(accessibilityText: string, label: string): string {
   const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = accessibilityText.match(new RegExp(`\\n\\s*(\\d+) button ${escapedLabel}(?: Secondary Actions| Frame|$)`));
@@ -136,12 +142,32 @@ async function runOcuSequence(calls: OcuCall[], tmpDir: string, name: string): P
       npm_config_audit: 'false',
     },
   });
+  const rawFile = resolve(tmpDir, `${name}.raw.txt`);
+  writeFileSync(rawFile, result.output);
   if (result.code !== 0) {
-    throw new Error(`open-computer-use sequence failed:\n${result.output}`);
+    throw new Error(`open-computer-use sequence failed (raw output: ${rawFile}):\n${result.output}`);
   }
   const jsonStart = result.output.indexOf('[');
-  if (jsonStart < 0) throw new Error(`open-computer-use did not return JSON:\n${result.output.slice(0, 500)}`);
-  return JSON.parse(result.output.slice(jsonStart)) as OcuCallResult[];
+  if (jsonStart < 0) throw new Error(`open-computer-use did not return JSON (raw output: ${rawFile}):\n${result.output.slice(0, 500)}`);
+  const parsed = JSON.parse(result.output.slice(jsonStart)) as OcuCallResult[];
+  writeFileSync(resolve(tmpDir, `${name}.json`), JSON.stringify(parsed, null, 2));
+  return parsed;
+}
+
+async function captureFailureEvidence(tmpDir: string, reason: unknown): Promise<void> {
+  const evidence = resolve(tmpDir, 'failure');
+  mkdirSync(evidence, { recursive: true });
+  writeFileSync(resolve(evidence, 'error.txt'), reason instanceof Error ? reason.stack ?? reason.message : String(reason));
+  try {
+    const results = await runOcuSequence([
+      { tool: 'get_app_state', args: OCU_STATE_ARGS },
+      { tool: 'screenshot', args: { app: 'sori-desktop' } },
+    ], evidence, 'failure-evidence');
+    writeFileSync(resolve(evidence, 'state.txt'), textFromResult(results[0]));
+    writeFileSync(resolve(evidence, 'results.json'), JSON.stringify(results, null, 2));
+  } catch (captureError) {
+    writeFileSync(resolve(evidence, 'capture-error.txt'), captureError instanceof Error ? captureError.stack ?? captureError.message : String(captureError));
+  }
 }
 
 async function main(): Promise<void> {
@@ -168,8 +194,13 @@ async function main(): Promise<void> {
   daemon.stderr.on('data', (chunk) => process.stderr.write(`[sorid] ${chunk}`));
 
   let appProcess: ChildProcess | null = null;
+  let daemonStartupError: string | null = null;
+  daemon.once('close', (code) => {
+    if (code !== 0) daemonStartupError = `sorid exited before the desktop smoke completed (code ${code}); port 17373 may already be owned by a stale daemon`;
+  });
   try {
     await waitForIpc();
+    if (daemonStartupError) throw new Error(daemonStartupError);
     appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
     appProcess.stdout.on('data', (chunk) => process.stdout.write(`[desktop] ${chunk}`));
     appProcess.stderr.on('data', (chunk) => process.stderr.write(`[desktop] ${chunk}`));
@@ -177,14 +208,22 @@ async function main(): Promise<void> {
     await delay(2_000);
 
     console.log('Hydrating WebView2 accessibility tree through Open Computer Use...');
-    const hydrated = await runOcuSequence([
-      { tool: 'get_app_state', args: OCU_STATE_ARGS },
-      { tool: 'click', args: { app: 'sori-desktop', x: 100, y: 100 } },
-      { tool: 'get_app_state', args: OCU_STATE_ARGS },
-    ], tmpDir, 'hydrate');
-    let currentState = textFromResult(hydrated[2]);
+    let currentState = '';
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const hydrated = await runOcuSequence([
+        { tool: 'get_app_state', args: OCU_STATE_ARGS },
+        { tool: 'click', args: { app: 'sori-desktop', x: 100, y: 100 } },
+        { tool: 'get_app_state', args: OCU_STATE_ARGS },
+      ], tmpDir, `hydrate-${attempt}`);
+      currentState = textFromResult(hydrated[2]);
+      if (currentState.includes('Home') || currentState.includes('Sori preview')) break;
+      await delay(1_000);
+    }
 
-    assertIncludes(currentState, 'Sori is ready', 'hydrated OCU state');
+    if (looksLikeWebViewAccessibilityLimitation(currentState)) {
+      throw new Error('WebView2 accessibility limitation: OCU returned only generic WebView2/region nodes; visual rendering alone is not accepted. See .tmp/e2e-ocu/failure/.');
+    }
+    assertIncludes(currentState, 'Sori preview — Try a local capture', 'hydrated OCU state');
     assertIncludes(currentState, 'button Transcripts', 'hydrated OCU state');
     assertIncludes(currentState, 'Command Center', 'Windows command bar state');
     if (currentState.includes('Sori Desktop')) {
@@ -215,6 +254,9 @@ async function main(): Promise<void> {
     if (status.Status?.running !== true) throw new Error('daemon status was not running during OCU desktop smoke');
 
     console.log('PASS: Open Computer Use clicked all primary Sori desktop flows and asserted semantic screen state.');
+  } catch (error) {
+    await captureFailureEvidence(tmpDir, error);
+    throw error;
   } finally {
     if (appProcess) await stop(appProcess);
     await stop(daemon);

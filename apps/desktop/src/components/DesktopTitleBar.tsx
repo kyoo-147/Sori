@@ -36,6 +36,8 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   sidebarOpen,
   onToggleSidebar,
 }) => {
+  const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
+
   return (
     <div className="min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.10)] px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D] shadow-[0_1px_8px_rgba(40,34,28,0.03)]">
       <button
@@ -55,7 +57,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           <span className="hidden md:inline font-semibold text-[#1C1B19] tracking-tight">Command Center</span>
           <span title={runtimeError ?? undefined} className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border ${runtimeSource === 'backend' ? 'bg-[#EAF6EE] text-[#1F6B43] border-[#CBE5D4]' : runtimeSource === 'mock' ? 'bg-[#FFF5DD] text-[#8A6418] border-[#EBD9A8]' : 'bg-[#F9EBEA] text-[#A75850] border-[#E8C6C2]'}`}>
             <CircleDot className="h-2.5 w-2.5" aria-hidden="true" />
-            {runtimeSource === 'backend' ? 'Backend' : runtimeSource === 'mock' ? 'Mock fallback' : 'Unavailable'}
+            {runtimeConnected ? (runtimeSource === 'native' ? 'Native' : 'Backend') : runtimeSource === 'mock' ? 'Mock fallback' : 'Unavailable'}
           </span>
           <span className="hidden sm:inline text-[11px] px-2 py-0.5 rounded-full bg-[rgba(235,230,223,0.5)] text-[#68635D] font-mono border border-[rgba(92,84,75,0.08)]">
             v0.2
@@ -79,7 +81,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           <span className="hidden sm:inline">{isListening ? 'Preview listening…' : 'Preview capture'}</span>
         </button>
 
-        <button onClick={onTogglePaused} aria-label={runtimeStatus.paused ? 'Resume Sori daemon' : 'Pause Sori daemon'} disabled={runtimeSource === 'unavailable' || runtimeSource === 'mock'} title={runtimeSource === 'mock' ? 'Daemon controls are unavailable in preview mode' : undefined} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs disabled:opacity-50">
+        <button onClick={onTogglePaused} aria-label={runtimeStatus.paused ? 'Resume Sori daemon' : 'Pause Sori daemon'} disabled={!runtimeConnected} title={runtimeSource === 'mock' ? 'Daemon controls are unavailable in preview mode' : undefined} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs disabled:opacity-50">
           {runtimeStatus.paused ? 'Resume daemon' : 'Pause daemon'}
         </button>
         <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs">

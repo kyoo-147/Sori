@@ -1,4 +1,4 @@
-import { requestShape, responsePayload, type DoctorCheck, type IpcOperation, type IpcRequest, type IpcResponseMap, type RouteSummary } from './ipc-contract.js';
+import { requestShape, responsePayload, type DoctorCheck, type IpcHistoryEntry, type IpcOperation, type IpcRequest, type IpcResponseMap, type RouteSummary } from './ipc-contract.js';
 
 export type { DoctorCheck, IpcOperation, IpcRequest } from './ipc-contract.js';
 
@@ -48,6 +48,11 @@ export function mapStatus(value: unknown): DaemonStatus {
     privacy: text(raw.privacy, 'LocalOnly')!,
     version: text(raw.daemon_version) ?? text(raw.version),
   };
+}
+
+export function mapRecentHistory(value: unknown): IpcHistoryEntry[] {
+  const raw = unwrap(value, 'recent_history');
+  return Array.isArray(raw.entries) ? raw.entries as IpcHistoryEntry[] : [];
 }
 
 export function mapDoctor(value: unknown): DoctorCheck[] {
@@ -137,6 +142,10 @@ export class RuntimeClient {
   private usingMock = false;
   constructor(private readonly transport: IpcTransport = new DesktopIpcTransport()) {}
   async status(): Promise<RuntimeResult<DaemonStatus>> { return this.call('status', mapStatus, unavailable); }
+  async recentHistory(limit = 10): Promise<RuntimeResult<IpcHistoryEntry[]>> {
+    if (this.usingMock) return { data: [], source: 'mock', error: null };
+    return this.call('recent_history', mapRecentHistory, [], { limit });
+  }
   async doctor(): Promise<RuntimeResult<DoctorCheck[]>> {
     if (this.usingMock) return this.mock.doctor();
     return this.call('doctor', mapDoctor, []);
@@ -152,8 +161,8 @@ export class RuntimeClient {
       return { data: unavailable, source: 'unavailable', error: errorText(error) };
     }
   }
-  private async call<T>(operation: IpcOperation, mapper: (value: unknown) => T, fallback: T): Promise<RuntimeResult<T>> {
-    try { return { data: mapper(await this.transport.request(operation)), source: this.transport.source ?? 'backend', error: null }; }
+  private async call<T>(operation: IpcOperation, mapper: (value: unknown) => T, fallback: T, params?: Record<string, unknown>): Promise<RuntimeResult<T>> {
+    try { return { data: mapper(await this.transport.request(operation, params)), source: this.transport.source ?? 'backend', error: null }; }
     catch (error) {
       if (operation === 'status') { this.usingMock = true; const mock = await this.mock.status(); return { ...mock, error: errorText(error) } as RuntimeResult<T>; }
       return { data: fallback, source: 'unavailable', error: errorText(error) };

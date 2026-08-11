@@ -6,7 +6,7 @@
 //! [`Transport`] trait later.
 
 use serde::{Deserialize, Serialize};
-use sori_core::{Event, EventKind, PrivacyMode, ProfileMode, event::serde_json_like};
+use sori_core::{Event, EventKind, HistoryEntry, PrivacyMode, ProfileMode, event::serde_json_like};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex};
@@ -25,6 +25,7 @@ pub enum Request {
     Doctor,
     ConfigSummary,
     RecentEvents { limit: u16 },
+    RecentHistory { limit: u16 },
     Pause,
     Resume,
 }
@@ -35,6 +36,7 @@ pub enum Response {
     Doctor(DoctorResponse),
     ConfigSummary(ConfigSummaryResponse),
     RecentEvents(RecentEventsResponse),
+    RecentHistory(RecentHistoryResponse),
     Control(ControlResponse),
 }
 
@@ -94,6 +96,36 @@ pub struct ConfigSummaryResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecentEventsResponse {
     pub events: Vec<IpcEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecentHistoryResponse {
+    pub entries: Vec<IpcHistoryEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IpcHistoryEntry {
+    pub id: Uuid,
+    pub at: OffsetDateTime,
+    pub active_app: Option<String>,
+    pub transcript: sori_core::Transcript,
+    pub intent: sori_core::FastIntent,
+    pub route: Option<sori_core::ModelRoute>,
+    pub inserted_text: Option<String>,
+}
+
+impl From<HistoryEntry> for IpcHistoryEntry {
+    fn from(entry: HistoryEntry) -> Self {
+        Self {
+            id: entry.id,
+            at: entry.at,
+            active_app: entry.active_app,
+            transcript: entry.transcript,
+            intent: entry.intent,
+            route: entry.route,
+            inserted_text: entry.inserted_text,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -329,6 +361,7 @@ struct MockState {
     config: ConfigSummaryResponse,
     checks: Vec<DoctorCheck>,
     events: Vec<IpcEvent>,
+    history: Vec<IpcHistoryEntry>,
 }
 
 impl Default for MockIpcServer {
@@ -369,6 +402,7 @@ impl Default for MockIpcServer {
                     detail: "mock daemon is reachable".into(),
                 }],
                 events: Vec::new(),
+                history: Vec::new(),
             })),
         }
     }
@@ -386,6 +420,14 @@ impl MockIpcServer {
             .expect("mock IPC lock poisoned")
             .events
             .push(event.into());
+    }
+
+    pub fn publish_history(&self, entry: HistoryEntry) {
+        self.state
+            .lock()
+            .expect("mock IPC lock poisoned")
+            .history
+            .push(entry.into());
     }
 }
 
@@ -410,6 +452,15 @@ impl Transport for MockTransport {
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
                 events: state
                     .events
+                    .iter()
+                    .rev()
+                    .take(usize::from(limit))
+                    .cloned()
+                    .collect(),
+            }),
+            Request::RecentHistory { limit } => Response::RecentHistory(RecentHistoryResponse {
+                entries: state
+                    .history
                     .iter()
                     .rev()
                     .take(usize::from(limit))
@@ -551,6 +602,7 @@ mod tests {
         fn events_len(&self) -> usize {
             match self {
                 Response::RecentEvents(events) => events.events.len(),
+                Response::RecentHistory(history) => history.entries.len(),
                 _ => 0,
             }
         }

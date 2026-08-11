@@ -2,8 +2,8 @@ use anyhow::Result;
 use sori_core::{PrivacyMode, ProfileMode};
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
-    IpcEvent, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse, Request, Response,
-    RouteSummary, RuntimeActivity, StatusResponse,
+    IpcEvent, IpcHistoryEntry, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse,
+    RecentHistoryResponse, Request, Response, RouteSummary, RuntimeActivity, StatusResponse,
 };
 use sori_persistence::SqliteStore;
 use sorid::{DaemonConfig, DaemonRuntime, RuntimeState, SharedEventBus};
@@ -86,6 +86,14 @@ async fn main() -> Result<()> {
                     .into_iter()
                     .rev()
                     .map(IpcEvent::from)
+                    .collect(),
+            }),
+            Request::RecentHistory { limit } => Response::RecentHistory(RecentHistoryResponse {
+                entries: handler_store
+                    .try_recent_history(usize::from(limit))
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .into_iter()
+                    .map(IpcHistoryEntry::from)
                     .collect(),
             }),
             Request::Pause => {

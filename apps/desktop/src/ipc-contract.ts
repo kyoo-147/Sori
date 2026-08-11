@@ -38,7 +38,8 @@ export type IpcValue =
 
 export type IpcRequest =
   | 'Status' | 'Doctor' | 'ConfigSummary' | 'Pause' | 'Resume'
-  | { RecentEvents: { limit: number } };
+  | { RecentEvents: { limit: number } }
+  | { RecentHistory: { limit: number } };
 
 export interface StatusResponse {
   protocol_version: number;
@@ -55,6 +56,19 @@ export interface DoctorCheck { name: string; ok: boolean; detail: string; }
 export interface DoctorResponse { status: StatusResponse; checks: DoctorCheck[]; }
 export interface ConfigSummaryResponse { profile: ProfileMode; privacy: PrivacyMode; history_enabled: boolean; hotkey: string; route: RouteSummary; }
 export interface RecentEventsResponse { events: IpcEvent[]; }
+export type FastIntent =
+  | { Dictation: { text: string } }
+  | { EditSelection: { instruction: string } }
+  | { DeterministicCommand: { command: string } }
+  | { Snippet: { trigger: string } }
+  | { AgentRequest: { prompt: string } };
+export interface TranscriptSegment { text: string; start: string; end: string; confidence: number | null; speaker: string | null; }
+export interface Transcript { language: string | null; text: string; segments: TranscriptSegment[]; }
+export interface IpcHistoryEntry {
+  id: string; at: string; active_app: string | null; transcript: Transcript;
+  intent: FastIntent; route: Record<string, unknown> | null; inserted_text: string | null;
+}
+export interface RecentHistoryResponse { entries: IpcHistoryEntry[]; }
 export interface ControlResponse { accepted: boolean; detail: string; }
 
 export interface IpcResponseMap {
@@ -62,11 +76,12 @@ export interface IpcResponseMap {
   Doctor: DoctorResponse;
   ConfigSummary: ConfigSummaryResponse;
   RecentEvents: RecentEventsResponse;
+  RecentHistory: RecentHistoryResponse;
   Control: ControlResponse;
 }
 export type IpcResponse = { [K in keyof IpcResponseMap]: { [P in K]: IpcResponseMap[K] } }[keyof IpcResponseMap];
 
-export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'pause' | 'resume';
+export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'recent_history' | 'pause' | 'resume';
 
 export function requestShape(operation: IpcOperation, params: Record<string, unknown> = {}): IpcRequest {
   switch (operation) {
@@ -74,6 +89,7 @@ export function requestShape(operation: IpcOperation, params: Record<string, unk
     case 'doctor': return 'Doctor';
     case 'config_summary': return 'ConfigSummary';
     case 'recent_events': return { RecentEvents: { limit: Number(params.limit ?? 10) } };
+    case 'recent_history': return { RecentHistory: { limit: Number(params.limit ?? 10) } };
     case 'pause': return 'Pause';
     case 'resume': return 'Resume';
   }
@@ -87,6 +103,6 @@ export function responsePayload<K extends keyof IpcResponseMap>(value: unknown, 
 }
 
 export function isIpcResponse(value: unknown): value is IpcResponse {
-  return !!value && typeof value === 'object' && ['Status', 'Doctor', 'ConfigSummary', 'RecentEvents', 'Control']
+  return !!value && typeof value === 'object' && ['Status', 'Doctor', 'ConfigSummary', 'RecentEvents', 'RecentHistory', 'Control']
     .some((variant) => variant in (value as object));
 }

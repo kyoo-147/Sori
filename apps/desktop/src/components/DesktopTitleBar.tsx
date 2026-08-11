@@ -1,5 +1,6 @@
 import React from 'react';
 import { AppSettings } from '../types';
+import type { DaemonStatus, RuntimeSource } from '../runtime-client';
 import { Mic, Monitor, Tablet, Smartphone, Flame } from 'lucide-react';
 
 interface DesktopTitleBarProps {
@@ -12,6 +13,10 @@ interface DesktopTitleBarProps {
   deviceView: 'desktop' | 'tablet' | 'mobile';
   setDeviceView: (view: 'desktop' | 'tablet' | 'mobile') => void;
   activeModelName: string;
+  runtimeSource: RuntimeSource;
+  runtimeStatus: DaemonStatus;
+  runtimeError: string | null;
+  onTogglePaused: () => void;
 }
 
 export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
@@ -22,6 +27,10 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   setTrayOpen,
   deviceView,
   setDeviceView,
+  runtimeSource,
+  runtimeStatus,
+  runtimeError,
+  onTogglePaused,
 }) => {
   return (
     <div className="h-12 bg-[rgba(248,245,241,0.85)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.08)] px-4 flex items-center justify-between select-none text-[13px] text-[#68635D]">
@@ -37,6 +46,9 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         {/* App Title */}
         <div className="flex items-center gap-2">
           <span className="font-semibold text-[#1C1B19] tracking-tight">Sori Desktop</span>
+          <span title={runtimeError ?? undefined} className={`text-[10px] px-2 py-0.5 rounded-full border ${runtimeSource === 'backend' ? 'bg-[#EAF6EE] text-[#1F6B43] border-[#CBE5D4]' : runtimeSource === 'mock' ? 'bg-[#FFF5DD] text-[#8A6418] border-[#EBD9A8]' : 'bg-[#F9EBEA] text-[#A75850] border-[#E8C6C2]'}`}>
+            {runtimeSource === 'backend' ? 'Backend' : runtimeSource === 'mock' ? 'Mock fallback' : 'Unavailable'}
+          </span>
           <span className="text-[11px] px-2 py-0.5 rounded-full bg-[rgba(235,230,223,0.5)] text-[#68635D] font-mono border border-[rgba(92,84,75,0.08)]">
             v0.2
           </span>
@@ -57,6 +69,9 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           <span>{isListening ? 'Listening (Release)...' : `Hold ${settings.hotkey} to speak`}</span>
         </button>
 
+        <button onClick={onTogglePaused} disabled={runtimeSource === 'unavailable'} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs disabled:opacity-50">
+          {runtimeStatus.paused ? 'Resume daemon' : 'Pause daemon'}
+        </button>
         <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs">
           <Flame className="w-3.5 h-3.5 text-[#98928A]" />
           <span>Route: Local · Whisper Q5</span>

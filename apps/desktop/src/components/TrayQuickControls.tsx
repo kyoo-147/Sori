@@ -1,5 +1,6 @@
 import React from 'react';
 import { AppSettings, OverlayStyle } from '../types';
+import type { DaemonStatus, RuntimeSource } from '../runtime-client';
 import {
   X,
   Power,
@@ -19,6 +20,9 @@ interface TrayQuickControlsProps {
   setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
   activeModelName: string;
   onNavigate: (screen: any) => void;
+  runtimeSource: RuntimeSource;
+  runtimeStatus: DaemonStatus;
+  onTogglePaused: () => void;
 }
 
 export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
@@ -28,6 +32,9 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
   setSettings,
   activeModelName,
   onNavigate,
+  runtimeSource,
+  runtimeStatus,
+  onTogglePaused,
 }) => {
   if (!isOpen) return null;
 
@@ -42,7 +49,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
           <div className="w-2.5 h-2.5 rounded-full bg-[#4E7A61] animate-pulse"></div>
           <span className="font-bold text-sm text-[#1C1B19]">Sori System Tray</span>
           <span className="text-[11px] px-2 py-0.5 rounded-full bg-[rgba(235,230,223,0.6)] text-[#68635D] font-mono border border-[rgba(92,84,75,0.08)]">
-            Daemon Active
+            {runtimeSource === 'backend' ? 'Backend Active' : runtimeSource === 'mock' ? 'Mock Fallback' : 'Unavailable'}
           </span>
         </div>
         <button
@@ -159,11 +166,12 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
         </button>
 
         <button
-          onClick={() => alert('Sori daemon paused for 30 minutes')}
+          onClick={onTogglePaused}
+          disabled={runtimeSource === 'unavailable'}
           className="w-full text-left px-3 py-1.5 rounded-[10px] text-xs text-[#A75850] hover:bg-[#F9EBEA] flex items-center gap-2 transition mt-1"
         >
           <Power className="w-3.5 h-3.5" />
-          Pause Sori Daemon
+          {runtimeStatus.paused ? 'Resume Sori Daemon' : 'Pause Sori Daemon'}
         </button>
       </div>
     </div>

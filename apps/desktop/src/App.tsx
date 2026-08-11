@@ -44,6 +44,7 @@ import { VoiceIdentityScreen } from './components/screens/VoiceIdentityScreen';
 import { AssistantVoiceScreen } from './components/screens/AssistantVoiceScreen';
 import { CoverageChecklistScreen } from './components/screens/CoverageChecklistScreen';
 import { SystemDesignScreen } from './components/screens/SystemDesignScreen';
+import { RuntimeClient, type DaemonStatus, type RuntimeSource } from './runtime-client';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
@@ -64,6 +65,28 @@ export default function App() {
   const [trayOpen, setTrayOpen] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
+  const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, profile: 'Basic', privacy: 'LocalOnly', version: null });
+  const [runtimeSource, setRuntimeSource] = useState<RuntimeSource>('unavailable');
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [runtimeClient] = useState(() => new RuntimeClient());
+
+  useEffect(() => {
+    let mounted = true;
+    runtimeClient.status().then((result) => {
+      if (!mounted) return;
+      setRuntimeStatus(result.data);
+      setRuntimeSource(result.source);
+      setRuntimeError(result.error);
+    });
+    return () => { mounted = false; };
+  }, [runtimeClient]);
+
+  const setPaused = async (paused: boolean) => {
+    const result = await (paused ? runtimeClient.pause() : runtimeClient.resume());
+    setRuntimeStatus(result.data);
+    setRuntimeSource(result.source);
+    setRuntimeError(result.error);
+  };
 
   // Active warm model
   const activeWarmModel = models.find((m) => m.isWarm && m.isInstalled) || models[0];
@@ -166,6 +189,10 @@ export default function App() {
           deviceView={deviceView}
           setDeviceView={setDeviceView}
           activeModelName={activeWarmModel.name}
+          runtimeSource={runtimeSource}
+          runtimeStatus={runtimeStatus}
+          runtimeError={runtimeError}
+          onTogglePaused={() => setPaused(!runtimeStatus.paused)}
         />
 
         {/* Main Application Window Shell */}
@@ -186,6 +213,9 @@ export default function App() {
             settings={settings}
             setSettings={setSettings}
             activeModelName={activeWarmModel.name}
+            runtimeSource={runtimeSource}
+            runtimeStatus={runtimeStatus}
+            onTogglePaused={() => setPaused(!runtimeStatus.paused)}
             onNavigate={(sc) => {
               setActiveScreen(sc);
               setTrayOpen(false);

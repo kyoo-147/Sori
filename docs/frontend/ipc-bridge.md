@@ -1,6 +1,9 @@
 # Frontend IPC bridge
 
-The frontend uses `src/frontend/ipc-bridge.ts` rather than depending directly on
+The canonical IPC contract is Rust's `crates/sori-ipc/src/lib.rs`; its TypeScript mirror is
+`apps/desktop/src/ipc-contract.ts`. Changes to serde enums or fields must update the
+mirror and contract tests together. The frontend uses `src/frontend/ipc-bridge.ts`
+rather than depending directly on
 Rust, tray, or Tauri APIs. `RuntimeClient` exposes status, doctor, route/model
 summary, pause/resume, and recent transcript views. Methods return a
 `RuntimeResult` with fallback data and an error instead of blocking or throwing
@@ -17,7 +20,7 @@ when the daemon is absent.
   operation plus bounded parameters.
 
 The mapper accepts Rust `serde` externally tagged responses (`Status`,
-`Doctor`, `ConfigSummary`, `RecentEvents`) and the existing tray status shape.
+`Doctor`, `ConfigSummary`, `RecentEvents`, and `Control`) and the existing tray status shape.
 It converts these into UI-safe view models, including transcript events only
 when a text field is present.
 

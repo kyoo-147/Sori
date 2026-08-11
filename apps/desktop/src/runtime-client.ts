@@ -1,13 +1,6 @@
-export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'pause' | 'resume';
+import { requestShape, responsePayload, type IpcOperation, type IpcRequest, type IpcResponseMap } from './ipc-contract.js';
 
-/** JSON representation of the Rust sori-ipc::Request enum. */
-export type IpcRequest =
-  | 'Status'
-  | 'Doctor'
-  | 'ConfigSummary'
-  | 'Pause'
-  | 'Resume'
-  | { RecentEvents: { limit: number } };
+export type { IpcOperation, IpcRequest } from './ipc-contract.js';
 
 export interface DaemonStatus {
   daemon: 'starting' | 'running' | 'stopping' | 'unavailable';
@@ -31,21 +24,12 @@ function text(value: unknown, fallback: string | null = null): string | null { r
 function unwrap(value: unknown, tag: string): Record<string, unknown> {
   const root = record(value);
   const pascal = tag.split('_').map((part) => part[0].toUpperCase() + part.slice(1)).join('');
-  const tagged = record(root[tag] ?? root[pascal]);
+  const tagged = record(responsePayload(value, pascal as keyof IpcResponseMap) ?? root[tag]);
   return Object.keys(tagged).length ? tagged : root;
 }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
-export function requestShape(operation: IpcOperation, params: Record<string, unknown> = {}): IpcRequest {
-  switch (operation) {
-    case 'status': return 'Status';
-    case 'doctor': return 'Doctor';
-    case 'config_summary': return 'ConfigSummary';
-    case 'recent_events': return { RecentEvents: { limit: Number(params.limit ?? 10) } };
-    case 'pause': return 'Pause' as IpcRequest;
-    case 'resume': return 'Resume' as IpcRequest;
-  }
-}
+export { requestShape } from './ipc-contract.js';
 
 export function mapStatus(value: unknown): DaemonStatus {
   const raw = unwrap(value, 'status');

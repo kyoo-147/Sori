@@ -32,12 +32,14 @@ It performs:
 4. Waits for `http://127.0.0.1:17373/ipc` to return `Status`.
 5. Launches `apps/desktop/src-tauri/target/debug/sori-desktop.exe`.
 6. Verifies the native window title `Sori` appears.
-7. On Windows, brings the window to the foreground and performs real OS mouse clicks against the app window: Transcripts nav, Diagnostics/System area, and a top action region.
-8. Verifies daemon status is still `running` while the desktop process is alive after those clicks.
-9. Terminates both processes.
+7. Captures a baseline screenshot of the native window.
+8. On Windows, brings the window to the foreground and performs real OS mouse clicks against the app window: Transcripts nav, Diagnostics/System area, and a top action region.
+9. Captures screenshots after the clicks and compares hashes to prove visible state changed.
+10. Verifies daemon status is still `running` while the desktop process is alive after those clicks.
+11. Terminates both processes.
 
-This proves the real desktop shell launches, accepts native mouse input, and stays connected to a real backend daemon. It does not yet test OS hotkey, microphone, overlay, or text injection.
+This proves the real desktop shell launches, accepts native mouse input, visibly changes after clicks, and stays connected to a real backend daemon. It does not yet test OS hotkey, microphone, overlay, or text injection.
 
 ## Manual stronger checks
 
-When a richer GUI automation/use-computer tool is available, extend this test to assert rendered text after each click and capture screenshots for visual diffing. The current test already performs real OS-level clicks, but it verifies stability/backend connectivity rather than DOM content.
+The current test stores screenshots in `.tmp/e2e-native/` and requires at least three unique visual states. When a richer GUI automation/use-computer tool is available, extend this test to assert rendered text after each click. `tauri-driver` was installed and explored, but in this environment it attached to `about:blank`; the native Win32 click + screenshot diff path is currently the reliable desktop test.

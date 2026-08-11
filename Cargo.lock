@@ -1042,6 +1042,7 @@ dependencies = [
  "sori-core",
  "sori-ipc",
  "sori-persistence",
+ "sori-provider-whisper",
  "thiserror 2.0.20",
  "time",
  "tokio",

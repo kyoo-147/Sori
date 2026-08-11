@@ -142,6 +142,10 @@ Write-Host "clicked $cx,$cy"
 }
 
 async function main(): Promise<void> {
+  if (process.platform !== 'win32') {
+  console.log('SKIP: native desktop E2E is Windows-only and requires Tauri/Win32 prerequisites.');
+    return;
+  }
   console.log('Building backend daemon, desktop web assets, and Tauri debug app...');
   const daemonBuild = await run('cargo', ['build', '-p', 'sorid']);
   if (daemonBuild.code !== 0) throw new Error('sorid build failed');
@@ -154,6 +158,8 @@ async function main(): Promise<void> {
   const app = desktopBinaryPath();
   if (!existsSync(app)) throw new Error(`desktop binary not found at ${app}`);
 
+  const existing = await fetch('http://127.0.0.1:17373/ipc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify('Status'), signal: AbortSignal.timeout(500) }).catch(() => null);
+  if (existing?.ok) throw new Error('refusing native E2E: stale daemon already owns 127.0.0.1:17373');
   const daemon = spawn(resolve('target', 'debug', process.platform === 'win32' ? 'sorid.exe' : 'sorid'), [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
   daemon.stdout.on('data', (chunk) => process.stdout.write(`[sorid] ${chunk}`));
   daemon.stderr.on('data', (chunk) => process.stderr.write(`[sorid] ${chunk}`));

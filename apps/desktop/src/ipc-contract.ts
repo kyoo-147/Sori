@@ -38,6 +38,7 @@ export type IpcValue =
 
 export type IpcRequest =
   | 'Status' | 'Doctor' | 'ConfigSummary' | 'Pause' | 'Resume'
+  | { Dictation: { model: string; audio: AudioChunk[] } }
   | { RecentEvents: { limit: number } };
 
 export interface StatusResponse {
@@ -56,6 +57,8 @@ export interface DoctorResponse { status: StatusResponse; checks: DoctorCheck[];
 export interface ConfigSummaryResponse { profile: ProfileMode; privacy: PrivacyMode; history_enabled: boolean; hotkey: string; route: RouteSummary; }
 export interface RecentEventsResponse { events: IpcEvent[]; }
 export interface ControlResponse { accepted: boolean; detail: string; }
+export interface AudioChunk { captured_at: string; format: { sample_rate_hz: number; channels: number; sample_format: 'I16' | 'F32' }; samples: number[]; }
+export interface TranscriptResponse { language?: string | null; text: string; segments: unknown[]; }
 
 export interface IpcResponseMap {
   Status: StatusResponse;
@@ -63,6 +66,7 @@ export interface IpcResponseMap {
   ConfigSummary: ConfigSummaryResponse;
   RecentEvents: RecentEventsResponse;
   Control: ControlResponse;
+  Transcript: TranscriptResponse;
 }
 export type IpcResponse = { [K in keyof IpcResponseMap]: { [P in K]: IpcResponseMap[K] } }[keyof IpcResponseMap];
 
@@ -87,6 +91,6 @@ export function responsePayload<K extends keyof IpcResponseMap>(value: unknown, 
 }
 
 export function isIpcResponse(value: unknown): value is IpcResponse {
-  return !!value && typeof value === 'object' && ['Status', 'Doctor', 'ConfigSummary', 'RecentEvents', 'Control']
+  return !!value && typeof value === 'object' && ['Status', 'Doctor', 'ConfigSummary', 'RecentEvents', 'Control', 'Transcript']
     .some((variant) => variant in (value as object));
 }

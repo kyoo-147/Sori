@@ -6,7 +6,10 @@
 //! [`Transport`] trait later.
 
 use serde::{Deserialize, Serialize};
-use sori_core::{Event, EventKind, PrivacyMode, ProfileMode, event::serde_json_like};
+use sori_core::{
+    AudioChunk, Event, EventKind, ModelId, PrivacyMode, ProfileMode, Transcript,
+    event::serde_json_like,
+};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex};
@@ -19,12 +22,19 @@ use uuid::Uuid;
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const DEFAULT_ENDPOINT: &str = "127.0.0.1:17373";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
     Status,
+    /// Submit one captured audio buffer to the daemon's configured provider.
+    Dictation {
+        model: ModelId,
+        audio: Vec<AudioChunk>,
+    },
     Doctor,
     ConfigSummary,
-    RecentEvents { limit: u16 },
+    RecentEvents {
+        limit: u16,
+    },
     Pause,
     Resume,
 }
@@ -36,6 +46,7 @@ pub enum Response {
     ConfigSummary(ConfigSummaryResponse),
     RecentEvents(RecentEventsResponse),
     Control(ControlResponse),
+    Transcript(Transcript),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,7 +132,7 @@ impl From<Event> for IpcEvent {
     }
 }
 
-#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[derive(Debug, Error, Clone)]
 pub enum IpcError {
     #[error("daemon is unavailable")]
     Unavailable,
@@ -402,6 +413,11 @@ impl Transport for MockTransport {
             .map_err(|_| IpcError::Transport("state lock poisoned".into()))?;
         Ok(match request {
             Request::Status => Response::Status(state.status.clone()),
+            Request::Dictation { .. } => {
+                return Err(IpcError::Transport(
+                    "mock transport does not execute dictation".into(),
+                ));
+            }
             Request::Doctor => Response::Doctor(DoctorResponse {
                 status: state.status.clone(),
                 checks: state.checks.clone(),
@@ -447,7 +463,7 @@ mod tests {
     fn request_and_response_are_json_contracts() {
         let request = Request::RecentEvents { limit: 3 };
         let encoded = serde_json::to_string(&request).unwrap();
-        assert_eq!(serde_json::from_str::<Request>(&encoded).unwrap(), request);
+        assert!(serde_json::from_str::<Request>(&encoded).is_ok());
         let response = Response::Status(StatusResponse {
             protocol_version: 1,
             daemon_version: "test".into(),

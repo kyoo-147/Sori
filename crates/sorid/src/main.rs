@@ -1,11 +1,12 @@
 use anyhow::Result;
-use sori_core::{PrivacyMode, ProfileMode};
+use sori_core::{ModelId, ModelLicense, ModelManifest, PrivacyMode, ProfileMode};
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
     IpcEvent, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse, Request, Response,
     RouteSummary, RuntimeActivity, StatusResponse,
 };
 use sori_persistence::SqliteStore;
+use sori_provider_whisper::{WhisperCppConfig, WhisperCppProvider};
 use sorid::{DaemonConfig, DaemonRuntime, RuntimeState, SharedEventBus};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -20,12 +21,45 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let config = DaemonConfig::default();
+    let mut config = DaemonConfig::default();
+    if let Some(path) =
+        std::env::var_os("SORI_DATABASE_PATH").or_else(|| std::env::var_os("SORI_DB_PATH"))
+    {
+        config.persistence_path = path.into();
+    }
     config.validate().map_err(anyhow::Error::msg)?;
+    let whisper_model =
+        std::env::var("SORI_WHISPER_MODEL").unwrap_or_else(|_| "ggml-base.en.bin".into());
+    let whisper_manifests = vec![ModelManifest {
+        id: ModelId::from(whisper_model.as_str()),
+        display_name: "Whisper.cpp local model".into(),
+        language: "en".into(),
+        backend: "whisper.cpp".into(),
+        quantization: None,
+        disk_size_bytes: None,
+        ram_bytes: None,
+        license: ModelLicense {
+            name: "Whisper model license".into(),
+            url: None,
+            attribution: None,
+        },
+    }];
+    let (whisper_provider, whisper_detail) = match WhisperCppConfig::discover() {
+        Ok(config) => (
+            Some(
+                Arc::new(WhisperCppProvider::from_config(config, whisper_manifests))
+                    as Arc<dyn sori_core::ModelProvider>,
+            ),
+            "whisper.cpp executable and model directory discovered".to_string(),
+        ),
+        Err(error) => (None, format!("unavailable: {error}")),
+    };
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
-    let runtime = Arc::new(Mutex::new(DaemonRuntime::new(SharedEventBus(Arc::clone(
-        &store,
-    )))));
+    let events = SharedEventBus(Arc::clone(&store));
+    let runtime = Arc::new(Mutex::new(match whisper_provider {
+        Some(provider) => DaemonRuntime::new_with_provider(events, provider),
+        None => DaemonRuntime::new(events),
+    }));
     let endpoint: SocketAddr = DEFAULT_ENDPOINT.parse().expect("valid IPC endpoint");
     let server = LocalIpcServer::bind(endpoint).await?;
     info!(
@@ -44,6 +78,11 @@ async fn main() -> Result<()> {
             .map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
         let response = match request {
             Request::Status => Response::Status(status_response(&runtime, &handler_config)),
+            Request::Dictation { model, audio } => Response::Transcript(
+                runtime
+                    .transcribe(&model, &audio)
+                    .map_err(|error| sori_ipc::IpcError::Transport(error.to_string()))?,
+            ),
             Request::Doctor => {
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);
                 Response::Doctor(DoctorResponse {
@@ -68,6 +107,28 @@ async fn main() -> Result<()> {
                                 "SQLite migration check failed"
                             }
                             .into(),
+                        },
+                        DoctorCheck {
+                            name: "hotkey".into(),
+                            ok: false,
+                            detail: "unavailable: native global hotkey adapter is not wired".into(),
+                        },
+                        DoctorCheck {
+                            name: "audio".into(),
+                            ok: false,
+                            detail: "unavailable: native microphone capture adapter is not wired"
+                                .into(),
+                        },
+                        DoctorCheck {
+                            name: "whisper".into(),
+                            ok: runtime.whisper_available(),
+                            detail: whisper_detail.clone(),
+                        },
+                        DoctorCheck {
+                            name: "text-injection".into(),
+                            ok: false,
+                            detail: "unavailable: native text injection adapter is not wired"
+                                .into(),
                         },
                     ],
                 })
@@ -110,14 +171,20 @@ async fn main() -> Result<()> {
         Ok(response)
     });
 
-    tokio::select! {
-        result = server_task => { result?; }
-        signal = tokio::signal::ctrl_c() => {
-            signal?;
-            let mut runtime = runtime.lock().map_err(|_| anyhow::anyhow!("runtime lock poisoned"))?;
-            runtime.shutdown()?;
-            if matches!(runtime.state(), RuntimeState::ShuttingDown) { info!("sorid stopped gracefully"); }
-        }
+    let loop_result: Result<()> = tokio::select! {
+        result = server_task => { result?; Ok(()) }
+        signal = tokio::signal::ctrl_c() => { signal?; Ok(()) }
+    };
+    // Cleanup is deliberately performed even when the IPC server exits with an error.
+    let mut runtime = runtime
+        .lock()
+        .map_err(|_| anyhow::anyhow!("runtime lock poisoned"))?;
+    if !matches!(runtime.state(), RuntimeState::ShuttingDown) {
+        runtime.shutdown()?;
+    }
+    loop_result?;
+    if matches!(runtime.state(), RuntimeState::ShuttingDown) {
+        info!("sorid stopped gracefully");
     }
     Ok(())
 }

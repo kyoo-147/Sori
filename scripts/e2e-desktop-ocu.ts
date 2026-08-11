@@ -189,6 +189,8 @@ async function main(): Promise<void> {
   const tmpDir = resolve('.tmp', 'e2e-ocu');
   mkdirSync(tmpDir, { recursive: true });
 
+  const existing = await fetch('http://127.0.0.1:17373/ipc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify('Status'), signal: AbortSignal.timeout(500) }).catch(() => null);
+  if (existing?.ok) throw new Error('refusing OCU E2E: stale daemon already owns 127.0.0.1:17373');
   const daemon = spawn(resolve('target', 'debug', 'sorid.exe'), [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
   daemon.stdout.on('data', (chunk) => process.stdout.write(`[sorid] ${chunk}`));
   daemon.stderr.on('data', (chunk) => process.stderr.write(`[sorid] ${chunk}`));

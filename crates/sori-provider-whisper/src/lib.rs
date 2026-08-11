@@ -7,12 +7,15 @@
 use serde_json::Value;
 use sori_core::{
     AudioChunk, ContextSnapshot, ExternalProcessProvider, ExternalProcessSpec, ModelError, ModelId,
-    ModelManifest, ModelProvider, ModelRoute, ModelRuntime, PrivacyMode, RuntimeStatus, Transcript,
-    TranscriptSegment,
+    ModelManifest, ModelProvider, ModelRoute, ModelRuntime, PrivacyMode, RuntimeStatus,
+    SampleFormat, Transcript, TranscriptSegment,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitStatus;
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration as StdDuration;
 use time::Duration;
 
 pub const PROVIDER_NAME: &str = "whisper.cpp";
@@ -159,13 +162,105 @@ impl WhisperCppProvider {
         format: OutputFormat,
         runner: &R,
     ) -> Result<Transcript, ModelError> {
+        self.transcribe_with_runner_options(
+            model,
+            input,
+            output,
+            format,
+            runner,
+            &ProcessOptions::default(),
+        )
+    }
+
+    /// Encode captured PCM and run the configured whisper.cpp binary.
+    pub fn transcribe_audio(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        format: OutputFormat,
+        options: &ProcessOptions,
+    ) -> Result<Transcript, ModelError> {
+        self.transcribe_audio_with_runner_options(
+            model,
+            audio,
+            format,
+            &CommandProcessRunner,
+            options,
+        )
+    }
+
+    /// Encode captured PCM and run whisper.cpp through the supplied supervisor.
+    /// The input and output files are always removed before returning.
+    pub fn transcribe_audio_with_runner<R: ProcessRunner>(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        format: OutputFormat,
+        runner: &R,
+    ) -> Result<Transcript, ModelError> {
+        self.transcribe_audio_with_runner_options(
+            model,
+            audio,
+            format,
+            runner,
+            &ProcessOptions::default(),
+        )
+    }
+
+    pub fn transcribe_audio_with_runner_options<R: ProcessRunner>(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        format: OutputFormat,
+        runner: &R,
+        options: &ProcessOptions,
+    ) -> Result<Transcript, ModelError> {
+        let base = unique_temp_path("sori-whisper");
+        let input = base.with_extension("wav");
+        let output = base.clone();
+        let result = encode_wav(audio).and_then(|wav| {
+            fs::write(&input, wav).map_err(|error| {
+                ModelError::Inference(format!(
+                    "could not write whisper input WAV ({}): {error}",
+                    input.display()
+                ))
+            })?;
+            self.transcribe_with_runner_options(model, &input, &output, format, runner, options)
+        });
+        let cleanup = remove_paths([
+            input.as_path(),
+            output.as_path(),
+            output_with_extension(&output, format.arguments().1).as_path(),
+        ]);
+        match (result, cleanup) {
+            (Err(error), Ok(())) => Err(error),
+            (Err(error), Err(cleanup)) => Err(ModelError::Inference(format!(
+                "{error}; temporary-file cleanup also failed: {cleanup}"
+            ))),
+            (Ok(_), Err(error)) => Err(error),
+            (Ok(transcript), Ok(())) => Ok(transcript),
+        }
+    }
+
+    fn transcribe_with_runner_options<R: ProcessRunner>(
+        &self,
+        model: &ModelId,
+        input: &Path,
+        output: &Path,
+        format: OutputFormat,
+        runner: &R,
+        options: &ProcessOptions,
+    ) -> Result<Transcript, ModelError> {
         let spec = self.process_spec_with_format(model, input, output, format)?;
-        let result = runner.run(&spec)?;
+        let result = runner.run_with_options(&spec, options)?;
         if !result.status.success() {
             return Err(ModelError::Inference(if result.stderr.is_empty() {
-                "whisper.cpp exited unsuccessfully".into()
+                format!("whisper.cpp exited unsuccessfully ({:?})", result.status)
             } else {
-                result.stderr
+                format!(
+                    "whisper.cpp exited unsuccessfully: {}",
+                    result.stderr.trim()
+                )
             }));
         }
         let actual = output_with_extension(output, format.arguments().1);
@@ -203,8 +298,215 @@ pub struct ProcessOutput {
     pub stderr: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ProcessOptions {
+    pub timeout: Option<StdDuration>,
+    pub cancelled: Arc<AtomicBool>,
+}
+
+impl Default for ProcessOptions {
+    fn default() -> Self {
+        Self {
+            timeout: None,
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl ProcessOptions {
+    pub fn cancelled() -> Self {
+        let options = Self::default();
+        options.cancelled.store(true, Ordering::Relaxed);
+        options
+    }
+}
+
 pub trait ProcessRunner {
     fn run(&self, spec: &ExternalProcessSpec) -> Result<ProcessOutput, ModelError>;
+
+    /// The host supervisor may override this to enforce timeout and cancellation
+    /// while the child is running. The default preserves existing fake runners.
+    fn run_with_options(
+        &self,
+        spec: &ExternalProcessSpec,
+        options: &ProcessOptions,
+    ) -> Result<ProcessOutput, ModelError> {
+        if options.cancelled.load(Ordering::Relaxed) {
+            return Err(ModelError::Inference(
+                "whisper.cpp process cancelled before launch".into(),
+            ));
+        }
+        if options.timeout.is_some_and(|timeout| timeout.is_zero()) {
+            return Err(ModelError::Inference(
+                "whisper.cpp process timed out before launch".into(),
+            ));
+        }
+        self.run(spec)
+    }
+}
+
+/// The production runner for the sidecar boundary. Arguments are passed to
+/// `Command` directly; no shell parsing or interpolation is involved.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct CommandProcessRunner;
+
+impl ProcessRunner for CommandProcessRunner {
+    fn run(&self, spec: &ExternalProcessSpec) -> Result<ProcessOutput, ModelError> {
+        self.run_with_options(spec, &ProcessOptions::default())
+    }
+
+    fn run_with_options(
+        &self,
+        spec: &ExternalProcessSpec,
+        options: &ProcessOptions,
+    ) -> Result<ProcessOutput, ModelError> {
+        if options.cancelled.load(Ordering::Relaxed) {
+            return Err(ModelError::Inference(
+                "whisper.cpp process cancelled before launch".into(),
+            ));
+        }
+        if options.timeout.is_some_and(|timeout| timeout.is_zero()) {
+            return Err(ModelError::Inference(
+                "whisper.cpp process timed out before launch".into(),
+            ));
+        }
+        let mut command = Command::new(&spec.executable);
+        command
+            .args(&spec.arguments)
+            .envs(spec.environment.iter())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().map_err(|error| {
+            ModelError::Inference(format!(
+                "could not launch whisper.cpp ({}): {error}",
+                spec.executable.display()
+            ))
+        })?;
+        let started = std::time::Instant::now();
+        loop {
+            if options.cancelled.load(Ordering::Relaxed) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(ModelError::Inference(
+                    "whisper.cpp process cancelled".into(),
+                ));
+            }
+            if let Some(timeout) = options.timeout {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(ModelError::Inference(format!(
+                        "whisper.cpp process timed out after {timeout:?}"
+                    )));
+                }
+            }
+            if child
+                .try_wait()
+                .map_err(|error| {
+                    ModelError::Inference(format!("could not supervise whisper.cpp: {error}"))
+                })?
+                .is_some()
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().map_err(|error| {
+            ModelError::Inference(format!("could not collect whisper.cpp output: {error}"))
+        })?;
+        Ok(ProcessOutput {
+            status: output.status,
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
+    }
+}
+
+/// Convert the provider's f32 sample contract to canonical mono/stereo PCM16 WAV.
+/// Samples are interleaved when the chunk has more than one channel.
+pub fn encode_wav(chunks: &[AudioChunk]) -> Result<Vec<u8>, ModelError> {
+    let first = chunks
+        .first()
+        .ok_or_else(|| ModelError::Inference("cannot transcribe empty audio".into()))?;
+    let format = &first.format;
+    if format.sample_rate_hz == 0 || format.channels == 0 {
+        return Err(ModelError::Inference(
+            "audio has an invalid sample rate or channel count".into(),
+        ));
+    }
+    if !matches!(format.sample_format, SampleFormat::I16 | SampleFormat::F32) {
+        return Err(ModelError::Inference(
+            "audio sample format is unsupported".into(),
+        ));
+    }
+    let mut pcm = Vec::new();
+    for chunk in chunks {
+        if chunk.format != *format {
+            return Err(ModelError::Inference(
+                "audio chunks have inconsistent formats".into(),
+            ));
+        }
+        for sample in &chunk.samples {
+            let sample = if sample.is_finite() {
+                sample.clamp(-1.0, 1.0)
+            } else {
+                0.0
+            };
+            let value = if sample <= -1.0 {
+                i16::MIN
+            } else {
+                (sample * i16::MAX as f32).round() as i16
+            };
+            pcm.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    let data_len = u32::try_from(pcm.len())
+        .map_err(|_| ModelError::Inference("audio is too large for a WAV file".into()))?;
+    let riff_len = 36u32
+        .checked_add(data_len)
+        .ok_or_else(|| ModelError::Inference("audio is too large for a WAV file".into()))?;
+    let mut wav = Vec::with_capacity(44 + pcm.len());
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&riff_len.to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&format.channels.to_le_bytes());
+    wav.extend_from_slice(&format.sample_rate_hz.to_le_bytes());
+    let byte_rate = format.sample_rate_hz * u32::from(format.channels) * 2;
+    wav.extend_from_slice(&byte_rate.to_le_bytes());
+    wav.extend_from_slice(&(format.channels * 2).to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    wav.extend_from_slice(&pcm);
+    Ok(wav)
+}
+
+fn unique_temp_path(prefix: &str) -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("{prefix}-{}-{id}", std::process::id()))
+}
+
+fn remove_paths<'a, I>(paths: I) -> Result<(), ModelError>
+where
+    I: IntoIterator<Item = &'a Path>,
+{
+    let mut failure = None;
+    for path in paths {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                failure = Some(format!(
+                    "could not clean up temporary file {}: {error}",
+                    path.display()
+                ))
+            }
+        }
+    }
+    failure.map_or(Ok(()), |error| Err(ModelError::Inference(error)))
 }
 
 impl ModelProvider for WhisperCppProvider {
@@ -217,13 +519,11 @@ impl ModelProvider for WhisperCppProvider {
     fn can_transcribe(&self, model: &ModelId) -> bool {
         self.manifests.iter().any(|manifest| &manifest.id == model)
     }
-    fn transcribe(&self, model: &ModelId, _audio: &[AudioChunk]) -> Result<Transcript, ModelError> {
+    fn transcribe(&self, model: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError> {
         if !self.can_transcribe(model) {
             return Err(ModelError::Unsupported(model.clone()));
         }
-        Err(ModelError::Inference(
-            "audio supervision is owned by the host; use transcribe_with_runner".into(),
-        ))
+        self.transcribe_audio(model, audio, OutputFormat::Text, &ProcessOptions::default())
     }
 }
 
@@ -241,7 +541,15 @@ impl ExternalProcessProvider for WhisperCppProvider {
 /// Parse text, whisper.cpp JSON, or SRT output without depending on a process.
 pub fn parse_transcript(content: &str, format: OutputFormat) -> Result<Transcript, ModelError> {
     match format {
-        OutputFormat::Text => Ok(Transcript::plain(content.trim())),
+        OutputFormat::Text => {
+            let text = content.trim();
+            if text.is_empty() {
+                return Err(ModelError::Inference(
+                    "whisper.cpp returned empty transcript".into(),
+                ));
+            }
+            Ok(Transcript::plain(text))
+        }
         OutputFormat::Json => parse_json(content),
         OutputFormat::Srt => parse_srt(content),
     }
@@ -298,6 +606,11 @@ fn parse_json(content: &str) -> Result<Transcript, ModelError> {
             speaker: None,
         });
     }
+    if segments.is_empty() {
+        return Err(ModelError::Inference(
+            "whisper.cpp JSON transcript has no text".into(),
+        ));
+    }
     Ok(Transcript {
         language: value
             .get("language")
@@ -334,6 +647,11 @@ fn parse_srt(content: &str) -> Result<Transcript, ModelError> {
                 speaker: None,
             });
         }
+    }
+    if segments.is_empty() {
+        return Err(ModelError::Inference(
+            "whisper.cpp SRT transcript has no text".into(),
+        ));
     }
     Ok(Transcript {
         language: None,
@@ -417,7 +735,8 @@ impl ModelRuntime for WhisperRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sori_core::{ModelLicense, ProfileMode};
+    use sori_core::{AudioFormat, ModelLicense, ProfileMode};
+    use std::sync::Mutex;
 
     fn manifest(id: &str) -> ModelManifest {
         ModelManifest {
@@ -461,6 +780,30 @@ mod tests {
         );
         assert_eq!(&spec.arguments[4..], ["-oj", "-of", "out"]);
         let _ = std::fs::remove_dir_all(model_dir);
+    }
+
+    #[test]
+    fn encodes_f32_audio_as_pcm16_wav() {
+        let audio = vec![AudioChunk {
+            captured_at: time::OffsetDateTime::UNIX_EPOCH,
+            format: sori_core::AudioFormat {
+                sample_rate_hz: 16_000,
+                channels: 1,
+                sample_format: SampleFormat::F32,
+            },
+            samples: vec![-1.0, 0.0, 1.0],
+        }];
+        let wav = encode_wav(&audio).unwrap();
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(&wav[8..12], b"WAVE");
+        assert_eq!(u32::from_le_bytes(wav[40..44].try_into().unwrap()), 6);
+        assert_eq!(
+            &wav[44..50],
+            &[-32768i16, 0, 32767]
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -515,6 +858,177 @@ mod tests {
             .unwrap();
         assert_eq!(transcript.text, "fake transcript");
         let _ = std::fs::remove_file(output.with_extension("txt"));
+    }
+
+    #[test]
+    fn audio_runner_writes_wav_invokes_command_and_cleans_files() {
+        struct InspectingRunner {
+            input: Mutex<Option<Vec<u8>>>,
+            spec: Mutex<Option<ExternalProcessSpec>>,
+        }
+
+        impl ProcessRunner for InspectingRunner {
+            fn run(&self, spec: &ExternalProcessSpec) -> Result<ProcessOutput, ModelError> {
+                *self.spec.lock().unwrap() = Some(spec.clone());
+                let input = PathBuf::from(&spec.arguments[3]);
+                *self.input.lock().unwrap() = Some(std::fs::read(input).unwrap());
+                std::fs::write(
+                    output_with_extension(Path::new(&spec.arguments[6]), "txt"),
+                    "captured transcript",
+                )
+                .unwrap();
+                let status = if cfg!(windows) {
+                    std::process::Command::new("cmd")
+                        .args(["/C", "exit", "0"])
+                        .status()
+                } else {
+                    std::process::Command::new("true").status()
+                }
+                .unwrap();
+                Ok(ProcessOutput {
+                    status,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                })
+            }
+        }
+
+        let runner = InspectingRunner {
+            input: Mutex::new(None),
+            spec: Mutex::new(None),
+        };
+        let provider = WhisperCppProvider::new("whisper-cli", vec![manifest("small.en")]);
+        let audio = vec![AudioChunk {
+            captured_at: time::OffsetDateTime::UNIX_EPOCH,
+            format: AudioFormat {
+                sample_rate_hz: 16_000,
+                channels: 1,
+                sample_format: SampleFormat::F32,
+            },
+            samples: vec![-1.0, 0.0, 1.0],
+        }];
+        let transcript = provider
+            .transcribe_audio_with_runner(
+                &ModelId::from("small.en"),
+                &audio,
+                OutputFormat::Text,
+                &runner,
+            )
+            .unwrap();
+        assert_eq!(transcript.text, "captured transcript");
+        assert_eq!(
+            runner.input.lock().unwrap().as_ref().unwrap()[44..],
+            [0, 128, 0, 0, 255, 127]
+        );
+        let spec = runner.spec.lock().unwrap().clone().unwrap();
+        assert_eq!(spec.executable, PathBuf::from("whisper-cli"));
+        assert_eq!(spec.arguments[0], "-m");
+        assert_eq!(spec.arguments[1], "small.en");
+        assert_eq!(spec.arguments[2], "-f");
+        assert_eq!(spec.arguments[4], "-otxt");
+        assert_eq!(spec.arguments[5], "-of");
+        assert!(!Path::new(&spec.arguments[3]).exists());
+        assert!(!output_with_extension(Path::new(&spec.arguments[6]), "txt").exists());
+    }
+
+    #[test]
+    fn process_failure_is_reported_without_a_transcript() {
+        struct FailingRunner;
+        impl ProcessRunner for FailingRunner {
+            fn run(&self, _spec: &ExternalProcessSpec) -> Result<ProcessOutput, ModelError> {
+                Err(ModelError::Inference("runner unavailable".into()))
+            }
+        }
+        let provider = WhisperCppProvider::new("whisper-cli", vec![manifest("small.en")]);
+        let error = provider
+            .transcribe_with_runner(
+                &ModelId::from("small.en"),
+                Path::new("input.wav"),
+                Path::new("output"),
+                OutputFormat::Text,
+                &FailingRunner,
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("runner unavailable"));
+    }
+
+    #[test]
+    fn cancellation_and_timeout_are_rejected_before_launch() {
+        struct MustNotRun;
+        impl ProcessRunner for MustNotRun {
+            fn run(&self, _spec: &ExternalProcessSpec) -> Result<ProcessOutput, ModelError> {
+                panic!("cancelled process was launched")
+            }
+        }
+        let provider = WhisperCppProvider::new("whisper-cli", vec![manifest("small.en")]);
+        let cancelled = provider.transcribe_audio_with_runner_options(
+            &ModelId::from("small.en"),
+            &[test_audio()],
+            OutputFormat::Text,
+            &MustNotRun,
+            &ProcessOptions::cancelled(),
+        );
+        assert!(cancelled.unwrap_err().to_string().contains("cancelled"));
+        let timeout = provider.transcribe_audio_with_runner_options(
+            &ModelId::from("small.en"),
+            &[test_audio()],
+            OutputFormat::Text,
+            &MustNotRun,
+            &ProcessOptions {
+                timeout: Some(StdDuration::ZERO),
+                ..ProcessOptions::default()
+            },
+        );
+        assert!(timeout.unwrap_err().to_string().contains("timed out"));
+    }
+
+    #[test]
+    fn discovery_rejects_missing_executable() {
+        let previous = std::env::var_os("SORI_WHISPER_CPP_BIN");
+        unsafe {
+            std::env::set_var("SORI_WHISPER_CPP_BIN", "definitely-missing-whisper-binary");
+        }
+        let error = WhisperCppConfig::discover().unwrap_err();
+        match previous {
+            Some(value) => unsafe { std::env::set_var("SORI_WHISPER_CPP_BIN", value) },
+            None => unsafe { std::env::remove_var("SORI_WHISPER_CPP_BIN") },
+        }
+        assert!(error.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn malformed_output_and_missing_prerequisites_are_explicit() {
+        assert!(parse_transcript("{}", OutputFormat::Json).is_err());
+        assert!(parse_transcript("not an srt", OutputFormat::Srt).is_err());
+        let model_dir =
+            std::env::temp_dir().join(format!("sori-missing-model-{}", std::process::id()));
+        std::fs::create_dir_all(&model_dir).unwrap();
+        let provider = WhisperCppProvider::from_config(
+            WhisperCppConfig::new("definitely-missing-whisper", Some(model_dir.clone())),
+            vec![manifest("small.en.bin")],
+        );
+        let error = provider
+            .process_spec_with_format(
+                &ModelId::from("small.en.bin"),
+                Path::new("in"),
+                Path::new("out"),
+                OutputFormat::Text,
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("model file does not exist"));
+        std::fs::remove_dir_all(model_dir).unwrap();
+    }
+
+    fn test_audio() -> AudioChunk {
+        AudioChunk {
+            captured_at: time::OffsetDateTime::UNIX_EPOCH,
+            format: AudioFormat {
+                sample_rate_hz: 16_000,
+                channels: 1,
+                sample_format: SampleFormat::F32,
+            },
+            samples: vec![0.0],
+        }
     }
 
     #[test]

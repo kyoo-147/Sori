@@ -11,6 +11,7 @@ anyhow.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 sori-core = { path = "../sori-core" }
+sori-provider-whisper = { path = "../sori-provider-whisper" }
 sori-ipc = { path = "../sori-ipc" }
 sori-persistence = { path = "../sori-persistence" }
 tokio.workspace = true

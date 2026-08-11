@@ -16,6 +16,18 @@ export function binaryPath(name: string): string {
   return resolve('target', 'debug', process.platform === 'win32' ? `${name}.exe` : name);
 }
 
+async function endpointResponds(url: URL): Promise<boolean> {
+  try {
+    const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify('Status'), signal: AbortSignal.timeout(500) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function requireEndpointFree(url: URL): Promise<void> {
+  if (await endpointResponds(url)) throw new Error(`refusing to run against stale daemon already owning ${url}`);
+}
 export async function waitForEndpoint(url: URL, timeoutMs = 15_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -57,6 +69,7 @@ async function stop(child: ChildProcess): Promise<void> {
 
 async function main(): Promise<void> {
   const endpoint = parseEndpoint();
+  await requireEndpointFree(endpoint);
   const sorid = binaryPath('sorid');
   const sori = binaryPath('sori');
   if (!existsSync(sorid) || !existsSync(sori)) {
@@ -75,14 +88,11 @@ async function main(): Promise<void> {
   daemon.stderr.on('data', (chunk) => process.stderr.write(`[sorid] ${chunk}`));
 
   try {
-    if (!(await waitForEndpoint(endpoint))) {
-      console.log(`SKIP: no daemon IPC endpoint at ${endpoint}. Backend IPC is not implemented yet (see issues #47/#48/#49).`);
-      return;
-    }
+    if (!(await waitForEndpoint(endpoint))) throw new Error('sorid IPC did not become ready; daemon startup failed or endpoint ownership is stale');
 
     for (const name of ['status', 'doctor']) {
       const result = await run(sori, [name], { SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host });
-      if (result.code !== 0 || (name === 'status' && !result.output.includes('running')) || (name === 'doctor' && result.output.includes('failed'))) {
+      if (result.code !== 0 || (name === 'status' && !result.output.includes('running')) || (name === 'doctor' && (!result.output.includes('- daemon: ok') || !result.output.includes('- sqlite: ok')))) {
         throw new Error(`sori ${name} did not report a healthy daemon`);
       }
     }

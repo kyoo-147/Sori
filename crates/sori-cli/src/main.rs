@@ -72,8 +72,6 @@ fn doctor() -> Result<()> {
         },
         Err(_) => println!("- daemon IPC: unavailable (is sorid running?)"),
     }
-    println!("- audio backend: not wired yet");
-    println!("- text injection: not wired yet");
     Ok(())
 }
 

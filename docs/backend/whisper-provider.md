@@ -5,8 +5,8 @@
 Use a **sidecar command process** (the whisper.cpp CLI) behind the provider boundary.
 The `sori-provider-whisper` crate contains manifests, route selection, and command
 construction, but intentionally does not download, compile, or link native whisper
-code. The host supervisor should own WAV/PCM encoding, process lifetime, cancellation,
-timeouts, stderr capture, and parsing the output into `Transcript`.
+code. The provider encodes `AudioChunk` samples as PCM16 WAV, while the production
+command runner owns child-process lifetime, cancellation, timeouts, and stderr capture.
 
 This keeps `sori-core` independent of Whisper and makes the provider replaceable. It
 also lets packaged releases ship a tested whisper.cpp binary per platform without
@@ -53,8 +53,28 @@ manifest id is resolved as a file name below that directory (for example,
 reported as provider errors before a process is launched.
 
 The command builder passes arguments directly (never through a shell), including
-`-m <model> -f <wav> -otxt|-oj|-osrt -of <output-prefix>`. The host supervisor
-should use `transcribe_with_runner` with its process runner and then remove the
-input/output temporary files. Text, whisper.cpp JSON, and SRT output are parsed
-by the provider. The placeholder `ModelProvider::transcribe` remains explicit
-because audio encoding and process supervision belong to the daemon.
+`-m <model> -f <wav> -otxt|-oj|-osrt -of <output-prefix>`. Use
+`transcribe_audio_with_runner_options` with `CommandProcessRunner` for production;
+the provider removes temporary input/output files on every return path and reports
+cleanup failures. Text, whisper.cpp JSON, and SRT output are parsed only after a
+successful exit status. Cancellation and timeout errors do not produce a transcript.
+The daemon constructs `WhisperCppProvider` from these settings and registers it
+behind `DaemonRuntime`. Its loopback IPC `Dictation { model, audio }` request accepts
+captured `Vec<AudioChunk>` data and calls `DaemonRuntime::transcribe`, which invokes
+the configured provider through the existing `ModelProvider` contract. Capture and
+injection adapters remain outside this provider boundary.
+
+## Windows manual smoke test
+
+1. Install a whisper.cpp Windows build matching the daemon architecture and verify
+   `whisper-cli.exe --help` in PowerShell. Do not commit the executable.
+2. Download a compatible model from its upstream source, record its license/checksum,
+   and place it in a user-owned model directory. Do not commit model files.
+3. Set `SORI_WHISPER_CPP_BIN` and `SORI_WHISPER_MODEL_DIR` to those paths.
+4. Start `sorid`; startup discovery must report missing prerequisites immediately.
+5. Send a loopback IPC `Dictation` request containing captured `AudioChunk` JSON data
+   (the response is `Transcript` only after a successful whisper.cpp exit). Verify
+   that missing prerequisites, malformed output, non-zero exit, timeout, cancellation,
+   and cleanup failures are errors, never fabricated transcripts.
+6. Remove temporary installation files according to local retention policy; captured
+   audio is not intended to be persisted by Sori.

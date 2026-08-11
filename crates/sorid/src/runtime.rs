@@ -1,6 +1,10 @@
 //! Non-blocking daemon lifecycle state machine.
 
-use sori_core::{EventBus, EventKind, event::serde_json_like::Value};
+use sori_core::{
+    AudioChunk, EventBus, EventKind, ModelError, ModelId, ModelProvider, Transcript,
+    event::serde_json_like::Value,
+};
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,11 +24,10 @@ pub enum RuntimeTransitionError {
     },
 }
 
-/// Owns lifecycle state only. Platform adapters can be attached later without
-/// making the dictation hot path wait on I/O or an executor task.
 pub struct DaemonRuntime<B> {
     state: RuntimeState,
     events: B,
+    provider: Option<Arc<dyn ModelProvider>>,
 }
 
 impl<B: EventBus> DaemonRuntime<B> {
@@ -32,15 +35,41 @@ impl<B: EventBus> DaemonRuntime<B> {
         let runtime = Self {
             state: RuntimeState::Ready,
             events,
+            provider: None,
         };
         runtime.publish(EventKind::DaemonReady, Value::Null);
         runtime
     }
 
+    pub fn new_with_provider(events: B, provider: Arc<dyn ModelProvider>) -> Self {
+        let runtime = Self {
+            state: RuntimeState::Ready,
+            events,
+            provider: Some(provider),
+        };
+        runtime.publish(EventKind::DaemonReady, Value::Null);
+        runtime
+    }
+
+    /// Transcribe captured chunks through the configured provider boundary.
+    pub fn transcribe(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+    ) -> Result<Transcript, ModelError> {
+        self.provider
+            .as_deref()
+            .ok_or_else(|| ModelError::Inference("no model provider is configured".into()))?
+            .transcribe(model, audio)
+    }
+
+    pub fn whisper_available(&self) -> bool {
+        self.provider.is_some()
+    }
+
     pub fn state(&self) -> &RuntimeState {
         &self.state
     }
-
     pub fn events(&self) -> &B {
         &self.events
     }
@@ -48,11 +77,9 @@ impl<B: EventBus> DaemonRuntime<B> {
     pub fn pause(&mut self) -> Result<(), RuntimeTransitionError> {
         self.transition(RuntimeState::Paused, EventKind::DaemonPaused, "pause")
     }
-
     pub fn resume(&mut self) -> Result<(), RuntimeTransitionError> {
         self.transition(RuntimeState::Ready, EventKind::DaemonReady, "resume")
     }
-
     pub fn fail(&mut self, reason: impl Into<String>) -> Result<(), RuntimeTransitionError> {
         let reason = reason.into();
         if matches!(self.state, RuntimeState::ShuttingDown) {
@@ -65,7 +92,6 @@ impl<B: EventBus> DaemonRuntime<B> {
         self.publish(EventKind::DaemonError, Value::String(reason));
         Ok(())
     }
-
     pub fn shutdown(&mut self) -> Result<(), RuntimeTransitionError> {
         if matches!(self.state, RuntimeState::ShuttingDown) {
             return Err(RuntimeTransitionError::InvalidTransition {
@@ -77,7 +103,6 @@ impl<B: EventBus> DaemonRuntime<B> {
         self.publish(EventKind::DaemonShuttingDown, Value::Null);
         Ok(())
     }
-
     fn transition(
         &mut self,
         next: RuntimeState,
@@ -94,7 +119,6 @@ impl<B: EventBus> DaemonRuntime<B> {
         self.publish(event, Value::Null);
         Ok(())
     }
-
     fn publish(&self, kind: EventKind, payload: Value) {
         self.events.publish(sori_core::Event {
             id: uuid::Uuid::new_v4(),
@@ -109,7 +133,6 @@ impl<B: EventBus> DaemonRuntime<B> {
 mod tests {
     use super::*;
     use sori_core::{EventKind, InMemoryEventBus};
-
     #[test]
     fn lifecycle_transitions_publish_events() {
         let events = InMemoryEventBus::default();
@@ -133,7 +156,6 @@ mod tests {
             ]
         );
     }
-
     #[test]
     fn shutdown_is_terminal_and_errors_are_observable() {
         let events = InMemoryEventBus::default();

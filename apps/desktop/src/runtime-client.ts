@@ -1,6 +1,6 @@
-import { requestShape, responsePayload, type IpcOperation, type IpcRequest, type IpcResponseMap } from './ipc-contract.js';
+import { requestShape, responsePayload, type DoctorCheck, type IpcOperation, type IpcRequest, type IpcResponseMap } from './ipc-contract.js';
 
-export type { IpcOperation, IpcRequest } from './ipc-contract.js';
+export type { DoctorCheck, IpcOperation, IpcRequest } from './ipc-contract.js';
 
 export interface DaemonStatus {
   daemon: 'starting' | 'running' | 'stopping' | 'unavailable';
@@ -44,6 +44,15 @@ export function mapStatus(value: unknown): DaemonStatus {
     privacy: text(raw.privacy, 'LocalOnly')!,
     version: text(raw.daemon_version) ?? text(raw.version),
   };
+}
+
+export function mapDoctor(value: unknown): DoctorCheck[] {
+  const raw = unwrap(value, 'doctor');
+  const checks = Array.isArray(raw.checks) ? raw.checks : [];
+  return checks.filter((check): check is DoctorCheck => {
+    const item = record(check);
+    return typeof item.name === 'string' && typeof item.ok === 'boolean' && typeof item.detail === 'string';
+  });
 }
 
 export class HttpIpcTransport implements IpcTransport {
@@ -104,6 +113,16 @@ export class DesktopIpcTransport implements IpcTransport {
 export class MockRuntimeClient {
   private paused = false;
   async status(): Promise<RuntimeResult<DaemonStatus>> { return { data: { ...unavailable, daemon: 'running', activity: 'idle', paused: this.paused, profile: 'Coding', version: 'mock' }, source: 'mock', error: null }; }
+  async doctor(): Promise<RuntimeResult<DoctorCheck[]>> {
+    return {
+      data: [
+        { name: 'daemon', ok: true, detail: 'mock runtime preview' },
+        { name: 'ipc-bind', ok: false, detail: 'real sorid IPC unavailable' },
+      ],
+      source: 'mock',
+      error: null,
+    };
+  }
   async pause(): Promise<RuntimeResult<DaemonStatus>> { this.paused = true; return this.status(); }
   async resume(): Promise<RuntimeResult<DaemonStatus>> { this.paused = false; return this.status(); }
 }
@@ -114,6 +133,10 @@ export class RuntimeClient {
   private usingMock = false;
   constructor(private readonly transport: IpcTransport = new DesktopIpcTransport()) {}
   async status(): Promise<RuntimeResult<DaemonStatus>> { return this.call('status', mapStatus, unavailable); }
+  async doctor(): Promise<RuntimeResult<DoctorCheck[]>> {
+    if (this.usingMock) return this.mock.doctor();
+    return this.call('doctor', mapDoctor, []);
+  }
   async pause(): Promise<RuntimeResult<DaemonStatus>> { return this.control('pause'); }
   async resume(): Promise<RuntimeResult<DaemonStatus>> { return this.control('resume'); }
   private async control(operation: 'pause' | 'resume'): Promise<RuntimeResult<DaemonStatus>> {

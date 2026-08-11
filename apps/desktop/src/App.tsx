@@ -44,7 +44,7 @@ import { VoiceIdentityScreen } from './components/screens/VoiceIdentityScreen';
 import { AssistantVoiceScreen } from './components/screens/AssistantVoiceScreen';
 import { CoverageChecklistScreen } from './components/screens/CoverageChecklistScreen';
 import { SystemDesignScreen } from './components/screens/SystemDesignScreen';
-import { RuntimeClient, type DaemonStatus, type RuntimeSource } from './runtime-client';
+import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
@@ -68,15 +68,17 @@ export default function App() {
   const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, profile: 'Basic', privacy: 'LocalOnly', version: null });
   const [runtimeSource, setRuntimeSource] = useState<RuntimeSource>('unavailable');
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
 
   useEffect(() => {
     let mounted = true;
-    runtimeClient.status().then((result) => {
+    Promise.all([runtimeClient.status(), runtimeClient.doctor()]).then(([statusResult, doctorResult]) => {
       if (!mounted) return;
-      setRuntimeStatus(result.data);
-      setRuntimeSource(result.source);
-      setRuntimeError(result.error);
+      setRuntimeStatus(statusResult.data);
+      setRuntimeSource(statusResult.source);
+      setRuntimeError(statusResult.error ?? doctorResult.error);
+      setDoctorChecks(doctorResult.data);
     });
     return () => { mounted = false; };
   }, [runtimeClient]);
@@ -305,7 +307,7 @@ export default function App() {
             {activeScreen === 'system-design' && <SystemDesignScreen />}
 
             {(activeScreen === 'coverage' || activeScreen === 'diagnostics') && (
-              <CoverageChecklistScreen />
+              <CoverageChecklistScreen checks={doctorChecks} runtimeSource={runtimeSource} />
             )}
           </main>
         </div>

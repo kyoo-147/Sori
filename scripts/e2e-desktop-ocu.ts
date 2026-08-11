@@ -29,7 +29,7 @@ const NAV_FLOWS: NavExpectation[] = [
   { label: 'Benchmarks', expected: ['Benchmarks', 'p50/p95 latency'] },
   { label: 'Extensions', expected: ['Extensions', 'INSTALLED EXTENSIONS'] },
   { label: 'Privacy', expected: ['Privacy', 'Local Data & Storage Retention'] },
-  { label: 'Diagnostics', expected: ['Diagnostics', '11-Point System Integrity Check'] },
+  { label: 'Diagnostics', expected: ['Diagnostics', 'Sori Doctor Check'] },
   { label: 'Settings', expected: ['Sori System Settings', 'Hotkey'] },
 ];
 

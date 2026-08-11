@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import type { DoctorCheck, RuntimeSource } from '../../runtime-client';
 import {
   Activity,
   CheckCircle2,
@@ -14,24 +15,30 @@ import {
   HardDrive,
 } from 'lucide-react';
 
-export const CoverageChecklistScreen: React.FC = () => {
+interface CoverageChecklistScreenProps {
+  checks?: DoctorCheck[];
+  runtimeSource?: RuntimeSource;
+}
+
+export const CoverageChecklistScreen: React.FC<CoverageChecklistScreenProps> = ({
+  checks = [],
+  runtimeSource = 'unavailable',
+}) => {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [daemonStatus, setDaemonStatus] = useState<'running' | 'restarting'>('running');
   const [testResult, setTestResult] = useState<string | null>(null);
 
-  const doctorChecklist = [
-    { name: 'Platform Runtime', status: 'Passed', detail: 'Windows 11 x64 (x86_64-pc-windows-msvc)' },
-    { name: 'Sori Daemon (`sorid`)', status: daemonStatus === 'running' ? 'Passed' : 'Restarting', detail: 'Process PID: 4092 • Memory: 42MB • Local IPC Active' },
-    { name: 'Global Hotkey Listener', status: 'Passed', detail: 'Registered shortcut: Alt + Space (Low-level Windows hook)' },
-    { name: 'Microphone Device', status: 'Passed', detail: 'Realtek High Definition Audio • 48kHz / 16-bit Mono' },
-    { name: 'OS Microphone Permission', status: 'Passed', detail: 'Granted in Windows Privacy Settings' },
-    { name: 'Voice Activity Detection (VAD)', status: 'Passed', detail: 'Silero VAD v4.0 local ONNX pipeline ready' },
-    { name: 'Local ASR Engine', status: 'Passed', detail: 'Whisper.cpp (Q5_0 quantized) warm in RAM (240MB)' },
-    { name: 'Text Injection Permission', status: 'Passed', detail: 'Windows UI Automation API hook attached' },
-    { name: 'Clipboard Fallback Buffer', status: 'Passed', detail: 'Clipboard state backup and automatic restore functional' },
-    { name: 'SQLite Local Storage', status: 'Passed', detail: 'Database health: OK (`sori_history.db`, WAL mode)' },
-    { name: 'System Tray Manager', status: 'Passed', detail: 'Tray icon active in taskbar notification area' },
-  ];
+  const doctorChecklist = checks.length > 0
+    ? checks.map((check) => ({
+        name: check.name,
+        status: check.ok ? 'Passed' : 'Needs Wiring',
+        detail: check.detail,
+      }))
+    : [
+        { name: 'daemon', status: 'Unavailable', detail: 'Waiting for real sorid doctor response.' },
+      ];
+  const passedCount = doctorChecklist.filter((item) => item.status === 'Passed').length;
+  const allPassed = passedCount === doctorChecklist.length && doctorChecklist.length > 0;
 
   const handleRestartDaemon = () => {
     setDaemonStatus('restarting');
@@ -39,6 +46,10 @@ export const CoverageChecklistScreen: React.FC = () => {
       setDaemonStatus('running');
     }, 1200);
   };
+
+  const statusPillClass = allPassed
+    ? 'text-[#1F6B43] bg-[#EAF6EE] border-[#CBE5D4]'
+    : 'text-[#8A6418] bg-[#FFF5DD] border-[#EBD9A8]';
 
   const handleTestInjection = () => {
     setTestResult('Text injection payload successfully delivered to focused input window.');
@@ -57,7 +68,7 @@ export const CoverageChecklistScreen: React.FC = () => {
         <div>
           <h1 className="sori-page-heading">Diagnostics</h1>
           <p className="sori-body-text mt-0.5">
-            Automated diagnostic doctor checklist for audio capture, local daemon health, and text injection hooks.
+            Real daemon doctor checklist for audio capture, local IPC, storage, and text injection readiness.
           </p>
         </div>
 
@@ -82,10 +93,10 @@ export const CoverageChecklistScreen: React.FC = () => {
         <div className="flex items-center justify-between pb-2 border-b border-[#E2E4E8]">
           <span className="text-xs font-semibold text-[#161616] flex items-center gap-2">
             <Activity className="w-4 h-4 text-[#5C728A]" />
-            11-Point System Integrity Check
+            Sori Doctor Check ({runtimeSource})
           </span>
-          <span className="text-[11px] font-mono text-[#1F6B43] bg-[#EAF6EE] px-2.5 py-0.5 rounded-[6px] border border-[#CBE5D4] font-semibold">
-            All Systems Healthy (11/11)
+          <span className={`text-[11px] font-mono px-2.5 py-0.5 rounded-[6px] border font-semibold ${statusPillClass}`}>
+            {allPassed ? 'All checks passed' : `${passedCount}/${doctorChecklist.length} checks ready`}
           </span>
         </div>
 
@@ -98,8 +109,8 @@ export const CoverageChecklistScreen: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2 font-mono">
-                <span className="px-2.5 py-0.5 rounded-[6px] bg-[#EAF6EE] text-[#1F6B43] border border-[#CBE5D4] text-[11px] font-semibold flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" />
+                <span className={`px-2.5 py-0.5 rounded-[6px] border text-[11px] font-semibold flex items-center gap-1 ${item.status === 'Passed' ? 'bg-[#EAF6EE] text-[#1F6B43] border-[#CBE5D4]' : 'bg-[#FFF5DD] text-[#8A6418] border-[#EBD9A8]'}`}>
+                  {item.status === 'Passed' ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
                   {item.status}
                 </span>
               </div>

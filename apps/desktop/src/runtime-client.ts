@@ -1,11 +1,13 @@
-import { requestShape, responsePayload, type DoctorCheck, type IpcOperation, type IpcRequest, type IpcResponseMap } from './ipc-contract.js';
+import { requestShape, responsePayload, type DoctorCheck, type IpcOperation, type IpcRequest, type IpcResponseMap, type RouteSummary } from './ipc-contract.js';
 
 export type { DoctorCheck, IpcOperation, IpcRequest } from './ipc-contract.js';
 
 export interface DaemonStatus {
   daemon: 'starting' | 'running' | 'stopping' | 'unavailable';
-  activity: 'idle' | 'listening' | 'processing' | 'waiting_approval' | 'error';
+  activity: 'idle' | 'paused' | 'listening' | 'processing' | 'waiting_approval' | 'error';
   paused: boolean;
+  hotkey: string;
+  route: RouteSummary;
   profile: string;
   privacy: string;
   version: string | null;
@@ -18,7 +20,7 @@ export interface IpcTransport {
   readonly source?: Exclude<RuntimeSource, 'mock' | 'unavailable'>;
 }
 
-const unavailable: DaemonStatus = { daemon: 'unavailable', activity: 'error', paused: false, profile: 'Basic', privacy: 'LocalOnly', version: null };
+const unavailable: DaemonStatus = { daemon: 'unavailable', activity: 'error', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly', version: null };
 const viteEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
 const endpoint = viteEnv?.VITE_SORI_IPC_URL || 'http://127.0.0.1:17373/ipc';
 
@@ -38,8 +40,10 @@ export function mapStatus(value: unknown): DaemonStatus {
   const raw = unwrap(value, 'status');
   return {
     daemon: raw.daemon === 'starting' || raw.daemon === 'stopping' || raw.daemon === 'running' ? raw.daemon : raw.running === true ? 'running' : 'unavailable',
-    activity: raw.activity === 'listening' || raw.activity === 'processing' || raw.activity === 'waiting_approval' || raw.activity === 'idle' ? raw.activity : 'error',
-    paused: raw.paused === true,
+    activity: raw.paused === true || raw.activity === 'Paused' ? 'paused' : raw.activity === 'listening' || raw.activity === 'processing' || raw.activity === 'waiting_approval' || raw.activity === 'idle' ? raw.activity : raw.activity === 'Idle' ? 'idle' : raw.activity === 'Stopping' ? 'error' : 'error',
+    paused: raw.paused === true || raw.activity === 'Paused',
+    hotkey: text(raw.hotkey, 'Alt+Space')!,
+    route: { prefer_local: record(raw.route).prefer_local === true, allow_cloud: record(raw.route).allow_cloud === true, prefer_warm_runtime: record(raw.route).prefer_warm_runtime === true, optimize_battery: record(raw.route).optimize_battery === true },
     profile: text(raw.profile, 'Basic')!,
     privacy: text(raw.privacy, 'LocalOnly')!,
     version: text(raw.daemon_version) ?? text(raw.version),

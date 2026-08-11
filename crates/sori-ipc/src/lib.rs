@@ -43,12 +43,35 @@ pub struct StatusResponse {
     pub protocol_version: u16,
     pub daemon_version: String,
     pub running: bool,
+    pub activity: RuntimeActivity,
+    pub paused: bool,
+    pub hotkey: String,
+    pub route: RouteSummary,
     pub profile: ProfileMode,
     pub privacy: PrivacyMode,
 }
 
+/// Activity reports only lifecycle states implemented by the daemon. It does
+/// not imply that audio capture, ASR, or injection is available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuntimeActivity {
+    Idle,
+    Paused,
+    Error,
+    Stopping,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RouteSummary {
+    pub prefer_local: bool,
+    pub allow_cloud: bool,
+    pub prefer_warm_runtime: bool,
+    pub optimize_battery: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DoctorResponse {
+    pub status: StatusResponse,
     pub checks: Vec<DoctorCheck>,
 }
 
@@ -64,6 +87,8 @@ pub struct ConfigSummaryResponse {
     pub profile: ProfileMode,
     pub privacy: PrivacyMode,
     pub history_enabled: bool,
+    pub hotkey: String,
+    pub route: RouteSummary,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -314,6 +339,15 @@ impl Default for MockIpcServer {
                     protocol_version: PROTOCOL_VERSION,
                     daemon_version: "mock".into(),
                     running: true,
+                    activity: RuntimeActivity::Idle,
+                    paused: false,
+                    hotkey: "Alt+Space".into(),
+                    route: RouteSummary {
+                        prefer_local: true,
+                        allow_cloud: true,
+                        prefer_warm_runtime: false,
+                        optimize_battery: false,
+                    },
                     profile: ProfileMode::Basic,
                     privacy: PrivacyMode::LocalOnly,
                 },
@@ -321,6 +355,13 @@ impl Default for MockIpcServer {
                     profile: ProfileMode::Basic,
                     privacy: PrivacyMode::LocalOnly,
                     history_enabled: false,
+                    hotkey: "Alt+Space".into(),
+                    route: RouteSummary {
+                        prefer_local: true,
+                        allow_cloud: true,
+                        prefer_warm_runtime: false,
+                        optimize_battery: false,
+                    },
                 },
                 checks: vec![DoctorCheck {
                     name: "daemon".into(),
@@ -355,13 +396,14 @@ pub struct MockTransport {
 
 impl Transport for MockTransport {
     fn send(&self, request: Request) -> Result<Response, IpcError> {
-        let state = self
+        let mut state = self
             .state
             .lock()
             .map_err(|_| IpcError::Transport("state lock poisoned".into()))?;
         Ok(match request {
             Request::Status => Response::Status(state.status.clone()),
             Request::Doctor => Response::Doctor(DoctorResponse {
+                status: state.status.clone(),
                 checks: state.checks.clone(),
             }),
             Request::ConfigSummary => Response::ConfigSummary(state.config.clone()),
@@ -374,10 +416,25 @@ impl Transport for MockTransport {
                     .cloned()
                     .collect(),
             }),
-            Request::Pause | Request::Resume => Response::Control(ControlResponse {
-                accepted: true,
-                detail: "mock transition accepted".into(),
-            }),
+            request @ (Request::Pause | Request::Resume) => {
+                let paused = matches!(request, Request::Pause);
+                // Keep the mock's status contract aligned with the real daemon.
+                state.status.paused = paused;
+                state.status.activity = if paused {
+                    RuntimeActivity::Paused
+                } else {
+                    RuntimeActivity::Idle
+                };
+                Response::Control(ControlResponse {
+                    accepted: true,
+                    detail: if paused {
+                        "mock daemon paused"
+                    } else {
+                        "mock daemon resumed"
+                    }
+                    .into(),
+                })
+            }
         })
     }
 }
@@ -395,6 +452,15 @@ mod tests {
             protocol_version: 1,
             daemon_version: "test".into(),
             running: true,
+            activity: RuntimeActivity::Idle,
+            paused: false,
+            hotkey: "Alt+Space".into(),
+            route: RouteSummary {
+                prefer_local: true,
+                allow_cloud: true,
+                prefer_warm_runtime: false,
+                optimize_battery: false,
+            },
             profile: ProfileMode::Basic,
             privacy: PrivacyMode::LocalOnly,
         });
@@ -416,6 +482,15 @@ mod tests {
                 protocol_version: PROTOCOL_VERSION,
                 daemon_version: "test".into(),
                 running: true,
+                activity: RuntimeActivity::Idle,
+                paused: false,
+                hotkey: "Alt+Space".into(),
+                route: RouteSummary {
+                    prefer_local: true,
+                    allow_cloud: true,
+                    prefer_warm_runtime: false,
+                    optimize_battery: false,
+                },
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
             })),
@@ -450,7 +525,15 @@ mod tests {
         });
         let client = server.client();
         assert!(
-            matches!(client.request(Request::Status).unwrap(), Response::Status(status) if status.running)
+            matches!(client.request(Request::Status).unwrap(), Response::Status(status) if status.running && !status.paused && status.activity == RuntimeActivity::Idle)
+        );
+        client.request(Request::Pause).unwrap();
+        assert!(
+            matches!(client.request(Request::Status).unwrap(), Response::Status(status) if status.paused && status.activity == RuntimeActivity::Paused)
+        );
+        client.request(Request::Resume).unwrap();
+        assert!(
+            matches!(client.request(Request::Status).unwrap(), Response::Status(status) if !status.paused && status.activity == RuntimeActivity::Idle)
         );
         assert_eq!(
             client

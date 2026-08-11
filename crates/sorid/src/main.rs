@@ -3,7 +3,7 @@ use sori_core::{PrivacyMode, ProfileMode};
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
     IpcEvent, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse, Request, Response,
-    StatusResponse,
+    RouteSummary, RuntimeActivity, StatusResponse,
 };
 use sori_persistence::SqliteStore;
 use sorid::{DaemonConfig, DaemonRuntime, RuntimeState, SharedEventBus};
@@ -43,16 +43,11 @@ async fn main() -> Result<()> {
             .lock()
             .map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
         let response = match request {
-            Request::Status => Response::Status(StatusResponse {
-                protocol_version: PROTOCOL_VERSION,
-                daemon_version: env!("CARGO_PKG_VERSION").into(),
-                running: !matches!(runtime.state(), RuntimeState::ShuttingDown),
-                profile: ProfileMode::Basic,
-                privacy: PrivacyMode::LocalOnly,
-            }),
+            Request::Status => Response::Status(status_response(&runtime, &handler_config)),
             Request::Doctor => {
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);
                 Response::Doctor(DoctorResponse {
+                    status: status_response(&runtime, &handler_config),
                     checks: vec![
                         DoctorCheck {
                             name: "daemon".into(),
@@ -81,6 +76,8 @@ async fn main() -> Result<()> {
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
                 history_enabled: !handler_config.persistence_path.as_os_str().is_empty(),
+                hotkey: handler_config.hotkey.binding.clone(),
+                route: route_summary(&handler_config),
             }),
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
                 events: handler_store
@@ -123,4 +120,36 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn route_summary(config: &DaemonConfig) -> RouteSummary {
+    RouteSummary {
+        prefer_local: config.route.prefer_local,
+        allow_cloud: config.route.allow_cloud,
+        prefer_warm_runtime: config.route.prefer_warm_runtime,
+        optimize_battery: config.route.optimize_battery,
+    }
+}
+
+fn status_response<B: sori_core::EventBus>(
+    runtime: &DaemonRuntime<B>,
+    config: &DaemonConfig,
+) -> StatusResponse {
+    let (running, activity, paused) = match runtime.state() {
+        RuntimeState::Ready => (true, RuntimeActivity::Idle, false),
+        RuntimeState::Paused => (true, RuntimeActivity::Paused, true),
+        RuntimeState::Error(_) => (true, RuntimeActivity::Error, false),
+        RuntimeState::ShuttingDown => (false, RuntimeActivity::Stopping, false),
+    };
+    StatusResponse {
+        protocol_version: PROTOCOL_VERSION,
+        daemon_version: env!("CARGO_PKG_VERSION").into(),
+        running,
+        activity,
+        paused,
+        hotkey: config.hotkey.binding.clone(),
+        route: route_summary(config),
+        profile: ProfileMode::Basic,
+        privacy: PrivacyMode::LocalOnly,
+    }
 }

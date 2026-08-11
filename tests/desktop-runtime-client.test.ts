@@ -14,14 +14,18 @@ describe('desktop runtime IPC boundary', () => {
 
   it('recognizes and unwraps every current Rust response variant', () => {
     const responses: IpcResponse[] = [
-      { Status: { protocol_version: 1, daemon_version: 'test', running: true, profile: 'Basic', privacy: 'LocalOnly' } },
-      { Doctor: { checks: [] } },
-      { ConfigSummary: { profile: 'Basic', privacy: 'LocalOnly', history_enabled: false } },
+      { Status: { protocol_version: 1, daemon_version: 'test', running: true, activity: 'Idle', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly' } },
+      { Doctor: { status: { protocol_version: 1, daemon_version: 'test', running: true, activity: 'Paused', paused: true, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly' }, checks: [] } },
+      { ConfigSummary: { profile: 'Basic', privacy: 'LocalOnly', history_enabled: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false } } },
       { RecentEvents: { events: [] } },
       { Control: { accepted: true, detail: 'accepted' } }
     ];
     expect(responses.map((response) => Object.keys(response)[0])).toEqual(['Status', 'Doctor', 'ConfigSummary', 'RecentEvents', 'Control']);
     expect(responsePayload(responses[4], 'Control')).toEqual({ accepted: true, detail: 'accepted' });
+  });
+
+  it('maps paused activity without claiming dictation activity', () => {
+    expect(mapStatus({ Status: { protocol_version: 1, daemon_version: '0.1', running: true, activity: 'Paused', paused: true, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Coding', privacy: 'LocalOnly' } })).toMatchObject({ daemon: 'running', activity: 'paused', paused: true, hotkey: 'Alt+Space' });
   });
 
   it('maps backend status and tolerates unavailable fields', () => {

@@ -6,6 +6,13 @@
  */
 export type ProfileMode = 'Basic' | 'Coding' | 'Email' | 'Chat' | 'Terminal' | 'Custom';
 export type PrivacyMode = 'Auto' | 'LocalOnly' | 'CloudAllowed' | 'NeverCloud';
+export type RuntimeActivity = 'Idle' | 'Paused' | 'Error' | 'Stopping';
+export interface RouteSummary {
+  prefer_local: boolean;
+  allow_cloud: boolean;
+  prefer_warm_runtime: boolean;
+  optimize_battery: boolean;
+}
 export type EventKind =
   | 'AudioStarted' | 'HotkeyPressed' | 'HotkeyReleased' | 'HotkeyCancelled'
   | 'VadSpeechStarted' | 'AsrSelected' | 'TranscriptPartial' | 'TranscriptFinal'
@@ -37,12 +44,16 @@ export interface StatusResponse {
   protocol_version: number;
   daemon_version: string;
   running: boolean;
+  activity: RuntimeActivity;
+  paused: boolean;
+  hotkey: string;
+  route: RouteSummary;
   profile: ProfileMode;
   privacy: PrivacyMode;
 }
 export interface DoctorCheck { name: string; ok: boolean; detail: string; }
-export interface DoctorResponse { checks: DoctorCheck[]; }
-export interface ConfigSummaryResponse { profile: ProfileMode; privacy: PrivacyMode; history_enabled: boolean; }
+export interface DoctorResponse { status: StatusResponse; checks: DoctorCheck[]; }
+export interface ConfigSummaryResponse { profile: ProfileMode; privacy: PrivacyMode; history_enabled: boolean; hotkey: string; route: RouteSummary; }
 export interface RecentEventsResponse { events: IpcEvent[]; }
 export interface ControlResponse { accepted: boolean; detail: string; }
 

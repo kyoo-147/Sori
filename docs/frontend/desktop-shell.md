@@ -19,19 +19,18 @@ quiet Studio/sidebar layout) without coupling the runtime to that prototype.
   and/or distro formats after validating X11 and Wayland limitations for global
   hotkeys, active-window context, and text insertion.
 
-`apps/desktop/src-tauri/tauri.conf.json` is a deliberately inactive, compatible
-configuration scaffold. It has no Rust project or native dependency yet, so
-root CI remains Node/Rust-only. Native bundling will be enabled separately
-when signing and platform CI exist.
+`apps/desktop/src-tauri/tauri.conf.json` and its small Rust wrapper provide the
+native command boundary. Root CI remains Node/Rust-only; native packaging and
+signing are enabled separately when platform CI exists.
 
 ## Daemon boundary
 
-The UI must not access audio, model files, or providers directly. It talks to a
-`DaemonTransport` (`apps/desktop/src/transport.ts`) that exposes typed requests
-and events. The initial `MockTransport` makes the shell usable in a browser and
-in UI tests when `sorid` is absent. A production adapter can map the same
-interface to Tauri `invoke` commands, while the daemon continues to own
-microphone capture, transcription, routing, persistence, and permissions.
+The UI must not access audio, model files, or providers directly. It talks to
+the transport boundary in `apps/desktop/src/runtime-client.ts`. In Tauri,
+`NativeIpcTransport` invokes `sori_ipc`; `DesktopIpcTransport` falls back to
+loopback HTTP for browser/Vite and the runtime client uses deterministic mock
+status when both are unavailable. The daemon continues to own microphone
+capture, transcription, routing, persistence, and permissions.
 
 The transport should use the contracts in `crates/sori-ipc` and follow the
 existing local IPC security model in `docs/local-ipc.md`: per-user endpoint,

@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppSettings } from '../types';
 import type { DaemonStatus, RuntimeSource } from '../runtime-client';
-import { Mic, Monitor, Tablet, Smartphone, Flame, Command, CircleDot, Menu, X } from 'lucide-react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Mic, Monitor, Tablet, Smartphone, Flame, Command, CircleDot, Menu, X, Minus, Square, Copy } from 'lucide-react';
+import { performWindowAction, type WindowAction } from '../window-controls';
 
 interface DesktopTitleBarProps {
   settings: AppSettings;
@@ -37,9 +39,38 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   onToggleSidebar,
 }) => {
   const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in globalThis)) return;
+    const window = getCurrentWindow();
+    let disposed = false;
+    const refreshMaximized = () => {
+      window.isMaximized().then((maximized) => {
+        if (!disposed) setIsMaximized(maximized);
+      }).catch(() => undefined);
+    };
+    refreshMaximized();
+    let unlisten: (() => void) | undefined;
+    window.onResized(refreshMaximized).then((unsubscribe) => {
+      if (disposed) unsubscribe();
+      else unlisten = unsubscribe;
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  const runWindowAction = (action: WindowAction) => {
+    if (!('__TAURI_INTERNALS__' in globalThis)) return;
+    void performWindowAction(getCurrentWindow(), action);
+  };
+
+  const handleTitlebarDoubleClick = () => runWindowAction('toggle-maximize');
 
   return (
-    <div className="min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.10)] px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D] shadow-[0_1px_8px_rgba(40,34,28,0.03)]">
+    <div data-tauri-drag-region onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.10)] px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D] shadow-[0_1px_8px_rgba(40,34,28,0.03)]">
       <button
         type="button"
         onClick={onToggleSidebar}
@@ -48,7 +79,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
       >
         {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
       </button>
-      {/* Left: product command context. Native OS chrome owns close/minimize/maximize. */}
+      {/* Left: product command context. The native frame is replaced by this bar. */}
       <div className="min-w-0 flex items-center gap-2.5">
         <div className="hidden sm:flex h-7 w-7 items-center justify-center rounded-[9px] border border-[rgba(92,84,75,0.10)] bg-white/70 text-[#5E564E] shadow-2xs" aria-hidden="true">
           <Command className="h-3.5 w-3.5" />
@@ -140,6 +171,18 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
             title="Mobile preview (375px)"
           >
             <Smartphone className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="sori-window-controls flex items-center ml-1 -mr-2 sm:-mr-4 h-12" aria-label="Window controls">
+          <button type="button" aria-label="Minimize window" title="Minimize" onClick={() => runWindowAction('minimize')} className="sori-window-control" data-tauri-drag-region="false">
+            <Minus className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button type="button" aria-label={isMaximized ? 'Restore window' : 'Maximize window'} title={isMaximized ? 'Restore' : 'Maximize'} onClick={() => { setIsMaximized((value) => !value); runWindowAction('toggle-maximize'); }} className="sori-window-control" data-tauri-drag-region="false">
+            {isMaximized ? <Copy className="h-3.5 w-3.5" aria-hidden="true" /> : <Square className="h-3.5 w-3.5" aria-hidden="true" />}
+          </button>
+          <button type="button" aria-label="Close window" title="Close" onClick={() => runWindowAction('close')} className="sori-window-control sori-window-control-close" data-tauri-drag-region="false">
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       </div>

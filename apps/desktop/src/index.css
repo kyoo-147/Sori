@@ -207,3 +207,37 @@
 
 
 
+
+.sori-titlebar {
+  -webkit-app-region: drag;
+}
+.sori-titlebar button,
+.sori-titlebar [data-tauri-drag-region="false"] {
+  -webkit-app-region: no-drag;
+}
+.sori-window-control {
+  width: 46px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.sori-window-control:hover,
+.sori-window-control:focus-visible {
+  background: var(--fill-hover);
+  color: var(--text-primary);
+  outline: none;
+}
+.sori-window-control:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--border-focus);
+}
+.sori-window-control-close:hover,
+.sori-window-control-close:focus-visible {
+  background: #c94f4f;
+  color: white;
+}
+@media (max-width: 760px) {
+  .sori-window-control { width: 38px; }
+}

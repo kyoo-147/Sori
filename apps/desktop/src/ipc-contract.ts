@@ -37,7 +37,7 @@ export type IpcValue =
   | { Object: Record<string, IpcValue> };
 
 export type IpcRequest =
-  | 'Status' | 'Doctor' | 'ConfigSummary' | 'Pause' | 'Resume'
+  | 'Status' | 'Doctor' | 'ConfigSummary' | 'DictationStart' | 'DictationStop' | 'DictationCancel' | 'Pause' | 'Resume'
   | { Dictation: { model: string; audio: AudioChunk[] } }
   | { RecentEvents: { limit: number } };
 
@@ -70,13 +70,16 @@ export interface IpcResponseMap {
 }
 export type IpcResponse = { [K in keyof IpcResponseMap]: { [P in K]: IpcResponseMap[K] } }[keyof IpcResponseMap];
 
-export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'pause' | 'resume';
+export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'recent_events' | 'pause' | 'resume';
 
 export function requestShape(operation: IpcOperation, params: Record<string, unknown> = {}): IpcRequest {
   switch (operation) {
     case 'status': return 'Status';
     case 'doctor': return 'Doctor';
     case 'config_summary': return 'ConfigSummary';
+    case 'dictation_start': return 'DictationStart';
+    case 'dictation_stop': return 'DictationStop';
+    case 'dictation_cancel': return 'DictationCancel';
     case 'recent_events': return { RecentEvents: { limit: Number(params.limit ?? 10) } };
     case 'pause': return 'Pause';
     case 'resume': return 'Resume';

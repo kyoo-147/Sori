@@ -187,7 +187,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         {/* Prototype Flows Section */}
         <div className="pt-2 border-t border-[rgba(92,84,75,0.06)]">
           <div className="px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
-            Prototype Flows
+            Setup
           </div>
           <button
             onClick={() => navigate('onboarding')}

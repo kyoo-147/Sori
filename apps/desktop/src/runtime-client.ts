@@ -133,6 +133,32 @@ export class MockRuntimeClient {
 
 /** Real backend first; the preview client is used only when loopback IPC is absent. */
 export class RuntimeClient {
+  async dictationStart(): Promise<RuntimeResult<{ accepted: boolean; detail: string }>> {
+    return this.controlResponse('dictation_start');
+  }
+  async dictationStop(): Promise<RuntimeResult<{ text: string; language?: string | null; segments: unknown[] } | null>> {
+    if (this.usingMock) return { data: null, source: 'unavailable', error: 'Real sorid IPC is unavailable; no dictation was attempted.' };
+    try {
+      const value = await this.transport.request('dictation_stop');
+      const payload = unwrap(value, 'transcript');
+      return { data: typeof payload.text === 'string' ? { text: payload.text, language: text(payload.language), segments: Array.isArray(payload.segments) ? payload.segments : [] } : null, source: this.transport.source ?? 'backend', error: null };
+    } catch (error) {
+      return { data: null, source: 'unavailable', error: errorText(error) };
+    }
+  }
+  async dictationCancel(): Promise<RuntimeResult<{ accepted: boolean; detail: string }>> {
+    return this.controlResponse('dictation_cancel');
+  }
+  private async controlResponse(operation: 'dictation_start' | 'dictation_cancel'): Promise<RuntimeResult<{ accepted: boolean; detail: string }>> {
+    if (this.usingMock) return { data: { accepted: false, detail: 'Real sorid IPC is unavailable.' }, source: 'unavailable', error: 'Real sorid IPC is unavailable.' };
+    try {
+      const value = await this.transport.request(operation);
+      const payload = unwrap(value, 'control');
+      return { data: { accepted: payload.accepted === true, detail: text(payload.detail, 'No daemon detail returned.')! }, source: this.transport.source ?? 'backend', error: null };
+    } catch (error) {
+      return { data: { accepted: false, detail: errorText(error) }, source: 'unavailable', error: errorText(error) };
+    }
+  }
   private readonly mock = new MockRuntimeClient();
   private usingMock = false;
   constructor(private readonly transport: IpcTransport = new DesktopIpcTransport()) {}

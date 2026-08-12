@@ -14,6 +14,7 @@ describe('sequential product E2E gate contract', () => {
       'Privacy',
       'Diagnostics',
       'Settings',
+      'First-Run Setup',
     ]);
     for (const flow of PRODUCT_NAVIGATION) expect(flow.expected.length).toBeGreaterThanOrEqual(2);
   });

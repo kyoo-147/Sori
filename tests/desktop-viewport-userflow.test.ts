@@ -40,4 +40,15 @@ describe('desktop shell and truthful preview contracts', () => {
     expect(diagnostics).toContain('Restart Daemon (`sorid`) — not wired');
     expect(diagnostics).not.toContain('Text injection payload successfully delivered');
   });
+
+  it('keeps first-run setup truthful and connected to canonical runtime calls', () => {
+    const onboarding = desktopSource('components/screens/FirstRunOnboardingScreen.tsx');
+    const runtime = desktopSource('runtime-client.ts');
+    expect(onboarding).toContain('runtimeClient.dictationStart()');
+    expect(onboarding).toContain('runtimeClient.dictationStop()');
+    expect(onboarding).toContain('UNVERIFIED');
+    expect(onboarding).not.toContain('successfully injected text');
+    expect(runtime).toContain("this.controlResponse('dictation_start')");
+    expect(runtime).toContain("this.transport.request('dictation_stop')");
+  });
 });

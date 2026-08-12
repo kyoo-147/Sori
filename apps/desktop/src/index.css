@@ -91,6 +91,16 @@
   box-shadow: var(--sori-shadow-xs);
 }
 
+.sori-shell__titlebar {
+  height: 52px;
+}
+
+.sori-titlebar {
+  min-height: 52px;
+  height: 52px;
+  padding-inline: 12px;
+}
+
 .sori-shell__body {
   display: grid;
   min-height: 0;
@@ -135,11 +145,11 @@
   scrollbar-gutter: stable;
   border-top-left-radius: 16px;
   border-left: 1px solid color-mix(in srgb, var(--sori-border-default) 72%, transparent);
-  clip-path: inset(0 round 16px 0 0 0);
+  overflow: auto;
 }
 
 .sori-window-controls {
-  gap: 4px;
+  gap: 2px;
   margin-left: 8px;
   padding: 4px;
   border: 1px solid color-mix(in srgb, var(--sori-border-default) 82%, transparent);
@@ -149,7 +159,7 @@
 
 .sori-window-control {
   display: inline-flex;
-  width: 32px;
+  width: 36px;
   height: 32px;
   align-items: center;
   justify-content: center;

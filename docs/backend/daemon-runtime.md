@@ -4,9 +4,9 @@
 
 `DaemonConfig` provides defaults for the integration boundaries:
 
-- `Ctrl+Space` intended hotkey binding;
+- `Alt+Space` Windows global hotkey binding;
 - 16 kHz mono audio target;
 - local-first routing;
 - `sori.db` persistence path.
 
-The lifecycle and contracts are implemented, but concrete Windows hotkey registration, microphone capture/VAD, Whisper execution, and text injection are not wired into an end-to-end dictation path yet. See [MVP capability matrix](../mvp-capability-matrix.md).
+The daemon registers the Windows hotkey on a worker-owned message loop and reports conflicts/unsupported platforms through Doctor. Microphone capture/VAD, Whisper execution, and text injection are not yet wired into an end-to-end dictation path. See [MVP capability matrix](../mvp-capability-matrix.md).

@@ -1,5 +1,9 @@
 //! The `sorid` daemon runtime and its integration boundaries.
 
+mod hotkey;
+
+pub use hotkey::{HotkeyService, HotkeyServiceStatus, start_hotkey_service};
+
 pub mod config;
 pub mod runtime;
 
@@ -11,6 +15,12 @@ use std::sync::Arc;
 
 /// Shares a persistent event bus between the runtime and IPC handlers.
 pub struct SharedEventBus<B>(pub Arc<B>);
+
+impl<B> Clone for SharedEventBus<B> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
 
 impl<B: EventBus> EventBus for SharedEventBus<B> {
     fn publish(&self, event: Event) {

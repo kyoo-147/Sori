@@ -8,7 +8,10 @@ use sori_ipc::{
 };
 use sori_persistence::SqliteStore;
 use sori_provider_whisper::{WhisperCppConfig, WhisperCppProvider};
-use sorid::{DaemonConfig, DaemonRuntime, RuntimeState, SharedEventBus};
+use sorid::{
+    DaemonConfig, DaemonRuntime, HotkeyService, HotkeyServiceStatus, RuntimeState, SharedEventBus,
+    start_hotkey_service,
+};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tracing::info;
@@ -58,13 +61,24 @@ async fn main() -> Result<()> {
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
     let events = SharedEventBus(Arc::clone(&store));
     let mut daemon = match whisper_provider {
-        Some(provider) => DaemonRuntime::new_with_provider(events, provider),
-        None => DaemonRuntime::new(events),
+        Some(provider) => DaemonRuntime::new_with_provider(events.clone(), provider),
+        None => DaemonRuntime::new(events.clone()),
     };
     match CpalAudioController::new(Default::default()) {
         Ok(audio) => daemon.set_audio_engine(Box::new(audio)),
         Err(error) => info!(detail = %error, "microphone adapter unavailable"),
     }
+    let hotkey_result: Result<(HotkeyService, HotkeyServiceStatus), _> = start_hotkey_service(
+        Arc::new(events.clone()),
+        sori_core::HotkeyCombination::new(1, 0x20),
+    );
+    let (_hotkey_service, hotkey_status) = match hotkey_result {
+        Ok((service, status)) => (Some(service), status),
+        Err(error) => {
+            info!(detail = %error, "global hotkey adapter unavailable");
+            (None, HotkeyServiceStatus::Unavailable(error.to_string()))
+        }
+    };
     let runtime = Arc::new(Mutex::new(daemon));
     let endpoint: SocketAddr = DEFAULT_ENDPOINT.parse().expect("valid IPC endpoint");
     let server = LocalIpcServer::bind(endpoint).await?;
@@ -128,8 +142,12 @@ async fn main() -> Result<()> {
                         },
                         DoctorCheck {
                             name: "hotkey".into(),
-                            ok: false,
-                            detail: "unavailable: native global hotkey adapter is not wired".into(),
+                            ok: matches!(hotkey_status, HotkeyServiceStatus::Running),
+                            detail: match &hotkey_status {
+                                HotkeyServiceStatus::Running => "Windows global hotkey listener registered; physical key proof requires a machine test".into(),
+                                HotkeyServiceStatus::Unsupported => "unsupported: native global hotkey adapter requires Windows".into(),
+                                HotkeyServiceStatus::Unavailable(detail) => format!("unavailable: {detail}"),
+                            },
                         },
                         DoctorCheck {
                             name: "audio".into(),

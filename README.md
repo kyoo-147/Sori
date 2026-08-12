@@ -2,7 +2,7 @@
 
 ## Status
 
-Sori is an early Windows-first desktop MVP. The current repository contains a Rust daemon (`sorid`), loopback IPC, SQLite persistence, and a React/Tauri desktop shell. The end-to-end voice path is not complete yet: native hotkey capture, microphone capture, Whisper execution, and text injection remain scaffold/future work. See the [MVP capability matrix](docs/mvp-capability-matrix.md).
+Sori is an early Windows-first desktop MVP. The current repository contains a Rust daemon (`sorid`), loopback IPC, SQLite persistence, and a React/Tauri desktop shell. The Windows global hotkey is registered by the daemon, while microphone capture, Whisper execution, and text injection remain incomplete end-to-end. See the [MVP capability matrix](docs/mvp-capability-matrix.md).
 
 Repository: <https://github.com/kyoo-147/Sori>
 
@@ -49,7 +49,7 @@ React/Tauri shell → loopback IPC bridge → sorid (Rust) → SQLite
                                       ↘ lifecycle/diagnostic contracts
 ```
 
-The boundaries for audio, hotkey, ASR, and injection exist, but their real platform adapters are not yet wired into a working dictation path. The larger pipeline below is the product direction, not a claim about current implementation.
+The hotkey platform adapter is wired into the daemon lifecycle, but audio, ASR, and injection are not yet a working end-to-end dictation path. The larger pipeline below is product direction, not a claim about current implementation.
 
 
 ```text
@@ -669,7 +669,7 @@ sori dictionary
 - React/Tauri desktop shell with diagnostics.
 - Contracts/scaffolds for Windows hotkey, audio/VAD, `whisper.cpp`, and text injection.
 
-The foundation is implemented; the real hotkey → microphone → Whisper → injection path is still integration work.
+The foundation and Windows global hotkey registration are implemented; the real hotkey → microphone → Whisper → injection path is still integration work.
 
 ### V0.2
 

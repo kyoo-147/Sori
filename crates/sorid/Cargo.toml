@@ -20,3 +20,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 time.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true

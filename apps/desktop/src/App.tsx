@@ -29,7 +29,6 @@ import { DesktopTitleBar } from './components/DesktopTitleBar';
 import { DesktopSidebar } from './components/DesktopSidebar';
 import { OverlaySimulator } from './components/OverlaySimulator';
 import { TrayQuickControls } from './components/TrayQuickControls';
-import { DeviceFrame } from './components/DeviceFrame';
 
 import { OverviewScreen } from './components/screens/OverviewScreen';
 import { TranscriptsScreen } from './components/screens/TranscriptsScreen';
@@ -60,7 +59,6 @@ export default function App() {
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
   const [assistantVoice, setAssistantVoice] = useState<AssistantVoiceSettings>(defaultAssistantVoice);
 
-  const [deviceView, setDeviceView] = useState<'desktop' | 'tablet' | 'mobile'>(() => readPreference('deviceView', 'desktop'));
   const [isListening, setIsListening] = useState<boolean>(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [trayOpen, setTrayOpen] = useState<boolean>(false);
@@ -92,10 +90,6 @@ export default function App() {
   useEffect(() => {
     writePreference('extensions', extensions);
   }, [extensions]);
-
-  useEffect(() => {
-    writePreference('deviceView', deviceView);
-  }, [deviceView]);
 
   const setPaused = async (paused: boolean) => {
     const result = await (paused ? runtimeClient.pause() : runtimeClient.resume());
@@ -192,18 +186,16 @@ export default function App() {
   };
 
   return (
-    <DeviceFrame deviceView={deviceView}>
-      <div className="h-screen bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans select-none overflow-hidden antialiased">
-        {/* Top Window Titlebar (Chrome Window Header) */}
-        <DesktopTitleBar
+    <div className="sori-shell select-none sori-app-shell h-full min-h-0 bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell">
+      {/* Top Window Titlebar (Chrome Window Header) */}
+      <div className="sori-shell__titlebar">
+      <DesktopTitleBar
           settings={settings}
           setSettings={setSettings}
           isListening={isListening}
           toggleListening={toggleListening}
           trayOpen={trayOpen}
           setTrayOpen={setTrayOpen}
-          deviceView={deviceView}
-          setDeviceView={setDeviceView}
           activeModelName={activeWarmModel.name}
           runtimeSource={runtimeSource}
           runtimeStatus={runtimeStatus}
@@ -211,10 +203,11 @@ export default function App() {
           onTogglePaused={() => setPaused(!runtimeStatus.paused)}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
-        />
+      />
+      </div>
 
         {/* Main Application Window Shell */}
-        <div className="flex-1 flex overflow-hidden relative">
+      <div className="sori-shell__body flex-1 sori-app-body min-h-0 flex overflow-hidden relative" data-sori-layout="workspace">
           {/* Left Navigation Sidebar */}
           <DesktopSidebar
             activeScreen={activeScreen}
@@ -265,7 +258,7 @@ export default function App() {
           />
 
           {/* Main Content View Container */}
-          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FAF8F5] p-3 sm:p-4 md:p-6 custom-scrollbar">
+          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="sori-shell__workspace sori-main-content min-w-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FAF8F5] p-3 sm:p-4 md:p-6 custom-scrollbar" data-sori-pane="workspace">
             {(activeScreen === 'playground' || activeScreen === 'home') && (
               <OverviewScreen
                 settings={settings}
@@ -348,10 +341,10 @@ export default function App() {
               />
             )}
           </main>
-        </div>
+      </div>
 
         {/* Studio Settings Modal overlay if invoked */}
-        {isSettingsModalOpen && (
+      {isSettingsModalOpen && (
           <div className="fixed inset-0 z-50 bg-[#1C1B1A]/20 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="w-full max-w-3xl relative animate-in fade-in zoom-in-95 duration-200">
               <StudioSettingsScreen settings={settings} setSettings={setSettings} />
@@ -365,8 +358,7 @@ export default function App() {
               </button>
             </div>
           </div>
-        )}
-      </div>
-    </DeviceFrame>
+      )}
+    </div>
   );
 }

@@ -13,6 +13,8 @@ signing, and platform-specific daemon endpoints remain separate work.
 
 The native window decorations are disabled atomically in `tauri.conf.json`.
 `DesktopTitleBar` owns drag, double-click maximize/restore, and accessible
-minimize, maximize/restore, and close controls through Tauri's current-window
-API. Browser preview keeps these controls inert; native behavior is covered by
-the titlebar source and configuration tests.
+minimize, maximize/restore, and close controls through registered Tauri
+commands. Browser preview keeps these controls inert; native behavior is
+covered by the titlebar source and configuration tests. Window dimensions in
+`tauri.conf.json` are logical pixels, so the native minimum size remains stable
+when Windows moves the window between DPI-scaled monitors.

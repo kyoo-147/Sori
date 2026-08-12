@@ -48,16 +48,20 @@ async fn main() -> Result<()> {
             attribution: None,
         },
     }];
-    let (whisper_provider, whisper_detail) = match WhisperCppConfig::discover() {
-        Ok(config) => (
-            Some(
-                Arc::new(WhisperCppProvider::from_config(config, whisper_manifests))
-                    as Arc<dyn sori_core::ModelProvider>,
-            ),
-            "whisper.cpp executable and model directory discovered".to_string(),
-        ),
-        Err(error) => (None, format!("unavailable: {error}")),
-    };
+    let (whisper_provider, whisper_detail): (Option<Arc<dyn sori_core::ModelProvider>>, String) =
+        match WhisperCppConfig::discover() {
+            Ok(config) => {
+                let provider = WhisperCppProvider::from_config(config, whisper_manifests);
+                match provider.validate_for_transcription(&ModelId::from(whisper_model.as_str())) {
+                    Ok(()) => (
+                        Some(Arc::new(provider)),
+                        "whisper.cpp executable and model are ready".into(),
+                    ),
+                    Err(error) => (None, format!("unavailable: {error}")),
+                }
+            }
+            Err(error) => (None, format!("unavailable: {error}")),
+        };
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
     let events = SharedEventBus(Arc::clone(&store));
     let mut daemon = match whisper_provider {
@@ -104,10 +108,13 @@ async fn main() -> Result<()> {
             }
             Request::DictationStop => {
                 let chunks = runtime.stop_audio(false).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                Response::Control(ControlResponse { accepted: true, detail: format!("microphone capture stopped after {chunks} chunks; no transcript was produced") })
+                let audio = runtime.take_captured_audio();
+                Response::Transcript(runtime.transcribe(&ModelId::from(whisper_model.as_str()), &audio)
+                    .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but Whisper inference failed: {error}")))?)
             }
             Request::DictationCancel => {
                 let chunks = runtime.stop_audio(true).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                let _ = runtime.take_captured_audio();
                 Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") })
             }
             Request::Dictation { model, audio } => Response::Transcript(

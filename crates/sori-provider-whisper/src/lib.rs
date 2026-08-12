@@ -116,6 +116,24 @@ impl WhisperCppProvider {
         self.model_dir.as_deref()
     }
 
+    /// Validate everything required before launching the native sidecar.
+    pub fn validate_for_transcription(&self, model: &ModelId) -> Result<(), ModelError> {
+        if !self.executable.is_file() {
+            return Err(ModelError::Inference(format!(
+                "whisper.cpp executable does not exist: {}",
+                self.executable.display()
+            )));
+        }
+        let model_path = self.model_path(model);
+        if !model_path.is_file() {
+            return Err(ModelError::Inference(format!(
+                "whisper.cpp model file does not exist: {}",
+                model_path.display()
+            )));
+        }
+        Ok(())
+    }
+
     pub fn model_path(&self, model: &ModelId) -> PathBuf {
         self.model_dir
             .as_ref()
@@ -180,6 +198,7 @@ impl WhisperCppProvider {
         format: OutputFormat,
         options: &ProcessOptions,
     ) -> Result<Transcript, ModelError> {
+        self.validate_for_transcription(model)?;
         self.transcribe_audio_with_runner_options(
             model,
             audio,

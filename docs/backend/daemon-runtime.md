@@ -9,4 +9,4 @@
 - local-first routing;
 - `sori.db` persistence path.
 
-The daemon registers the Windows hotkey on a worker-owned message loop and reports conflicts/unsupported platforms through Doctor. Microphone capture/VAD, Whisper execution, and text injection are not yet wired into an end-to-end dictation path. See [MVP capability matrix](../mvp-capability-matrix.md).
+The daemon registers the Windows hotkey on a worker-owned message loop and reports conflicts/unsupported platforms through Doctor. It also wires captured audio into the configured whisper.cpp provider on `DictationStop`. A transcript is returned only after the sidecar exits successfully and its output parses; missing executable/model, capture errors, non-zero exits, timeouts, cancellation, and empty output remain errors. Native text injection remains a separate seam. See [MVP capability matrix](../mvp-capability-matrix.md).

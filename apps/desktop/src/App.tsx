@@ -46,10 +46,40 @@ import { CoverageChecklistScreen } from './components/screens/CoverageChecklistS
 import { SystemDesignScreen } from './components/screens/SystemDesignScreen';
 import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
 import { readPreference, readSettings, writePreference } from './preferences';
+import { createShellFoundation, readShellPreferences, writeShellPreferences, defaultShellPreferences, type ShellPreferences } from './shell';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
   const [settings, setSettings] = useState<AppSettings>(() => readSettings(defaultSettings));
+  const [shellPreferences, setShellPreferences] = useState<ShellPreferences>(() => readShellPreferences(defaultShellPreferences));
+  const [shell] = useState(() => createShellFoundation(shellPreferences));
+
+  useEffect(() => {
+    const removeCommands = shell.commands.registerMany([
+      { id: 'shell.open-home', title: 'Open Home', category: 'Navigation', execute: () => setActiveScreen('home') },
+      { id: 'shell.open-transcripts', title: 'Open Transcripts', category: 'Navigation', execute: () => setActiveScreen('transcripts') },
+      { id: 'shell.open-settings', title: 'Open Settings', category: 'Navigation', execute: () => setActiveScreen('settings') },
+    ]);
+    const removeShortcuts = shell.shortcuts.registerMany([
+      { id: 'shell.shortcut.home', commandId: 'shell.open-home', shortcut: 'Ctrl+1', scope: 'shell' },
+      { id: 'shell.shortcut.transcripts', commandId: 'shell.open-transcripts', shortcut: 'Ctrl+2', scope: 'shell' },
+      { id: 'shell.shortcut.settings', commandId: 'shell.open-settings', shortcut: 'Ctrl+,', scope: 'shell' },
+    ]);
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
+      const input = { key: event.key, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey, metaKey: event.metaKey };
+      if (!shell.shortcuts.resolve(input, 'shell')) return;
+      event.preventDefault();
+      void shell.shortcuts.dispatch(input, shell.commands, {}, 'shell');
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      removeShortcuts();
+      removeCommands();
+    };
+  }, [shell]);
   const [models, setModels] = useState<ModelInfo[]>(initialModels);
   const [routes, setRoutes] = useState<RouteRule[]>(initialRoutes);
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>(initialDictionary);
@@ -88,6 +118,16 @@ export default function App() {
   useEffect(() => {
     writePreference('settings', settings);
   }, [settings]);
+
+  useEffect(() => {
+    writeShellPreferences({ ...shellPreferences, theme: settings.theme });
+  }, [settings.theme, shellPreferences]);
+
+  useEffect(() => {
+    if (shellPreferences.theme !== settings.theme) {
+      setShellPreferences((current) => ({ ...current, theme: settings.theme }));
+    }
+  }, [settings.theme, shellPreferences.theme]);
 
   useEffect(() => {
     writePreference('extensions', extensions);
@@ -193,7 +233,12 @@ export default function App() {
 
   return (
     <DeviceFrame deviceView={deviceView}>
-      <div className="h-screen bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans select-none overflow-hidden antialiased">
+      <div
+        data-sori-shell-theme={shellPreferences.theme}
+        data-sori-density={shellPreferences.density}
+        data-sori-workspace={shell.layout.snapshot().activeWorkspaceId}
+        className="h-screen bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans select-none overflow-hidden antialiased"
+      >
         {/* Top Window Titlebar (Chrome Window Header) */}
         <DesktopTitleBar
           settings={settings}

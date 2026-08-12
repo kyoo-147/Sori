@@ -35,7 +35,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
 
   return (
-    <div className="min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.10)] px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D] shadow-[0_1px_8px_rgba(40,34,28,0.03)]">
+    <div className="sori-shell__titlebar min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
       <button
         type="button"
         onClick={onToggleSidebar}

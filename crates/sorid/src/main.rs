@@ -1,10 +1,12 @@
 use anyhow::Result;
 use sori_audio::CpalAudioController;
-use sori_core::{ModelId, ModelLicense, ModelManifest, PrivacyMode, ProfileMode};
+use sori_core::{
+    FastIntent, HistoryEntry, ModelId, ModelLicense, ModelManifest, PrivacyMode, ProfileMode,
+};
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
-    IpcEvent, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse, Request, Response,
-    RouteSummary, RuntimeActivity, StatusResponse,
+    IpcEvent, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse, RecentHistoryResponse,
+    Request, Response, RouteSummary, RuntimeActivity, StatusResponse,
 };
 use sori_persistence::SqliteStore;
 use sori_provider_whisper::{WhisperCppConfig, WhisperCppProvider};
@@ -63,6 +65,16 @@ async fn main() -> Result<()> {
             Err(error) => (None, format!("unavailable: {error}")),
         };
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
+    if let Some(value) = store.setting("hotkey.binding")? {
+        if let Some(binding) = value.as_str() {
+            config.hotkey.binding = binding.to_owned();
+        }
+    }
+    let history_retention = store
+        .setting("history.retention_limit")?
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20) as usize;
+    store.try_retain_history(history_retention)?;
     let events = SharedEventBus(Arc::clone(&store));
     let mut daemon = match whisper_provider {
         Some(provider) => DaemonRuntime::new_with_provider(events.clone(), provider),
@@ -95,8 +107,11 @@ async fn main() -> Result<()> {
 
     let handler_runtime = Arc::clone(&runtime);
     let handler_store = Arc::clone(&store);
-    let handler_config = config.clone();
+    let handler_config = Arc::new(Mutex::new(config.clone()));
     let server_task = server.serve(move |request| {
+        let mut handler_config = handler_config
+            .lock()
+            .map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?;
         let mut runtime = handler_runtime
             .lock()
             .map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
@@ -107,10 +122,26 @@ async fn main() -> Result<()> {
                 Response::Control(ControlResponse { accepted: true, detail: "microphone capture started".into() })
             }
             Request::DictationStop => {
+                let history_enabled = handler_store
+                    .setting("history.enabled")
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                let history_retention = handler_store
+                    .setting("history.retention_limit")
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(20) as usize;
                 let chunks = runtime.stop_audio(false).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 let audio = runtime.take_captured_audio();
-                Response::Transcript(runtime.transcribe(&ModelId::from(whisper_model.as_str()), &audio)
-                    .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but Whisper inference failed: {error}")))?)
+                let transcript = runtime.transcribe(&ModelId::from(whisper_model.as_str()), &audio)
+                    .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but Whisper inference failed: {error}")))?;
+                if history_enabled {
+                    let entry = HistoryEntry { id: uuid::Uuid::new_v4(), at: time::OffsetDateTime::now_utc(), active_app: None, transcript: transcript.clone(), intent: FastIntent::Dictation { text: transcript.text.clone() }, route: None, inserted_text: None };
+                    handler_store.try_push_history(&entry).map_err(|e| sori_ipc::IpcError::Transport(format!("transcript produced but history persistence failed: {e}")))?;
+                    handler_store.try_retain_history(history_retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?;
+                }
+                Response::Transcript(transcript)
             }
             Request::DictationCancel => {
                 let chunks = runtime.stop_audio(true).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -178,13 +209,33 @@ async fn main() -> Result<()> {
                     ],
                 })
             }
-            Request::ConfigSummary => Response::ConfigSummary(ConfigSummaryResponse {
+            Request::ConfigSummary => {
+                let history_enabled = handler_store
+                    .setting("history.enabled")
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                Response::ConfigSummary(ConfigSummaryResponse {
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
-                history_enabled: !handler_config.persistence_path.as_os_str().is_empty(),
+                history_enabled,
                 hotkey: handler_config.hotkey.binding.clone(),
                 route: route_summary(&handler_config),
+                })
+            }
+            Request::RecentHistory { limit } => Response::RecentHistory(RecentHistoryResponse {
+                entries: handler_store.try_recent_history(usize::from(limit)).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?,
             }),
+            Request::PurgeHistory => {
+                handler_store.try_purge_history().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Control(ControlResponse { accepted: true, detail: "history purged from SQLite".into() })
+            }
+            Request::SetConfig { key, value } => {
+                validate_setting(&key, &value).map_err(sori_ipc::IpcError::Transport)?;
+                handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if key == "hotkey.binding" { handler_config.hotkey.binding = value.as_str().unwrap().to_owned(); }
+                Response::Control(ControlResponse { accepted: true, detail: format!("setting {key} persisted") })
+            }
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
                 events: handler_store
                     .try_recent_events_limit(usize::from(limit))
@@ -272,5 +323,19 @@ fn status_response<B: sori_core::EventBus>(
         route: route_summary(config),
         profile: ProfileMode::Basic,
         privacy: PrivacyMode::LocalOnly,
+    }
+}
+
+fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> {
+    match key {
+        "hotkey.binding" if value.as_str().is_some_and(|v| !v.trim().is_empty()) => Ok(()),
+        "history.enabled" if value.is_boolean() => Ok(()),
+        "history.retention_limit" if value.as_u64().is_some_and(|v| v > 0 && v <= 10_000) => Ok(()),
+        "hotkey.binding" => Err("hotkey.binding must be a non-empty string".into()),
+        "history.enabled" => Err("history.enabled must be boolean".into()),
+        "history.retention_limit" => {
+            Err("history.retention_limit must be an integer from 1 to 10000".into())
+        }
+        _ => Err(format!("unsupported setting: {key}")),
     }
 }

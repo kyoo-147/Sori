@@ -161,7 +161,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         </button>
 
 
-        <div className="sori-window-controls flex shrink-0 items-center ml-1 h-12" role="group" aria-label="Window controls">
+        <div className="sori-window-controls flex shrink-0 items-center" role="group" aria-label="Window controls">
           <button type="button" aria-label="Minimize window" title="Minimize" onClick={() => void runWindowAction('minimize')} className="sori-window-control" data-tauri-drag-region="false">
             <Minus className="h-4 w-4" aria-hidden="true" />
           </button>

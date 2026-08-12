@@ -93,6 +93,7 @@
 
 .sori-shell__titlebar {
   height: 52px;
+  flex-basis: 52px;
 }
 
 .sori-titlebar {
@@ -107,6 +108,7 @@
   flex: 1 1 auto;
   grid-template-columns: minmax(0, var(--sori-sidebar-width)) minmax(0, 1fr);
   overflow: hidden;
+  background: var(--sori-bg-sidebar);
 }
 
 .sori-shell__sidebar {
@@ -143,8 +145,12 @@
   padding: var(--sori-workspace-padding);
   background: var(--sori-bg-app);
   scrollbar-gutter: stable;
-  border-top-left-radius: 16px;
-  border-left: 1px solid color-mix(in srgb, var(--sori-border-default) 72%, transparent);
+  position: relative;
+  z-index: 1;
+  margin-top: -1px;
+  border-top: 1px solid var(--sori-border-default);
+  border-left: 1px solid var(--sori-border-default);
+  border-top-left-radius: 18px;
   overflow: auto;
 }
 

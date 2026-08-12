@@ -1,6 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;450;500;600;700&display=swap');
 
+/*
+ * Sori desktop design tokens.
+ *
+ * Keep the CSS and TypeScript token maps in sync. Components should consume
+ * semantic tokens rather than introducing one-off colors, dimensions, or
+ * elevation recipes in class strings.
+ */
 :root {
+  /* Surfaces and text */
   --sori-bg-canvas: #F6F6F4;
   --sori-bg-app: #FBFBFA;
   --sori-bg-sidebar: #F3F3F1;
@@ -12,14 +20,18 @@
   --sori-text-tertiary: #858A90;
   --sori-text-quiet: #A3A7AD;
   --sori-text-inverse: #FFFFFF;
+
+  /* Borders and interaction fills */
   --sori-border-default: #E2E4E8;
   --sori-border-soft: #ECEDEE;
   --sori-border-strong: #CDD1D5;
-  --sori-border-focus: #BAC7D8;
+  --sori-border-focus: #8DA4BC;
   --sori-fill-hover: #F0F1F2;
   --sori-fill-active: #E9EBEE;
   --sori-fill-selected: #E8EDF4;
   --sori-fill-disabled: #F5F5F5;
+
+  /* Restrained slate accent */
   --sori-accent-primary: #5C728A;
   --sori-accent-primary-soft: #E8EEF4;
   --sori-accent-primary-border: #C9D6E3;
@@ -27,6 +39,8 @@
   --sori-accent-button-text: #24384C;
   --sori-accent-button-border: #D5E0EA;
   --sori-accent-button-hover: #E1E8F0;
+
+  /* Feedback */
   --sori-success-text: #1F6B43;
   --sori-success-bg: #EAF6EE;
   --sori-success-border: #CBE5D4;
@@ -39,8 +53,66 @@
   --sori-info-text: #3E607D;
   --sori-info-bg: #EAF1F7;
   --sori-info-border: #CADAE8;
+
+  /* 4px spacing grid */
+  --sori-space-0: 0px;
+  --sori-space-1: 4px;
+  --sori-space-2: 8px;
+  --sori-space-3: 12px;
+  --sori-space-4: 16px;
+  --sori-space-5: 20px;
+  --sori-space-6: 24px;
+  --sori-space-7: 32px;
+  --sori-space-8: 40px;
+  --sori-space-9: 48px;
+
+  /* Shape */
+  --sori-radius-xs: 6px;
+  --sori-radius-sm: 8px;
+  --sori-radius-md: 10px;
+  --sori-radius-lg: 14px;
+  --sori-radius-xl: 18px;
+  --sori-radius-pill: 999px;
+
+  /* Quiet, low-contrast elevation */
+  --sori-shadow-none: 0 0 transparent;
+  --sori-shadow-xs: 0 1px 2px rgba(26, 31, 36, 0.04);
+  --sori-shadow-sm: 0 4px 12px rgba(26, 31, 36, 0.05);
+  --sori-shadow-md: 0 10px 28px rgba(26, 31, 36, 0.07);
+  --sori-shadow-lg: 0 18px 44px rgba(26, 31, 36, 0.10);
+  --sori-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+
+  /* Type */
   --sori-font-sans: "Geist", "SF Pro Text", "SF Pro Display", "Avenir Next", "Inter", system-ui, -apple-system, sans-serif;
   --sori-font-mono: "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  --sori-type-page-size: 26px;
+  --sori-type-page-leading: 32px;
+  --sori-type-section-size: 18px;
+  --sori-type-section-leading: 26px;
+  --sori-type-body-size: 14.5px;
+  --sori-type-body-leading: 22px;
+  --sori-type-sidebar-size: 13.5px;
+  --sori-type-sidebar-leading: 20px;
+  --sori-type-control-size: 13px;
+  --sori-type-control-leading: 18px;
+  --sori-type-meta-size: 12px;
+  --sori-type-meta-leading: 18px;
+
+  /* Shell and layout defaults; override per window or pane when needed. */
+  --sori-titlebar-height: 48px;
+  --sori-sidebar-width: 248px;
+  --sori-rail-width: 248px;
+  --sori-inspector-width: 320px;
+  --sori-inspector-min: 220px;
+  --sori-workspace-padding: 24px;
+  --sori-pane-gap: 16px;
+
+  /* Motion */
+  --sori-motion-fast: 120ms;
+  --sori-motion-standard: 180ms;
+  --sori-motion-layout: 240ms;
+
+  /* Glass is reserved for transient or elevated surfaces. */
   --sori-glass-light-bg: rgba(255, 255, 255, 0.68);
   --sori-glass-light-filter: blur(18px) saturate(120%);
   --sori-glass-strong-bg: rgba(255, 255, 255, 0.76);
@@ -49,6 +121,27 @@
   --sori-glass-overlay-radius: 18px;
 }
 
-.sori-glass { background: var(--sori-glass-light-bg); backdrop-filter: var(--sori-glass-light-filter); -webkit-backdrop-filter: var(--sori-glass-light-filter); border: 1px solid rgba(210, 214, 220, 0.72); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.65); }
-.sori-glass-strong { background: var(--sori-glass-strong-bg); backdrop-filter: var(--sori-glass-strong-filter); -webkit-backdrop-filter: var(--sori-glass-strong-filter); border: 1px solid rgba(203, 208, 214, 0.86); box-shadow: 0 12px 36px rgba(0, 0, 0, 0.06); }
-.sori-floating { background: var(--sori-glass-overlay-bg); backdrop-filter: var(--sori-glass-strong-filter); -webkit-backdrop-filter: var(--sori-glass-strong-filter); border: 1px solid rgba(203, 208, 214, 0.86); border-radius: var(--sori-glass-overlay-radius); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.07); }
+.sori-glass {
+  background: var(--sori-glass-light-bg);
+  backdrop-filter: var(--sori-glass-light-filter);
+  -webkit-backdrop-filter: var(--sori-glass-light-filter);
+  border: 1px solid rgba(210, 214, 220, 0.72);
+  box-shadow: var(--sori-shadow-sm), var(--sori-shadow-inset);
+}
+
+.sori-glass-strong {
+  background: var(--sori-glass-strong-bg);
+  backdrop-filter: var(--sori-glass-strong-filter);
+  -webkit-backdrop-filter: var(--sori-glass-strong-filter);
+  border: 1px solid rgba(203, 208, 214, 0.86);
+  box-shadow: var(--sori-shadow-md);
+}
+
+.sori-floating {
+  background: var(--sori-glass-overlay-bg);
+  backdrop-filter: var(--sori-glass-strong-filter);
+  -webkit-backdrop-filter: var(--sori-glass-strong-filter);
+  border: 1px solid rgba(203, 208, 214, 0.86);
+  border-radius: var(--sori-glass-overlay-radius);
+  box-shadow: var(--sori-shadow-lg);
+}

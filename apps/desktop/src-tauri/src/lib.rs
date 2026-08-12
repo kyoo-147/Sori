@@ -1,4 +1,37 @@
+#[cfg(windows)]
+fn enforce_custom_window_frame(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_STYLE, SWP_FRAMECHANGED,
+        SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WS_CAPTION,
+    };
+
+    let hwnd = window.hwnd()?;
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        let without_caption = style & !(WS_CAPTION.0 as isize);
+        if style != without_caption {
+            SetWindowLongPtrW(hwnd, GWL_STYLE, without_caption);
+            SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+            )
+            .map_err(|error| tauri::Error::Anyhow(anyhow::anyhow!(error.to_string())))?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn enforce_custom_window_frame(_window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    Ok(())
+}
 use serde_json::Value;
+use tauri::Manager;
 use sori_ipc::{IpcClient, LocalIpcClient, Request};
 
 /// Native command boundary for the UI. The daemon remains the owner of IPC,
@@ -84,6 +117,14 @@ mod commands {
 
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            let window = app
+                .get_webview_window("main")
+                .expect("main window is not available");
+            enforce_custom_window_frame(&window)?;
+            window.set_focus()?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::sori_ipc,
             commands::window_minimize,

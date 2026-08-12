@@ -268,7 +268,7 @@ export default function App() {
           />
 
           {/* Main Content View Container */}
-          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="sori-shell__workspace sori-main-content min-w-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FAF8F5] p-3 sm:p-4 md:p-6 custom-scrollbar" data-sori-pane="workspace">
+          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="sori-shell__workspace sori-main-content min-w-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FBFBFA] p-3 sm:p-4 md:p-6 custom-scrollbar" data-sori-pane="workspace">
             {(activeScreen === 'playground' || activeScreen === 'home') && (
               <OverviewScreen
                 settings={settings}

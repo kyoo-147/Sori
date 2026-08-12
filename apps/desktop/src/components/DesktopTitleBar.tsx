@@ -90,7 +90,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   };
 
   return (
-    <div data-tauri-drag-region role="toolbar" aria-label="Sori window title bar" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.10)] px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D] shadow-[0_1px_8px_rgba(40,34,28,0.03)]">
+    <div data-tauri-drag-region role="toolbar" aria-label="Sori window title bar" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
       <button
         type="button"
         onClick={onToggleSidebar}
@@ -117,7 +117,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
       </div>
 
       {/* Center: local preview action and runtime status */}
-      <div className="flex items-center gap-2.5 min-w-0">
+      <div className="sori-titlebar__center-actions flex items-center gap-2.5 min-w-0">
         <button
           onClick={toggleListening}
           title="Browser preview only — daemon microphone capture is not connected"
@@ -142,7 +142,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
       </div>
 
       {/* Right: Quick Tools and native window controls */}
-      <div className="flex items-center gap-2">
+      <div className="sori-titlebar__actions flex items-center gap-2">
         {/* Tray Toggle */}
         <button
           type="button"
@@ -150,7 +150,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           aria-expanded={trayOpen}
           aria-controls="tray-quick-controls"
           aria-label={trayOpen ? 'Close quick controls' : 'Open quick controls'}
-          className={`px-3 py-1.5 rounded-[12px] border text-[12px] font-medium transition-all flex items-center gap-1.5 ${
+          className={`sori-titlebar__quick-controls px-3 py-1.5 rounded-[9px] border text-[12px] font-medium transition-all flex items-center gap-1.5 ${
             trayOpen
               ? 'bg-[rgba(221,217,211,0.46)] border-[rgba(91,84,77,0.15)] text-[#1C1B19] font-semibold'
               : 'sori-tactile-btn'

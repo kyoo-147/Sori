@@ -242,26 +242,8 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
           {activeTab === 'Overlay' && (
             <div className="space-y-4 text-xs">
               <p className="text-[#5F6368]">Choose visual overlay style when dictation hotkey is held down.</p>
-              <div className="grid grid-cols-2 gap-2">
-                {([
-                  ['dot', 'Dot'],
-                  ['pill', 'Pill'],
-                  ['wave', 'Waveform'],
-                  ['orb', 'Orb'],
-                  ['monochrome', 'Monochrome'],
-                ] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    onClick={() => setSettings((prev) => ({ ...prev, overlayStyle: value }))}
-                    className={`p-3 rounded-[10px] border text-left transition ${
-                      settings.overlayStyle === value
-                        ? 'bg-[#EEF2F6] border-[#2E4E6D] font-semibold text-[#24384C]'
-                        : 'bg-white border-[#E2E4E8] text-[#5F6368]'
-                    }`}
-                  >
-                    {label} Style
-                  </button>
-                ))}
+              <div className="p-3 bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] text-[#5F6368]">
+                The compact Sori overlay is fixed for the current desktop shell. Experimental overlay variants are not part of the production surface.
               </div>
             </div>
           )}

@@ -205,7 +205,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       </div>
 
       {/* Bottom Profile & Settings Section */}
-      <div className="sori-shell__sidebar-footer p-3 border-t border-[rgba(92,84,75,0.08)] space-y-1 bg-[rgba(230,225,218,0.3)]">
+      <div className="sori-shell__sidebar-footer p-3 space-y-1">
         <button
           onClick={() => {
             navigate('settings');

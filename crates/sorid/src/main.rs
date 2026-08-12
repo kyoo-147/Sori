@@ -85,7 +85,12 @@ async fn main() -> Result<()> {
     };
     let runtime = Arc::new(Mutex::new(daemon));
     let endpoint: SocketAddr = DEFAULT_ENDPOINT.parse().expect("valid IPC endpoint");
-    let server = LocalIpcServer::bind(endpoint).await?;
+    let server = LocalIpcServer::bind(endpoint).await.map_err(|error| {
+        anyhow::anyhow!(
+            "cannot bind local IPC endpoint {endpoint}: {error}; another process may own it. {}",
+            "Inspect with `Get-NetTCPConnection -LocalPort 17373` and stop only a known stale sorid process"
+        )
+    })?;
     info!(
         hotkey = %config.hotkey.binding,
         persistence_path = ?config.persistence_path,

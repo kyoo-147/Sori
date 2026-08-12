@@ -13,10 +13,54 @@ Workspace crates:
 - `crates/sorid` — daemon runtime.
 - `apps/desktop` — React/Tauri shell.
 
-## Local prerequisites
+## Fresh Windows setup
 
-- Node.js 22+.
-- Rust stable with `rustfmt` and `clippy`.
+Install these prerequisites before building the desktop shell or expecting a
+real dictation session:
+
+- Windows 10 1809+ (Windows 11 recommended), with a working microphone and
+  microphone access enabled under **Settings > Privacy & security >
+  Microphone**.
+- Node.js 22+ and npm. From `apps/desktop`, run `npm ci`.
+- Rust 1.85+ (stable) with the `rustfmt` and `clippy` components. Install the
+  MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`).
+- Microsoft C++ Build Tools with the Windows 10/11 SDK (required by CPAL and
+  Tauri's native build).
+- WebView2 Runtime (normally already installed on supported Windows).
+- A separately installed `whisper.cpp` CLI and a compatible model file. Sori
+  does not download, vendor, or silently substitute these. Set the paths in
+  `.env` (PowerShell syntax shown):
+
+  ```powershell
+  $env:SORI_WHISPER_CPP_BIN = 'C:\tools\whisper.cpp\whisper-cli.exe'
+  $env:SORI_WHISPER_MODEL_DIR = 'C:\models\whisper'
+  $env:SORI_WHISPER_MODEL = 'ggml-base.en.bin'
+  ```
+
+  `WHISPER_CPP_BIN` and `WHISPER_CPP_MODEL_DIR` are accepted compatibility
+  aliases. `SORI_DATABASE_PATH` (or `SORI_DB_PATH`) optionally selects the
+  SQLite file; otherwise the daemon uses its configured default.
+
+The Whisper executable and model are runtime prerequisites, not Rust/npm
+dependencies. Missing paths must remain visible as `unavailable` in Doctor.
+Likewise, a configured CPAL adapter is not proof that a physical microphone,
+Windows permission, or usable input device has been verified.
+
+## Build and run
+
+From the repository root:
+
+```powershell
+npm ci --prefix apps/desktop
+cargo build --workspace
+cargo run -p sorid
+```
+
+In a second terminal, run `cargo run -p sori-cli -- doctor`. Sori owns only
+`127.0.0.1:17373`; it must never attach to an already-running unknown daemon.
+If startup reports that the endpoint is occupied, inspect the owner with
+`Get-NetTCPConnection -LocalPort 17373` and stop only the known stale `sorid`
+process before retrying. Do not kill an unknown process.
 
 ## Validation
 

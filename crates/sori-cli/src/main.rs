@@ -59,6 +59,7 @@ fn doctor() -> Result<()> {
     match LocalIpcClient::connect() {
         Ok(client) => match client.request(Request::Doctor)? {
             Response::Doctor(result) => {
+                let failed = result.checks.iter().filter(|check| !check.ok).count();
                 for check in result.checks {
                     println!(
                         "- {}: {} ({})",
@@ -67,10 +68,17 @@ fn doctor() -> Result<()> {
                         check.detail
                     );
                 }
+                if failed > 0 {
+                    anyhow::bail!(
+                        "{failed} Doctor check(s) failed; resolve the reported prerequisite(s) and run Doctor again"
+                    );
+                }
             }
-            _ => println!("- daemon IPC: invalid response"),
+            _ => anyhow::bail!("daemon IPC returned an invalid Doctor response"),
         },
-        Err(_) => println!("- daemon IPC: unavailable (is sorid running?)"),
+        Err(error) => anyhow::bail!(
+            "daemon IPC unavailable at 127.0.0.1:17373 ({error}); start the intended sorid instance, then run Doctor again"
+        ),
     }
     Ok(())
 }

@@ -49,11 +49,11 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
 
   const handleTestMic = () => {
     setIsTestingMic(true);
-    setMicTestMsg('Testing audio input levels (48kHz 16-bit)...');
+    setMicTestMsg('Checking microphone through the canonical runtime…');
     setTimeout(() => {
       setIsTestingMic(false);
-      setMicTestMsg('Microphone signal verified: Clear, -18dB RMS');
-    }, 1500);
+      setMicTestMsg('UNVERIFIED: microphone test IPC is not exposed. No hardware signal was claimed.');
+    }, 400);
   };
 
   return (

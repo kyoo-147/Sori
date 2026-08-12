@@ -1,3 +1,16 @@
+/** Backend-shaped view-model types. Rust IPC remains authoritative for runtime/capability fields. */
+export type CapabilityState = 'available' | 'unavailable' | 'unknown' | 'unsupported';
+export type AppReadiness = 'ready' | 'listening' | 'processing' | 'inserting' | 'error' | 'unavailable';
+export type TranscriptStatus = 'processed' | 'partial' | 'failed' | 'processing';
+export interface AppStatus { ready: boolean; readiness: AppReadiness; hotkey: string; focusedTarget: string | null; activeRoute: { type: 'local' | 'cloud'; modelId: string }; capabilities: Record<string, CapabilityState>; }
+export interface Transcript { id: string; appId: string; appName: string; createdAt: string; durationMs: number; latencyMs: number | null; status: TranscriptStatus; processedText: string | null; rawText: string | null; modelId: string | null; route: 'local' | 'cloud' | null; audio: { retained: boolean; url: string | null }; }
+export interface VocabularyTerm { id: string; term: string; pronunciationHint: string | null; category: string; language: string; createdAt: string; }
+export interface ModelRecord { id: string; name: string; provider: string; location: 'local' | 'cloud'; qualityTier: 'low' | 'standard' | 'high' | 'ultra'; recommended: boolean; available: boolean; unavailableReason: string | null; }
+export interface BenchmarkResult { modelId: string; modelName: string; coldStartMs: number | null; warmLatencyMs: number | null; ramMb: number | null; werPercent: number | null; rtf: number | null; insertionMs: number | null; passed: boolean; isRecommended?: boolean; }
+export interface ExtensionRecord { id: string; name: string; description: string; status: 'available' | 'connected' | 'disabled' | 'permission-required' | 'error'; permissions: string[]; }
+export interface PrivacySettings { saveTranscriptHistory: boolean; retentionDays: number | null; ephemeralAudio: boolean; voiceLock: CapabilityState; commandPolicy: 'ask-confirmation' | 'allow' | 'deny'; }
+export interface DiagnosticCheck { id: string; name: string; state: 'not-checked' | 'checking' | 'passed' | 'warning' | 'failed' | 'unavailable'; detail: string; capability: CapabilityState; }
+export interface OnboardingState { step: 'welcome' | 'microphone' | 'permissions' | 'hotkey' | 'ready'; completed: boolean; microphone: CapabilityState; permissions: CapabilityState; hotkey: CapabilityState; }
 export type OverlayStyle = 'dot' | 'pill' | 'wave' | 'orb' | 'monochrome';
 
 export type UserLevel = 'basic' | 'advanced' | 'expert';
@@ -90,18 +103,6 @@ export interface HistoryItem {
   modelUsed: string;
 }
 
-export interface BenchmarkResult {
-  modelId: string;
-  modelName: string;
-  coldStartMs: number;
-  warmLatencyMs: number;
-  ramMb: number;
-  werPercent: number;
-  rtf: number; // Real-time factor
-  insertionMs: number;
-  passed: boolean;
-  isRecommended?: boolean;
-}
 
 export interface VoiceProfile {
   enrolled: boolean;

@@ -1,0 +1,13 @@
+import type { AppStatus, BenchmarkResult, DiagnosticCheck, ExtensionRecord, ModelRecord, OnboardingState, PrivacySettings, Transcript, VocabularyTerm } from '../types.js';
+
+export const fixtureStatus: AppStatus = { ready: true, readiness: 'ready', hotkey: 'Alt+Space', focusedTarget: 'VS Code', activeRoute: { type: 'local', modelId: 'whisper-large-v3' }, capabilities: { microphone: 'unknown', hotkey: 'unknown', whisper: 'unknown', injection: 'unknown' } };
+export const fixtureTranscripts: Transcript[] = [{ id: 'tr_001', appId: 'vscode', appName: 'VS Code', createdAt: '2026-08-12T09:42:00+07:00', durationMs: 36000, latencyMs: 320, status: 'processed', processedText: 'Example processed output', rawText: 'example processed output', modelId: 'whisper-large-v3', route: 'local', audio: { retained: false, url: null } }];
+export const fixtureVocabulary: VocabularyTerm[] = [{ id: 'voc_001', term: 'whisper.cpp', pronunciationHint: 'whisper dot c plus plus', category: 'library_framework', language: 'en', createdAt: '2026-08-12T09:42:00+07:00' }];
+export const fixtureModels: ModelRecord[] = [{ id: 'whisper-large-v3', name: 'Whisper Large v3', provider: 'OpenAI', location: 'local', qualityTier: 'high', recommended: true, available: true, unavailableReason: null }];
+export const fixtureBenchmarks: BenchmarkResult[] = [{ modelId: 'whisper-large-v3', modelName: 'Whisper Large v3', coldStartMs: 6210, warmLatencyMs: 412, ramMb: null, werPercent: 4.31, rtf: null, insertionMs: null, passed: true, isRecommended: true }];
+export const fixtureExtensions: ExtensionRecord[] = [{ id: 'ext-slack', name: 'Slack Voice Channel Dictation', description: 'Dictate in Slack voice channels.', status: 'available', permissions: ['Slack account'] }];
+export const fixturePrivacy: PrivacySettings = { saveTranscriptHistory: true, retentionDays: 30, ephemeralAudio: true, voiceLock: 'unknown', commandPolicy: 'ask-confirmation' };
+export const fixtureDiagnostics: DiagnosticCheck[] = [{ id: 'daemon', name: 'Sori Daemon', state: 'passed', detail: 'IPC daemon reported ready.', capability: 'available' }, { id: 'microphone', name: 'Microphone', state: 'unavailable', detail: 'Hardware access has not been verified in this environment.', capability: 'unknown' }];
+export const fixtureOnboarding: OnboardingState = { step: 'welcome', completed: false, microphone: 'unknown', permissions: 'unknown', hotkey: 'unknown' };
+
+export const uglyTranscript: Transcript = { id: 'tr_ugly', appId: 'unknown', appName: 'A'.repeat(240), createdAt: 'invalid-but-preserved', durationMs: 0, latencyMs: null, status: 'failed', processedText: null, rawText: 'A'.repeat(4000), modelId: null, route: null, audio: { retained: false, url: null } };

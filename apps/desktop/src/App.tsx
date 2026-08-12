@@ -186,8 +186,9 @@ export default function App() {
   };
 
   return (
-    <div className="sori-app-shell h-full min-h-0 bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans select-none overflow-hidden antialiased">
+    <div className="sori-shell select-none sori-app-shell h-full min-h-0 bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell">
       {/* Top Window Titlebar (Chrome Window Header) */}
+      <div className="sori-shell__titlebar">
       <DesktopTitleBar
           settings={settings}
           setSettings={setSettings}
@@ -203,9 +204,10 @@ export default function App() {
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
       />
+      </div>
 
         {/* Main Application Window Shell */}
-      <div className="sori-app-body min-h-0 flex-1 flex overflow-hidden relative">
+      <div className="sori-shell__body flex-1 sori-app-body min-h-0 flex overflow-hidden relative" data-sori-layout="workspace">
           {/* Left Navigation Sidebar */}
           <DesktopSidebar
             activeScreen={activeScreen}
@@ -256,7 +258,7 @@ export default function App() {
           />
 
           {/* Main Content View Container */}
-          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="sori-main-content min-w-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FAF8F5] p-3 sm:p-4 md:p-6 custom-scrollbar">
+          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="sori-shell__workspace sori-main-content min-w-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FAF8F5] p-3 sm:p-4 md:p-6 custom-scrollbar" data-sori-pane="workspace">
             {(activeScreen === 'playground' || activeScreen === 'home') && (
               <OverviewScreen
                 settings={settings}

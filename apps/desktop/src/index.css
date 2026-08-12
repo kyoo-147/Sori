@@ -48,7 +48,12 @@
     --error-border: rgba(167, 88, 80, 0.22);
   }
 
+  html, body, #root {
+    height: 100%;
+  }
+
   body {
+    margin: 0;
     background-color: var(--bg-canvas);
     color: var(--text-primary);
     font-family: "SF Pro Text", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -207,3 +212,22 @@
 
 
 
+
+.sori-app-shell {
+  height: 100dvh;
+}
+
+.sori-app-body {
+  min-height: 0;
+}
+
+.sori-main-content {
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 767px) {
+  .sori-main-content {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}

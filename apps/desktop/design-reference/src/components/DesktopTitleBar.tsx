@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppSettings } from '../types';
-import { Mic, Monitor, Tablet, Smartphone, Flame } from 'lucide-react';
+import { Mic, Flame } from 'lucide-react';
 
 interface DesktopTitleBarProps {
   settings: AppSettings;
@@ -9,8 +9,6 @@ interface DesktopTitleBarProps {
   toggleListening: () => void;
   trayOpen: boolean;
   setTrayOpen: (open: boolean) => void;
-  deviceView: 'desktop' | 'tablet' | 'mobile';
-  setDeviceView: (view: 'desktop' | 'tablet' | 'mobile') => void;
   activeModelName: string;
 }
 
@@ -20,8 +18,6 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   toggleListening,
   trayOpen,
   setTrayOpen,
-  deviceView,
-  setDeviceView,
 }) => {
   return (
     <div className="h-12 bg-[rgba(248,245,241,0.85)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.08)] px-4 flex items-center justify-between select-none text-[13px] text-[#68635D]">
@@ -78,36 +74,6 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           <span>System Tray</span>
         </button>
 
-        {/* Viewport Switcher - Translucent Warm Track */}
-        <div className="flex items-center bg-[rgba(216,211,204,0.30)] p-1 rounded-[10px] border border-[rgba(92,84,75,0.08)]">
-          <button
-            onClick={() => setDeviceView('desktop')}
-            className={`p-1 rounded-[6px] transition-all ${
-              deviceView === 'desktop' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
-            }`}
-            title="Desktop View"
-          >
-            <Monitor className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setDeviceView('tablet')}
-            className={`p-1 rounded-[6px] transition-all ${
-              deviceView === 'tablet' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
-            }`}
-            title="Tablet Simulator (768px)"
-          >
-            <Tablet className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setDeviceView('mobile')}
-            className={`p-1 rounded-[6px] transition-all ${
-              deviceView === 'mobile' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
-            }`}
-            title="Mobile Simulator (375px)"
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-          </button>
-        </div>
       </div>
     </div>
   );

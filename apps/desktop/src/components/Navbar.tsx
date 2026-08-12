@@ -18,9 +18,6 @@ import {
   Volume2,
   FileCode2,
   CheckCircle2,
-  Monitor,
-  Tablet,
-  Smartphone,
   ChevronRight,
   Flame,
 } from 'lucide-react';
@@ -30,8 +27,6 @@ interface NavbarProps {
   setActiveScreen: (screen: ActiveScreen) => void;
   settings: AppSettings;
   setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
-  deviceView: 'desktop' | 'tablet' | 'mobile';
-  setDeviceView: (view: 'desktop' | 'tablet' | 'mobile') => void;
   isListening: boolean;
   toggleListening: () => void;
   trayOpen: boolean;
@@ -43,8 +38,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveScreen,
   settings,
   setSettings,
-  deviceView,
-  setDeviceView,
   isListening,
   toggleListening,
   trayOpen,
@@ -128,36 +121,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Viewport device switcher */}
-        <div className="flex items-center gap-1 bg-[#EFECE6] p-1 rounded-[10px] border border-[#E6E3DD]">
-          <button
-            onClick={() => setDeviceView('desktop')}
-            className={`p-1.5 rounded-[6px] transition-all ${
-              deviceView === 'desktop' ? 'bg-white text-[#1C1B1A] border border-[#E2DFD8] shadow-2xs' : 'text-[#94928E] hover:text-[#1C1B1A]'
-            }`}
-            title="Desktop View"
-          >
-            <Monitor className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setDeviceView('tablet')}
-            className={`p-1.5 rounded-[6px] transition-all ${
-              deviceView === 'tablet' ? 'bg-white text-[#1C1B1A] border border-[#E2DFD8] shadow-2xs' : 'text-[#94928E] hover:text-[#1C1B1A]'
-            }`}
-            title="Tablet Viewport Simulator"
-          >
-            <Tablet className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setDeviceView('mobile')}
-            className={`p-1.5 rounded-[6px] transition-all ${
-              deviceView === 'mobile' ? 'bg-white text-[#1C1B1A] border border-[#E2DFD8] shadow-2xs' : 'text-[#94928E] hover:text-[#1C1B1A]'
-            }`}
-            title="Mobile Viewport Simulator"
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-          </button>
-        </div>
       </div>
 
       {/* Horizontal Nav Tabs */}

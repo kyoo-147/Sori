@@ -18,7 +18,6 @@ import {
   initialDictionary,
   initialSnippets,
   initialExtensions,
-  initialHistory,
   initialBenchmarkResults,
   defaultSettings,
   defaultVoiceProfile,
@@ -54,7 +53,7 @@ export default function App() {
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>(initialDictionary);
   const [snippets, setSnippets] = useState<Snippet[]>(initialSnippets);
   const [extensions, setExtensions] = useState<ExtensionItem[]>(() => readPreference('extensions', initialExtensions));
-  const [history, setHistory] = useState<HistoryItem[]>(initialHistory);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [benchmarkResults] = useState<BenchmarkResult[]>(initialBenchmarkResults);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
   const [assistantVoice, setAssistantVoice] = useState<AssistantVoiceSettings>(defaultAssistantVoice);
@@ -72,11 +71,23 @@ export default function App() {
   const [runtimeClient] = useState(() => new RuntimeClient());
 
   const refreshRuntime = useCallback(async () => {
-    const [statusResult, doctorResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor()]);
+    const [statusResult, doctorResult, historyResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50)]);
     setRuntimeStatus(statusResult.data);
     setRuntimeSource(statusResult.source);
-    setRuntimeError(statusResult.error ?? doctorResult.error);
+    setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
     setDoctorChecks(doctorResult.data);
+    if (historyResult.error === null) {
+      setHistory(historyResult.data.map((entry) => ({
+        id: entry.id,
+        timestamp: entry.at,
+        rawTranscript: entry.transcript.text,
+        processedText: entry.transcript.text,
+        activeApp: entry.active_app ?? 'Unknown target',
+        mode: 'dictation' as const,
+        latencyMs: 0,
+        modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
+      })));
+    }
   }, [runtimeClient]);
 
   useEffect(() => {

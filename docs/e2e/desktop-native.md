@@ -2,7 +2,8 @@
 
 Sori's native shell must be verified with the actual Tauri executable, not only
 through browser automation. Run this from an interactive Windows desktop
-session:
+session. The harness targets the real Tauri HWND; browser preview and screenshots
+of a shared automation overlay are never accepted as native evidence:
 
 ```powershell
 npm install
@@ -27,6 +28,10 @@ window dimensions, SHA-256, assertions, and `visualReview: "pending"`; a human
 must review the PNGs for clipping, duplicate chrome, and visual quality.
 
 The command prints `SKIP` on non-Windows hosts because Win32, WebView2, and
-interactive screenshot capture are unavailable. A stale daemon is a hard
+interactive screenshot capture are unavailable. Before every native action it
+focuses the HWND and verifies its foreground process ID. If focus policy or a
+shared interactive overlay prevents that, it exits cleanly with `SKIP` and
+writes `.tmp/e2e-native-shell/skip.json` with the reason and truth boundary;
+it never hangs or reports browser-preview success. A stale daemon is a hard
 failure. This test does not prove microphone capture, Whisper inference, global
 hotkeys, overlay delivery, or OS text injection.

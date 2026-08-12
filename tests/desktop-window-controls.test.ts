@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const titlebarSource = readFileSync('apps/desktop/src/components/DesktopTitleBar.tsx', 'utf8');
 const nativeSource = readFileSync('apps/desktop/src-tauri/src/lib.rs', 'utf8');
+const nativeE2eSource = readFileSync('scripts/e2e-desktop-native.ts', 'utf8');
+const tauriConfig = readFileSync('apps/desktop/src-tauri/tauri.conf.json', 'utf8');
 
 const actions: WindowAction[] = ['minimize', 'maximize', 'restore', 'toggle-maximize', 'close', 'drag'];
 
@@ -45,5 +47,12 @@ describe('desktop window controls', () => {
     ]) {
       expect(nativeSource).toContain(command);
     }
+  });
+  it('keeps native automation foregrounded and never treats browser preview as native proof', () => {
+    expect(nativeE2eSource).toContain('GetForegroundWindow');
+    expect(nativeE2eSource).toContain('GetWindowThreadProcessId');
+    expect(nativeE2eSource).toContain('NativeEnvironmentSkip');
+    expect(nativeE2eSource).toContain('Browser preview or an overlay screenshot is not native evidence');
+    expect(tauriConfig).toContain('"alwaysOnTop": false');
   });
 });

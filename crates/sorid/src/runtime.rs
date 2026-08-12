@@ -31,6 +31,7 @@ pub struct DaemonRuntime<B> {
     provider: Option<Arc<dyn ModelProvider>>,
     audio: Option<Box<dyn AudioCaptureEngine>>,
     audio_session: Option<AudioSession>,
+    captured_audio: Vec<AudioChunk>,
 }
 
 struct AudioSession {
@@ -46,6 +47,7 @@ impl<B: EventBus> DaemonRuntime<B> {
             provider: None,
             audio: None,
             audio_session: None,
+            captured_audio: Vec::new(),
         };
         runtime.publish(EventKind::DaemonReady, Value::Null);
         runtime
@@ -58,6 +60,7 @@ impl<B: EventBus> DaemonRuntime<B> {
             provider: Some(provider),
             audio: None,
             audio_session: None,
+            captured_audio: Vec::new(),
         };
         runtime.publish(EventKind::DaemonReady, Value::Null);
         runtime
@@ -102,6 +105,7 @@ impl<B: EventBus> DaemonRuntime<B> {
             .audio_session
             .take()
             .ok_or_else(|| AudioError::Pipeline("no dictation session is running".into()))?;
+        let mut captured = Vec::new();
         let result: Result<usize, AudioError> = (|| {
             for _ in 0..64 {
                 let next = self
@@ -113,6 +117,7 @@ impl<B: EventBus> DaemonRuntime<B> {
                     .next_chunk()?;
                 let Some(chunk) = next else { break };
                 session.chunks += 1;
+                captured.push(chunk.clone());
                 self.publish(
                     EventKind::AudioChunkCaptured,
                     Value::Number(session.chunks as i64),
@@ -131,6 +136,7 @@ impl<B: EventBus> DaemonRuntime<B> {
             if let Some(engine) = self.audio.as_mut() {
                 engine.stop_capture();
             }
+            self.captured_audio = captured;
             Ok(session.chunks)
         })();
         if let Err(error) = &result {
@@ -150,6 +156,11 @@ impl<B: EventBus> DaemonRuntime<B> {
     }
 
     /// Transcribe captured chunks through the configured provider boundary.
+    /// Return the most recently stopped capture exactly once.
+    pub fn take_captured_audio(&mut self) -> Vec<AudioChunk> {
+        std::mem::take(&mut self.captured_audio)
+    }
+
     pub fn transcribe(
         &self,
         model: &ModelId,
@@ -299,6 +310,8 @@ mod tests {
         }));
         runtime.start_audio().unwrap();
         assert_eq!(runtime.stop_audio(false).unwrap(), 2);
+        assert_eq!(runtime.take_captured_audio().len(), 2);
+        assert!(runtime.take_captured_audio().is_empty());
         let kinds = events
             .recent()
             .into_iter()

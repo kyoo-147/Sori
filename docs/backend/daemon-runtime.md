@@ -9,4 +9,4 @@
 - local-first routing;
 - `sori.db` persistence path.
 
-The lifecycle and contracts are implemented, but concrete Windows hotkey registration, microphone capture/VAD, Whisper execution, and text injection are not wired into an end-to-end dictation path yet. See [MVP capability matrix](../mvp-capability-matrix.md).
+The daemon now wires captured audio into the configured whisper.cpp provider on `DictationStop`. A transcript is returned only after the sidecar exits successfully and its output parses; missing executable/model, capture errors, non-zero exits, timeouts, cancellation, and empty output remain errors. Native Windows hotkey registration and text injection are still separate seams. See [MVP capability matrix](../mvp-capability-matrix.md).

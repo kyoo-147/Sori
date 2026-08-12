@@ -133,6 +133,41 @@
   padding: var(--sori-workspace-padding);
   background: var(--sori-bg-app);
   scrollbar-gutter: stable;
+  border-top-left-radius: 16px;
+  border-left: 1px solid color-mix(in srgb, var(--sori-border-default) 72%, transparent);
+  clip-path: inset(0 round 16px 0 0 0);
+}
+
+.sori-window-controls {
+  gap: 4px;
+  margin-left: 8px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--sori-border-default) 82%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--sori-bg-elevated) 76%, transparent);
+}
+
+.sori-window-control {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sori-text-secondary);
+  transition: background-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease;
+}
+
+.sori-window-control:hover {
+  background: var(--sori-fill-hover);
+  color: var(--sori-text-primary);
+}
+
+.sori-window-control-close:hover {
+  background: #a75850;
+  color: #fff;
 }
 
 /* Codex/Obsidian-like composition primitives. Layout is customizable by

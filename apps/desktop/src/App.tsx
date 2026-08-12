@@ -265,7 +265,6 @@ export default function App() {
             activeModel={activeWarmModel.name}
             errorMessage={errorMessage}
             onCloseError={() => setErrorMessage(null)}
-            onStyleChange={(st) => setSettings((prev) => ({ ...prev, overlayStyle: st }))}
           />
 
           {/* Main Content View Container */}

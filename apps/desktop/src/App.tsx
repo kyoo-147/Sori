@@ -288,7 +288,14 @@ export default function App() {
             )}
 
             {activeScreen === 'onboarding' && (
-              <FirstRunOnboardingScreen settings={settings} onComplete={() => setActiveScreen('home')} />
+              <FirstRunOnboardingScreen
+                settings={settings}
+                runtimeClient={runtimeClient}
+                runtimeStatus={runtimeStatus}
+                runtimeSource={runtimeSource}
+                doctorChecks={doctorChecks}
+                onComplete={() => setActiveScreen('home')}
+              />
             )}
 
             {activeScreen === 'voice-edit' && <VoiceEditScreen settings={settings} runtimeSource={runtimeSource} />}

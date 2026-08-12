@@ -1,320 +1,161 @@
-import React, { useState } from 'react';
-import { Mic, CheckCircle2, ShieldCheck, Keyboard, Sparkles, ArrowRight, Play, RefreshCw, Volume2 } from 'lucide-react';
-import { AppSettings } from '../../types';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Keyboard, Mic, RefreshCw, ShieldCheck, Sparkles, Volume2, XCircle } from 'lucide-react';
+import type { AppSettings } from '../../types';
+import type { DaemonStatus, DoctorCheck, RuntimeClient, RuntimeSource } from '../../runtime-client';
 
-interface FirstRunOnboardingScreenProps {
+type StepState = 'idle' | 'checking' | 'granted' | 'denied' | 'retry' | 'complete';
+
+type FirstRunOnboardingScreenProps = {
   settings: AppSettings;
+  runtimeClient: RuntimeClient;
+  runtimeStatus: DaemonStatus;
+  runtimeSource: RuntimeSource;
+  doctorChecks: DoctorCheck[];
   onComplete: () => void;
+};
+
+const steps = [
+  { id: 1, label: 'Welcome' },
+  { id: 2, label: 'Microphone' },
+  { id: 3, label: 'Permissions' },
+  { id: 4, label: 'Hotkey' },
+  { id: 5, label: 'Ready' },
+] as const;
+
+function checkFor(checks: DoctorCheck[], names: string[]): DoctorCheck | undefined {
+  return checks.find((check) => names.includes(check.name));
+}
+
+function statusText(state: StepState): string {
+  return { idle: 'Not checked', checking: 'Checking…', granted: 'Granted', denied: 'Denied', retry: 'Retry needed', complete: 'Complete' }[state];
 }
 
 export const FirstRunOnboardingScreen: React.FC<FirstRunOnboardingScreenProps> = ({
   settings,
+  runtimeClient,
+  runtimeStatus,
+  runtimeSource,
+  doctorChecks,
   onComplete,
 }) => {
-  const [currentStep, setCurrentStep] = useState<number>(1);
-  const [selectedMic, setSelectedMic] = useState<string>('Default System Microphone (Realtek High Definition)');
-  const [micTested, setMicTested] = useState<boolean>(false);
-  const [micLevel, setMicLevel] = useState<number>(65);
-  const [injectionGranted, setInjectionGranted] = useState<boolean>(true);
-  const [hotkeyTested, setHotkeyTested] = useState<boolean>(false);
-  const [isTestDictating, setIsTestDictating] = useState<boolean>(false);
-  const [testText, setTestText] = useState<string>('');
+  const [currentStep, setCurrentStep] = useState(1);
+  const [stepStates, setStepStates] = useState<Record<number, StepState>>({ 1: 'idle', 2: 'idle', 3: 'idle', 4: 'idle', 5: 'idle' });
+  const [error, setError] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [isDictating, setIsDictating] = useState(false);
 
-  const handleTestMic = () => {
-    setMicTested(true);
-    setMicLevel(85);
-    setTimeout(() => setMicLevel(40), 600);
-    setTimeout(() => setMicLevel(75), 1200);
+  const setStep = (step: number, state: StepState) => setStepStates((previous) => ({ ...previous, [step]: state }));
+  const audioCheck = checkFor(doctorChecks, ['audio', 'microphone']);
+  const hotkeyCheck = checkFor(doctorChecks, ['hotkey']);
+  const injectionCheck = checkFor(doctorChecks, ['text-injection']);
+  const daemonReady = runtimeStatus.daemon === 'running' && runtimeSource !== 'unavailable';
+
+  const refreshChecks = useCallback(async (step: number) => {
+    setStep(step, 'checking');
+    setError(null);
+    const result = await runtimeClient.doctor();
+    const relevant = step === 2 ? checkFor(result.data, ['audio', 'microphone']) : step === 3 ? checkFor(result.data, ['text-injection']) : checkFor(result.data, ['hotkey']);
+    if (result.error || !relevant?.ok) {
+      setStep(step, result.error ? 'retry' : 'denied');
+      setError(result.error ?? relevant?.detail ?? 'The daemon reported this capability is unavailable.');
+      return false;
+    }
+    setStep(step, 'granted');
+    return true;
+  }, [runtimeClient]);
+
+  useEffect(() => {
+    if (currentStep === 1 && daemonReady) setStep(1, 'granted');
+  }, [currentStep, daemonReady]);
+
+  const runFirstDictation = async () => {
+    setStep(4, 'checking');
+    setIsDictating(true);
+    setError(null);
+    setTranscript(null);
+    try {
+      const started = await runtimeClient.dictationStart();
+      if (started.error) throw new Error(started.error);
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      const stopped = await runtimeClient.dictationStop();
+      if (stopped.error || !stopped.data) throw new Error(stopped.error ?? 'The daemon did not return a transcript.');
+      setTranscript(stopped.data.text);
+      setStep(4, 'complete');
+      setStep(5, 'complete');
+      setCurrentStep(5);
+    } catch (cause) {
+      setStep(4, 'retry');
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setIsDictating(false);
+    }
   };
 
-  const handleSimulateHotkey = () => {
-    setIsTestDictating(true);
-    setTestText('Testing Sori local voice injection...');
-    setTimeout(() => {
-      setTestText('Sori successfully injected text into target window!');
-      setIsTestDictating(false);
-      setHotkeyTested(true);
-    }, 1200);
+  const canAdvance = useMemo(() => {
+    if (currentStep === 1) return daemonReady;
+    if (currentStep === 2) return stepStates[2] === 'granted';
+    if (currentStep === 3) return stepStates[3] === 'granted';
+    return false;
+  }, [currentStep, daemonReady, stepStates]);
+
+  const stateBadge = (step: number) => {
+    const state = stepStates[step];
+    return <span className="sori-meta-text" data-testid={`onboarding-step-${step}-state`}>{statusText(state)}</span>;
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-6 text-[#161616]">
-      {/* Onboarding Header */}
-      <div className="text-center space-y-2">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EEF2F6] text-[#24384C] border border-[#D5E0EA] text-xs font-semibold">
-          <Sparkles className="w-3.5 h-3.5 text-[#5C728A]" />
-          <span>Sori First-Run Setup (60s)</span>
-        </div>
-        <h1 className="sori-page-heading text-center">Get ready to speak into any window</h1>
-        <p className="sori-body-text max-w-lg mx-auto">
-          Sori runs as a quiet background voice daemon (`sorid`). Configure your microphone and text injection permissions in 4 simple steps.
-        </p>
-      </div>
+    <div className="mx-auto w-full max-w-3xl space-y-6 p-4 text-[#1C1B19] md:p-8" data-testid="first-run-setup">
+      <header className="space-y-2 text-center">
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-[#D9D4CC] bg-[#F2EEE8] px-3 py-1 text-xs font-medium text-[#68635D]"><Sparkles className="h-3.5 w-3.5" /> First Run Setup</div>
+        <h1 className="sori-page-heading">Get ready to speak into any window</h1>
+        <p className="sori-body-text mx-auto max-w-xl">We’ll check your local daemon, microphone, permissions, and hotkey. Hardware-dependent checks stay explicitly visible when they cannot be verified here.</p>
+      </header>
 
-      {/* Progress Steps Indicator */}
-      <div className="flex items-center justify-between max-w-md mx-auto pt-2">
-        {[
-          { num: 1, label: 'Welcome' },
-          { num: 2, label: 'Microphone' },
-          { num: 3, label: 'Permissions' },
-          { num: 4, label: 'Hotkey' },
-          { num: 5, label: 'Ready' },
-        ].map((s) => (
-          <div key={s.num} className="flex flex-col items-center gap-1">
-            <button
-              onClick={() => setCurrentStep(s.num)}
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all ${
-                currentStep === s.num
-                  ? 'bg-[#2E4E6D] text-white shadow-2xs'
-                  : currentStep > s.num
-                  ? 'bg-[#EAF6EE] text-[#1F6B43] border border-[#CBE5D4]'
-                  : 'bg-[#F0F1F2] text-[#858A90] border border-[#E2E4E8]'
-              }`}
-            >
-              {currentStep > s.num ? <CheckCircle2 className="w-4 h-4" /> : s.num}
+      <nav aria-label="First Run Setup progress" className="mx-auto flex max-w-2xl items-start justify-between">
+        {steps.map((step, index) => {
+          const active = currentStep === step.id;
+          const complete = stepStates[step.id] === 'complete' || (step.id < currentStep && stepStates[step.id] === 'granted');
+          return <React.Fragment key={step.id}>
+            <button type="button" onClick={() => step.id <= currentStep && setCurrentStep(step.id)} disabled={step.id > currentStep} aria-current={active ? 'step' : undefined} className="flex min-w-0 flex-col items-center gap-1 text-center disabled:cursor-not-allowed">
+              <span className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold ${active ? 'border-[#6E7A80] bg-[#6E7A80] text-white' : complete ? 'border-[#BFD7C5] bg-[#E8F1E9] text-[#4E7A61]' : 'border-[#D9D4CC] bg-[#F8F5F1] text-[#98928A]'}`}>{complete ? <CheckCircle2 className="h-4 w-4" /> : step.id}</span>
+              <span className="text-[11px] text-[#68635D]">{step.label}</span>
             </button>
-            <span className="text-[11px] font-medium text-[#5F6368]">{s.label}</span>
-          </div>
-        ))}
-      </div>
+            {index < steps.length - 1 && <span className="mt-4 h-px flex-1 bg-[#DDD8D0]" />}
+          </React.Fragment>;
+        })}
+      </nav>
 
-      {/* Step Content Panels */}
-      <div className="bg-white border border-[#E2E4E8] rounded-[20px] p-6 shadow-2xs space-y-6 transition-all">
-        {/* Step 1: Welcome */}
-        {currentStep === 1 && (
-          <div className="space-y-5 text-center py-4">
-            <div className="w-14 h-14 rounded-2xl bg-[#EEF2F6] border border-[#D5E0EA] mx-auto flex items-center justify-center text-[#24384C]">
-              <Volume2 className="w-7 h-7 text-[#667A90]" />
-            </div>
-            <div className="space-y-2 max-w-md mx-auto">
-              <h2 className="sori-section-heading">Local-First Voice Dictation Setup</h2>
-              <p className="sori-body-text text-xs">
-                Sori runs as a background daemon (`sorid`). Hold hotkey, dictate in natural language, and Sori injects formatted text directly into your cursor location.
-              </p>
-            </div>
-            <button
-              onClick={() => setCurrentStep(2)}
-              className="px-6 py-2.5 sori-tactile-btn rounded-[12px] text-xs font-semibold inline-flex items-center gap-2"
-            >
-              <span>Begin Setup (Microphone)</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+      <section className="space-y-6 rounded-[18px] border border-[#DED9D1] bg-[#FBF9F6] p-5 shadow-sm md:p-8" aria-live="polite">
+        {error && <div role="alert" className="flex items-start gap-2 rounded-xl border border-[#E6BDB7] bg-[#FBEFED] p-3 text-sm text-[#A75850]"><XCircle className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>Setup check failed.</strong> {error} Retry the check or resolve it in Diagnostics.</span></div>}
 
-        {/* Step 2: Microphone Choice */}
-        {currentStep === 2 && (
-          <div className="space-y-5">
-            <div className="flex items-center gap-3 pb-3 border-b border-[#E2E4E8]">
-              <div className="p-2.5 rounded-[12px] bg-[#EEF2F6] text-[#24384C] border border-[#D5E0EA]">
-                <Mic className="w-5 h-5 text-[#5C728A]" />
-              </div>
-              <div>
-                <h2 className="sori-section-heading">Select Input Microphone</h2>
-                <p className="sori-body-text">Choose your active audio capture device and test level meter.</p>
-              </div>
-            </div>
+        {currentStep === 1 && <div className="space-y-5 py-4 text-center">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-[#DED9D1] bg-[#F2EEE8]"><Volume2 className="h-7 w-7 text-[#6E7A80]" /></div>
+          <div><h2 className="sori-section-heading">Private. Local. Ready when you are.</h2><p className="sori-body-text mx-auto mt-2 max-w-lg">Setup uses canonical loopback IPC when the daemon is reachable. This screen never treats a preview or timer as microphone, Whisper, hotkey, or injection proof.</p></div>
+          <p className="sori-meta-text">Daemon: {runtimeSource} · {daemonReady ? 'reachable' : 'unavailable'}</p>
+          <button type="button" onClick={() => setCurrentStep(2)} disabled={!daemonReady} className="sori-tactile-btn rounded-xl px-6 py-3 text-sm disabled:opacity-60">Begin setup <ArrowRight className="ml-1 inline h-4 w-4" /></button>
+        </div>}
 
-            <div className="space-y-3">
-              <label className="block text-xs font-semibold text-[#161616]">Available Audio Devices:</label>
-              <select
-                value={selectedMic}
-                onChange={(e) => setSelectedMic(e.target.value)}
-                className="w-full bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] p-3 text-xs text-[#161616] focus:outline-none focus:bg-white focus:border-[#BAC7D8]"
-              >
-                <option value="Default System Microphone (Realtek High Definition)">Default System Microphone (Realtek High Definition)</option>
-                <option value="MacBook Pro Microphone (Built-in)">MacBook Pro Microphone (Built-in)</option>
-                <option value="External USB Condenser Microphone">External USB Condenser Microphone</option>
-              </select>
+        {currentStep === 2 && <div className="space-y-5">
+          <div className="flex items-start gap-3"><Mic className="mt-1 h-5 w-5 text-[#6E7A80]" /><div><h2 className="sori-section-heading">Check your microphone</h2><p className="sori-body-text">The daemon’s Doctor response is authoritative for audio adapter readiness. A physical speaking test remains UNVERIFIED until run on the target Windows machine.</p></div></div>
+          <div className="rounded-xl border border-[#DED9D1] bg-[#F2EEE8] p-4"><div className="flex items-center justify-between"><span className="font-medium">Microphone adapter</span>{stateBadge(2)}</div><p className="sori-meta-text mt-2">{audioCheck?.detail ?? 'No audio check has been returned by sorid yet.'}</p></div>
+          <div className="flex flex-wrap justify-between gap-3"><button type="button" onClick={() => setCurrentStep(1)} className="sori-tactile-btn rounded-xl px-4 py-2 text-sm"><ArrowLeft className="mr-1 inline h-4 w-4" /> Back</button><div className="flex gap-2"><button type="button" onClick={() => void refreshChecks(2)} className="sori-tactile-btn rounded-xl px-4 py-2 text-sm"><RefreshCw className="mr-1 inline h-4 w-4" /> Check microphone</button><button type="button" onClick={() => setCurrentStep(3)} disabled={!canAdvance} className="sori-tactile-btn rounded-xl px-4 py-2 text-sm disabled:opacity-50">Continue <ArrowRight className="ml-1 inline h-4 w-4" /></button></div></div>
+        </div>}
 
-              {/* Audio Level Meter Simulation */}
-              <div className="p-4 bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] space-y-2">
-                <div className="flex items-center justify-between text-xs font-medium">
-                  <span className="text-[#5F6368]">Audio Input Gain Level:</span>
-                  <span className="font-mono text-[#1F6B43]">{micLevel}%</span>
-                </div>
-                <div className="w-full bg-[#E2E4E8] h-3 rounded-full overflow-hidden flex items-center p-0.5">
-                  <div
-                    className="bg-[#1F6B43] h-full rounded-full transition-all duration-300"
-                    style={{ width: `${micLevel}%` }}
-                  />
-                </div>
-              </div>
-            </div>
+        {currentStep === 3 && <div className="space-y-5">
+          <div className="flex items-start gap-3"><ShieldCheck className="mt-1 h-5 w-5 text-[#6E7A80]" /><div><h2 className="sori-section-heading">Review permissions</h2><p className="sori-body-text">Permission state comes from the daemon. Sori does not show “Granted” for OS permissions it cannot actually query.</p></div></div>
+          <div className="space-y-3"><div className="rounded-xl border border-[#DED9D1] bg-[#F2EEE8] p-4"><div className="flex items-center justify-between"><span className="font-medium">Text injection permission</span>{stateBadge(3)}</div><p className="sori-meta-text mt-2">{injectionCheck?.detail ?? 'No text-injection check has been returned by sorid yet.'}</p></div><div className="rounded-xl border border-dashed border-[#D9D4CC] p-4 text-sm text-[#68635D]">Physical microphone permission and focused-app insertion are <strong>UNVERIFIED</strong> in browser/preview acceptance.</div></div>
+          <div className="flex flex-wrap justify-between gap-3"><button type="button" onClick={() => setCurrentStep(2)} className="sori-tactile-btn rounded-xl px-4 py-2 text-sm"><ArrowLeft className="mr-1 inline h-4 w-4" /> Back</button><div className="flex gap-2"><button type="button" onClick={() => void refreshChecks(3)} className="sori-tactile-btn rounded-xl px-4 py-2 text-sm"><RefreshCw className="mr-1 inline h-4 w-4" /> Check permissions</button><button type="button" onClick={() => setCurrentStep(4)} disabled={!canAdvance} className="sori-tactile-btn rounded-xl px-4 py-2 text-sm disabled:opacity-50">Continue <ArrowRight className="ml-1 inline h-4 w-4" /></button></div></div>
+        </div>}
 
-            <div className="flex items-center justify-between pt-2">
-              <button
-                onClick={handleTestMic}
-                className="px-4 py-2 bg-white hover:bg-[#F0F1F2] text-[#2B2F33] border border-[#E2E4E8] rounded-[10px] text-xs font-medium transition flex items-center gap-1.5"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-[#5C728A]" />
-                Test Mic Level
-              </button>
-              <button
-                onClick={() => setCurrentStep(3)}
-                className="px-6 py-2.5 bg-[#EEF2F6] hover:bg-[#E1E8F0] text-[#24384C] border border-[#D5E0EA] rounded-[12px] text-xs font-semibold transition shadow-2xs inline-flex items-center gap-2"
-              >
-                <span>Grant Permissions</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        {currentStep === 4 && <div className="space-y-5">
+          <div className="flex items-start gap-3"><Keyboard className="mt-1 h-5 w-5 text-[#6E7A80]" /><div><h2 className="sori-section-heading">Try your hotkey and first dictation</h2><p className="sori-body-text">Configured hotkey: <kbd className="rounded border border-[#D9D4CC] bg-[#F2EEE8] px-1.5 py-0.5 font-mono text-xs">{settings.hotkey}</kbd>. The button below sends real DictationStart/DictationStop IPC calls; it never fabricates text or claims OS injection.</p></div></div>
+          <div className="rounded-xl border border-[#DED9D1] bg-[#F2EEE8] p-4"><div className="flex items-center justify-between"><span className="font-medium">Global hotkey registration</span>{stateBadge(4)}</div><p className="sori-meta-text mt-2">{hotkeyCheck?.detail ?? 'Doctor check not loaded for the configured hotkey.'}</p></div>
+          {transcript && <div className="rounded-xl border border-[#BFD7C5] bg-[#E8F1E9] p-4 text-sm text-[#315C42]"><strong>Daemon transcript returned:</strong> {transcript}<p className="sori-meta-text mt-2">Focused-app text injection is still UNVERIFIED; this acceptance proves IPC response only.</p></div>}
+          <div className="flex flex-wrap justify-between gap-3"><button type="button" onClick={() => setCurrentStep(3)} className="sori-tactile-btn rounded-xl px-4 py-2 text-sm"><ArrowLeft className="mr-1 inline h-4 w-4" /> Back</button><button type="button" onClick={() => void runFirstDictation()} disabled={isDictating} className="sori-tactile-btn rounded-xl px-5 py-2 text-sm disabled:opacity-60">{isDictating ? 'Waiting for daemon…' : 'Run first dictation'} <ArrowRight className="ml-1 inline h-4 w-4" /></button></div>
+        </div>}
 
-        {/* Step 3: Text Injection Permission */}
-        {currentStep === 3 && (
-          <div className="space-y-5">
-            <div className="flex items-center gap-3 pb-3 border-b border-[#E2E4E8]">
-              <div className="p-2.5 rounded-[12px] bg-[#EEF2F6] text-[#24384C] border border-[#D5E0EA]">
-                <ShieldCheck className="w-5 h-5 text-[#5C728A]" />
-              </div>
-              <div>
-                <h2 className="sori-section-heading">System Input & Text Injection</h2>
-                <p className="sori-body-text">Sori requires OS input permissions to type transcribed text directly into focused windows.</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="p-4 bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-semibold text-[#161616]">Accessibility / Input Emulation Permission</div>
-                  <div className="text-[11px] text-[#858A90]">Allows `sorid` daemon to send simulated keypress events</div>
-                </div>
-                <button
-                  onClick={() => setInjectionGranted(!injectionGranted)}
-                  className={`px-3 py-1.5 rounded-[8px] text-xs font-semibold border ${
-                    injectionGranted
-                      ? 'bg-[#EAF6EE] text-[#1F6B43] border-[#CBE5D4]'
-                      : 'bg-[#FDF2F2] text-[#A33A3A] border-[#F8D2D2]'
-                  }`}
-                >
-                  {injectionGranted ? 'Granted ✓' : 'Grant Permission'}
-                </button>
-              </div>
-
-              <div className="p-4 bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-semibold text-[#161616]">Microphone OS Permission</div>
-                  <div className="text-[11px] text-[#858A90]">Allows local voice capture from selected mic</div>
-                </div>
-                <span className="text-xs font-semibold text-[#1F6B43] bg-[#EAF6EE] px-3 py-1 rounded-[8px] border border-[#CBE5D4]">
-                  Active ✓
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-2">
-              <button
-                onClick={() => setCurrentStep(2)}
-                className="px-4 py-2 bg-white hover:bg-[#F0F1F2] text-[#2B2F33] border border-[#E2E4E8] rounded-[10px] text-xs font-medium transition"
-              >
-                Back
-              </button>
-              <button
-                onClick={() => setCurrentStep(4)}
-                className="px-6 py-2.5 bg-[#EEF2F6] hover:bg-[#E1E8F0] text-[#24384C] border border-[#D5E0EA] rounded-[12px] text-xs font-semibold transition shadow-2xs inline-flex items-center gap-2"
-              >
-                <span>Test Hotkey</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 4: Try Hotkey */}
-        {currentStep === 4 && (
-          <div className="space-y-5">
-            <div className="flex items-center gap-3 pb-3 border-b border-[#E2E4E8]">
-              <div className="p-2.5 rounded-[12px] bg-[#EEF2F6] text-[#24384C] border border-[#D5E0EA]">
-                <Keyboard className="w-5 h-5 text-[#5C728A]" />
-              </div>
-              <div>
-                <h2 className="sori-section-heading">Test Dictation Hotkey</h2>
-                <p className="sori-body-text">Hold <kbd className="px-2 py-0.5 bg-[#EEF2F6] border border-[#D5E0EA] rounded text-xs font-mono font-semibold">{settings.hotkey}</kbd> to dictate into the test field below.</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="p-4 bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] space-y-2">
-                <div className="flex items-center justify-between text-xs text-[#858A90]">
-                  <span>Target Window Simulation</span>
-                  <span className="text-[#1F6B43] font-medium">Focused App Ready</span>
-                </div>
-                <textarea
-                  value={testText}
-                  onChange={(e) => setTestText(e.target.value)}
-                  rows={3}
-                  className="w-full bg-white border border-[#E2E4E8] rounded-[10px] p-3 font-mono text-xs text-[#161616] focus:outline-none"
-                  placeholder="Click Simulate Hotkey below or hold Alt+Space to dictate..."
-                />
-              </div>
-
-              <div className="flex items-center justify-center">
-                <button
-                  onClick={handleSimulateHotkey}
-                  className={`px-5 py-2.5 rounded-[12px] text-xs font-semibold shadow-2xs flex items-center gap-2 transition border ${
-                    isTestDictating
-                      ? 'bg-[#A33A3A] text-white border-[#A33A3A] animate-pulse'
-                      : 'bg-[#EEF2F6] hover:bg-[#E1E8F0] text-[#24384C] border-[#D5E0EA]'
-                  }`}
-                >
-                  <Play className="w-4 h-4 text-[#5C728A]" />
-                  <span>{isTestDictating ? 'Listening...' : `Simulate Holding ${settings.hotkey}`}</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-2">
-              <button
-                onClick={() => setCurrentStep(3)}
-                className="px-4 py-2 bg-white hover:bg-[#F0F1F2] text-[#2B2F33] border border-[#E2E4E8] rounded-[10px] text-xs font-medium transition"
-              >
-                Back
-              </button>
-              <button
-                onClick={() => setCurrentStep(5)}
-                className="px-6 py-2.5 bg-[#EEF2F6] hover:bg-[#E1E8F0] text-[#24384C] border border-[#D5E0EA] rounded-[12px] text-xs font-semibold transition shadow-2xs inline-flex items-center gap-2"
-              >
-                <span>Finish Setup</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 5: Ready */}
-        {currentStep === 5 && (
-          <div className="space-y-5 text-center py-4">
-            <div className="w-16 h-16 rounded-full bg-[#EAF6EE] border border-[#CBE5D4] mx-auto flex items-center justify-center text-[#1F6B43]">
-              <CheckCircle2 className="w-8 h-8" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="sori-section-heading">Sori is ready in background!</h2>
-              <p className="sori-body-text max-w-md mx-auto">
-                Background benchmark is currently tuning local Whisper Q5 routes for optimal speed on your hardware.
-              </p>
-            </div>
-
-            <div className="p-4 bg-[#F8F8F7] border border-[#E2E4E8] rounded-[14px] text-left max-w-md mx-auto space-y-2">
-              <div className="text-xs font-semibold text-[#161616] flex items-center justify-between">
-                <span>Active Routing Policy:</span>
-                <span className="text-[#1F6B43] font-mono">Local Baseline</span>
-              </div>
-              <div className="text-[12px] text-[#5F6368] leading-relaxed">
-                Primary ASR: <span className="font-semibold text-[#161616]">Whisper.cpp (Q5_0)</span> • Target Latency: <span className="font-semibold text-[#1F6B43]">62ms</span>
-              </div>
-            </div>
-
-            <button
-              onClick={onComplete}
-              className="px-8 py-3 bg-[#EEF2F6] hover:bg-[#E1E8F0] text-[#24384C] border border-[#D5E0EA] rounded-[12px] text-xs font-semibold transition shadow-2xs inline-flex items-center gap-2"
-            >
-              <span>Go to Home Dashboard</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-      </div>
+        {currentStep === 5 && <div className="space-y-5 py-4 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-[#BFD7C5] bg-[#E8F1E9]"><CheckCircle2 className="h-8 w-8 text-[#4E7A61]" /></div><div><h2 className="sori-section-heading">Setup checks complete</h2><p className="sori-body-text mx-auto mt-2 max-w-lg">Sori received a transcript from the daemon. Physical hotkey, microphone capture, Whisper inference, and focused-app injection remain UNVERIFIED until machine-level validation.</p></div><button type="button" onClick={onComplete} className="sori-tactile-btn rounded-xl px-6 py-3 text-sm">Go to Home <ArrowRight className="ml-1 inline h-4 w-4" /></button></div>}
+      </section>
     </div>
   );
 };

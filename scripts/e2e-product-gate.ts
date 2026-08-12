@@ -18,6 +18,7 @@ export const PRODUCT_NAVIGATION = [
   { label: 'Privacy', expected: ['Privacy', 'Local Data & Storage Retention'] },
   { label: 'Diagnostics', expected: ['Diagnostics', 'Sori Doctor Check'] },
   { label: 'Settings', expected: ['Settings', 'Sori System Settings'] },
+  { label: 'First-Run Setup', expected: ['First Run Setup', 'Get ready to speak into any window'] },
 ] as const;
 
 export const UNVERIFIED_HARDWARE_CAPABILITIES = [
@@ -257,6 +258,10 @@ async function runProductGate(): Promise<void> {
       await clickLabel(state, flow.label, session);
       state = await waitForText(session, flow.expected[0]);
       for (const expected of flow.expected.slice(1)) assertIncludes(state, expected, `${flow.label} semantic screen`);
+      if (flow.label === 'Settings' && state.includes('Close settings')) {
+        await clickLabel(state, 'Close settings', session);
+        await delay(150);
+      }
     }
     state = await snapshot(session);
     if (state.includes('Close settings')) {
@@ -264,6 +269,14 @@ async function runProductGate(): Promise<void> {
       await delay(150);
     }
     console.log(`PASS: sequential semantic navigation covered ${PRODUCT_NAVIGATION.length} primary screens.`);
+
+    // First Run Setup is a real IPC-aware flow. Hardware-dependent failures remain visible and do not become fake success.
+    state = await snapshot(session);
+    await clickLabel(state, 'Begin setup', session);
+    state = await waitForText(session, 'Check your microphone');
+    assertIncludes(state, 'Check microphone', 'first-run setup retryable control');
+    assertIncludes(state, 'UNVERIFIED', 'first-run setup capability boundary');
+    console.log('PASS: First Run Setup renders truthful microphone/permission/hotkey states; physical hardware remains SKIP/UNVERIFIED.');
 
     // Resilient transcript states are real controls in the product surface, not source-only assertions.
     state = await snapshot(session);

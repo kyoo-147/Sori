@@ -59,10 +59,10 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   ];
 
   return (
-    <aside className={`${isOpen ? 'flex' : 'hidden'} sori-shell__sidebar md:flex max-md:fixed max-md:top-12 max-md:inset-y-0 max-md:left-0 max-md:z-40 flex-col justify-between h-full select-none`} data-open={isOpen}>
+    <aside className={`${isOpen ? 'flex' : 'hidden'} sori-shell__sidebar md:flex max-md:fixed max-md:top-12 max-md:inset-y-0 max-md:left-0 max-md:z-40 flex-col justify-between select-none`} data-open={isOpen}>
       <button type="button" aria-label="Close navigation" onClick={onClose} className="md:hidden absolute top-3 right-3 text-[#68635D] p-2 rounded-md hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#6E7A80]">×</button>
       {/* Top Search & Nav */}
-      <div className="p-3 space-y-3.5 overflow-y-auto custom-scrollbar" role="navigation" aria-label="Primary Sori navigation">
+      <div className="sori-shell__sidebar-nav p-3 space-y-3.5 custom-scrollbar" role="navigation" aria-label="Primary Sori navigation">
         {/* Search Input Box */}
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[#98928A]" />
@@ -205,7 +205,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       </div>
 
       {/* Bottom Profile & Settings Section */}
-      <div className="p-3 border-t border-[rgba(92,84,75,0.08)] space-y-1 bg-[rgba(230,225,218,0.3)]">
+      <div className="sori-shell__sidebar-footer p-3 border-t border-[rgba(92,84,75,0.08)] space-y-1 bg-[rgba(230,225,218,0.3)]">
         <button
           onClick={() => {
             navigate('settings');

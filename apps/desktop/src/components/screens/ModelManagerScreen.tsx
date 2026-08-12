@@ -1,193 +1,36 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { ChevronRight, CirclePlus, Cloud, Cpu, HardDrive, SlidersHorizontal } from 'lucide-react';
 import { ModelInfo, RouteRule } from '../../types';
-import {
-  Cpu,
-  Cloud,
-  HardDrive,
-  Sparkles,
-  Check,
-  CheckCircle2,
-  Sliders,
-  Zap,
-} from 'lucide-react';
 
-interface ModelManagerScreenProps {
-  models: ModelInfo[];
-  setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
-  routes: RouteRule[];
-  setRoutes: React.Dispatch<React.SetStateAction<RouteRule[]>>;
-}
+interface Props { models: ModelInfo[]; setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>; routes: RouteRule[]; setRoutes: React.Dispatch<React.SetStateAction<RouteRule[]>>; }
+const providers = ['All Models', 'OpenAI', 'Anthropic', 'Gemini', 'Groq', 'Custom'];
+const cloudModels = [
+  { id: 'whisper-large-v3', name: 'Whisper Large v3', provider: 'OpenAI', detail: 'Highest accuracy · Best for general use', tier: 'High Quality' },
+  { id: 'gpt-4o-transcribe', name: 'gpt-4o-transcribe', provider: 'OpenAI', detail: 'Complex audio and diarization', tier: 'Ultra' },
+  { id: 'gemini-1.5-pro-audio', name: 'Gemini 1.5 Pro (Audio)', provider: 'Gemini', detail: 'Multilingual · Strong performance', tier: 'High Quality' },
+  { id: 'claude-3.5-sonnet-audio', name: 'Claude 3.5 Sonnet (Audio)', provider: 'Anthropic', detail: 'Advanced reasoning · Context aware', tier: 'High Quality' },
+];
 
-export const ModelManagerScreen: React.FC<ModelManagerScreenProps> = ({
-  models,
-  setModels,
-  routes,
-  setRoutes,
-}) => {
-  const [topTab, setTopTab] = useState<'stt' | 'aimodels'>('aimodels');
-  const [environmentFilter, setEnvironmentFilter] = useState<'cloud' | 'local'>('cloud');
-  const [selectedProvider, setSelectedProvider] = useState<string>('OpenWhispr');
-  const [selectedModelId, setSelectedModelId] = useState<string>('claude-sonnet-4');
-
-  const providers = [
-    { id: 'OpenWhispr', name: 'OpenWhispr' },
-    { id: 'OpenAI', name: 'OpenAI' },
-    { id: 'Anthropic', name: 'Anthropic' },
-    { id: 'Gemini', name: 'Gemini' },
-    { id: 'Groq', name: 'Groq' },
-    { id: 'Custom', name: 'Custom' },
-  ];
-
-  const aiModelsList = [
-    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', badge: 'Balanced', provider: 'OpenWhispr' },
-    { id: 'claude-opus-4', name: 'Claude Opus 4', badge: 'Highest quality', provider: 'OpenWhispr' },
-    { id: 'llama-3.3-70b', name: 'Llama 3.3 70B', badge: 'Fast reasoning', provider: 'OpenWhispr' },
-    { id: 'gpt-4o', name: 'GPT-4o Omnimodal', badge: 'Ultra Fast', provider: 'OpenAI' },
-    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', badge: '1M Context', provider: 'Gemini' },
-  ];
-
-  return (
-    <div className="space-y-6 max-w-5xl mx-auto p-4 md:p-6 text-[#1C1B1A] font-sans">
-      <div className="border-b border-[#E6E3DD] pb-4">
-        <h1 className="sori-page-heading">Models & Routing</h1>
-        <p className="sori-body-text mt-0.5">
-          Choose local speech engines, route presets, and optional model fallbacks without blocking dictation.
-        </p>
-      </div>
-
-      {/* Top Main Segment Tabs */}
-      <div className="bg-[#EFECE6] border border-[#E6E3DD] p-1.5 rounded-[16px] flex items-center justify-center max-w-xl mx-auto shadow-2xs">
-        <button
-          onClick={() => setTopTab('stt')}
-          className={`flex-1 py-2 rounded-[12px] text-xs font-semibold transition-all text-center ${
-            topTab === 'stt'
-              ? 'bg-white text-[#1C1B1A] shadow-2xs border border-[#E6E3DD]'
-              : 'text-[#656461] hover:text-[#1C1B1A]'
-          }`}
-        >
-          Speech-to-Text
-        </button>
-        <button
-          onClick={() => setTopTab('aimodels')}
-          className={`flex-1 py-2 rounded-[12px] text-xs font-semibold transition-all text-center ${
-            topTab === 'aimodels'
-              ? 'bg-white text-[#1C1B1A] shadow-2xs border border-[#E6E3DD]'
-              : 'text-[#656461] hover:text-[#1C1B1A]'
-          }`}
-        >
-          AI Models
-        </button>
-      </div>
-
-      {/* Main Panel */}
-      <div className="bg-white border border-[#E6E3DD] rounded-[16px] p-6 shadow-2xs space-y-6">
-        {/* Environment Filter: Cloud vs Local */}
-        <div className="flex items-center gap-4 text-xs font-medium border-b border-[#E6E3DD] pb-3">
-          <button
-            onClick={() => setEnvironmentFilter('cloud')}
-            className={`pb-2 border-b-2 transition-all ${
-              environmentFilter === 'cloud'
-                ? 'border-[#1C1B1A] text-[#1C1B1A] font-semibold'
-                : 'border-transparent text-[#94928E] hover:text-[#656461]'
-            }`}
-          >
-            Cloud
-          </button>
-          <button
-            onClick={() => setEnvironmentFilter('local')}
-            className={`pb-2 border-b-2 transition-all ${
-              environmentFilter === 'local'
-                ? 'border-[#1C1B1A] text-[#1C1B1A] font-semibold'
-                : 'border-transparent text-[#94928E] hover:text-[#656461]'
-            }`}
-          >
-            Local
-          </button>
-        </div>
-
-        {/* Provider List Pills */}
-        <div className="flex flex-wrap items-center gap-2">
-          {providers.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setSelectedProvider(p.id)}
-              className={`px-3.5 py-1.5 rounded-[10px] text-xs font-medium transition-all flex items-center gap-1.5 border ${
-                selectedProvider === p.id
-                  ? 'bg-[#F1EEE8] border-[#DAD7D0] text-[#1C1B1A] font-semibold shadow-2xs'
-                  : 'bg-white border-[#E6E3DD] text-[#656461] hover:bg-[#F1EEE8]'
-              }`}
-            >
-              <span>{p.name}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Models List */}
-        {topTab === 'aimodels' ? (
-          <div className="space-y-2 pt-2">
-            {aiModelsList.map((m) => {
-              const isSelected = selectedModelId === m.id;
-              return (
-                <div
-                  key={m.id}
-                  onClick={() => setSelectedModelId(m.id)}
-                  className={`p-4 rounded-[12px] border flex items-center justify-between cursor-pointer transition-all ${
-                    isSelected
-                      ? 'bg-[#F1EEE8] border-[#DAD7D0] text-[#1C1B1A] shadow-2xs font-semibold'
-                      : 'bg-white border-[#E6E3DD] text-[#656461] hover:bg-[#F6F4EF]'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-2.5 h-2.5 rounded-full ${
-                        isSelected ? 'bg-[#1C1B1A]' : 'bg-[#DAD7D0]'
-                      }`}
-                    />
-                    <span className="font-semibold text-xs text-[#1C1B1A]">{m.name}</span>
-                  </div>
-                  <span className="text-xs text-[#94928E] font-medium">{m.badge}</span>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          /* STT Speech Models */
-          <div className="space-y-2 pt-2">
-            {models.map((m) => {
-              const isWarm = m.isWarm;
-              return (
-                <div
-                  key={m.id}
-                  onClick={() => {
-                    setModels((prev) =>
-                      prev.map((mod) => ({ ...mod, isWarm: mod.id === m.id }))
-                    );
-                  }}
-                  className={`p-4 rounded-[12px] border flex items-center justify-between cursor-pointer transition-all ${
-                    isWarm
-                      ? 'bg-[#EAF6EE] border-[#CBE5D4] text-[#1C1B1A] shadow-2xs font-semibold'
-                      : 'bg-white border-[#E6E3DD] text-[#656461] hover:bg-[#F6F4EF]'
-                  }`}
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-xs text-[#1C1B1A]">{m.name}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-[6px] bg-[#F1EEE8] text-[#656461] font-mono border border-[#E6E3DD]">
-                        {m.backend}
-                      </span>
-                    </div>
-                    <p className="text-xs text-[#94928E]">{m.description}</p>
-                  </div>
-                  <div className="text-right space-y-1">
-                    <span className="text-xs font-mono font-semibold text-[#1F6B43]">{m.latencyMs}ms</span>
-                    <div className="text-[10px] text-[#94928E]">{m.speedRating}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+export const ModelManagerScreen: React.FC<Props> = ({ models, setModels, routes, setRoutes }) => {
+  const [tab, setTab] = useState<'models' | 'routes'>('models');
+  const [location, setLocation] = useState<'cloud' | 'local'>('local');
+  const [provider, setProvider] = useState('All Models');
+  const [selected, setSelected] = useState(models.find((m) => m.isWarm)?.id ?? '');
+  const [details, setDetails] = useState<string | null>(null);
+  const [customOpen, setCustomOpen] = useState(false);
+  const visible = useMemo(() => models.filter((m) => location === 'local' ? m.backend !== 'Cloud API' : false), [models, location]);
+  const selectLocal = (id: string) => { setSelected(id); setModels((current) => current.map((m) => ({ ...m, isWarm: m.id === id }))); };
+  return <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-8">
+    <header><h1 className="sori-page-heading">Models &amp; Routing</h1><p className="sori-body-text mt-1">Choose where Sori processes speech and which models power each task.</p></header>
+    <div className="mx-auto flex max-w-xl rounded-2xl bg-[#EEEAE4] p-1.5"><button className={`flex-1 rounded-xl py-2 text-sm ${tab === 'models' ? 'bg-[#FFFDF9] shadow-sm font-semibold' : 'text-[#68635D]'}`} onClick={() => setTab('models')}>Speech &amp; Models</button><button className={`flex-1 rounded-xl py-2 text-sm ${tab === 'routes' ? 'bg-[#FFFDF9] shadow-sm font-semibold' : 'text-[#68635D]'}`} onClick={() => setTab('routes')}>Routes &amp; Triggers</button></div>
+    {tab === 'routes' ? <section className="sori-pane space-y-4 p-5"><div><h2 className="sori-section-heading">Routing rules</h2><p className="sori-body-text mt-1">Rules are currently local UI state. Daemon route mutation is <b>Needs Wiring</b>.</p></div>{routes.map((route) => <div key={route.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E0D9] py-3"><div><div className="text-sm font-medium">{route.condition}</div><div className="sori-meta-text">→ {route.targetModel} · priority {route.priority}</div></div><button className="sori-tactile-btn rounded-lg px-3 py-1.5 text-xs" aria-pressed={route.enabled} onClick={() => setRoutes((current) => current.map((r) => r.id === route.id ? { ...r, enabled: !r.enabled } : r))}>{route.enabled ? 'Enabled' : 'Disabled'}</button></div>)}</section> : <section className="sori-pane space-y-5 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E0D9] pb-4"><div className="flex gap-4"><button className={`border-b-2 pb-2 text-sm ${location === 'cloud' ? 'border-[#6E7A80] font-semibold' : 'border-transparent text-[#68635D]'}`} onClick={() => setLocation('cloud')}><Cloud className="mr-1 inline h-4 w-4"/>Cloud</button><button className={`border-b-2 pb-2 text-sm ${location === 'local' ? 'border-[#6E7A80] font-semibold' : 'border-transparent text-[#68635D]'}`} onClick={() => setLocation('local')}><HardDrive className="mr-1 inline h-4 w-4"/>Local</button></div><button className="sori-tactile-btn rounded-lg px-3 py-2 text-xs" onClick={() => setCustomOpen(true)}><CirclePlus className="mr-1 inline h-4 w-4"/>Add Custom Model</button></div>
+      {location === 'cloud' && <div className="rounded-lg border border-[#EBD9A8] bg-[#FFF7E6] p-3 text-xs text-[#6B552C]">Cloud providers are visible for configuration, but API key and model selection IPC are <b>Unavailable</b>. No cloud request will be sent.</div>}
+      <div className="flex flex-wrap gap-2">{providers.map((p) => <button key={p} className={`rounded-full border px-3 py-1.5 text-xs ${provider === p ? 'bg-[#ECEEEB] border-[#B9C0BF] font-medium' : 'border-[#E5E0D9] text-[#68635D]'}`} onClick={() => setProvider(p)}>{p}</button>)}</div>
+      <div className="space-y-2">{(location === 'local' ? visible : cloudModels).filter((m: any) => provider === 'All Models' || m.provider === provider).map((m: any) => { const active = selected === m.id; return <div key={m.id} className={`flex items-center gap-3 rounded-xl border p-3.5 ${active ? 'bg-[#F2EEE8] border-[#C9C1B7]' : 'border-[#E5E0D9]'}`}><button aria-label={`Select ${m.name}`} aria-pressed={active} onClick={() => location === 'local' ? selectLocal(m.id) : setDetails(m.id)} className={`h-5 w-5 rounded-full border-2 ${active ? 'border-[#6E7A80] bg-[#6E7A80] shadow-[inset_0_0_0_3px_#FFFDF9]' : 'border-[#C9C1B7]'}`}/><Cpu className="h-8 w-8 rounded-lg bg-[#FFFDF9] p-2 text-[#6E7A80]"/><div className="min-w-0 flex-1"><div className="text-sm font-medium">{m.name} {m.recommended && <span className="ml-2 rounded-full bg-[#ECEEEB] px-2 py-0.5 text-[10px]">Recommended</span>}</div><div className="sori-meta-text">{m.provider ?? m.backend} · {m.detail ?? m.description}</div></div><span className="rounded-full border border-[#E5E0D9] px-2.5 py-1 text-[11px]">{m.tier ?? m.speedRating}</span><button aria-label={`View details for ${m.name}`} onClick={() => setDetails(m.id)}><ChevronRight className="h-4 w-4 text-[#98928A]"/></button></div>})}</div>
+      {location === 'local' && visible.length === 0 && <div className="p-8 text-center text-sm text-[#68635D]">No local models available. Check Diagnostics or add a custom model.</div>}
+    </section>}
+    {details && <div className="sori-overlay fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true"><div className="w-full max-w-md rounded-2xl bg-[#FFFDF9] p-6"><h2 className="sori-section-heading">Model details</h2><p className="sori-body-text mt-2">{details}</p><p className="mt-4 text-xs text-[#9A7442]">Selection persistence is Needs Wiring until the canonical model IPC operation exists.</p><button className="sori-tactile-btn mt-6 rounded-lg px-4 py-2 text-sm" onClick={() => setDetails(null)}>Close</button></div></div>}
+    {customOpen && <div className="sori-overlay fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog"><form className="w-full max-w-md rounded-2xl bg-[#FFFDF9] p-6" onSubmit={(e) => { e.preventDefault(); setCustomOpen(false); }}><h2 className="sori-section-heading">Add custom model</h2><label className="mt-4 block text-xs font-medium">Model name<input required className="sori-control mt-1 w-full rounded-lg p-2" placeholder="e.g. Whisper Large v3 local"/></label><p className="mt-3 text-xs text-[#9A7442]">This form is a local preview. Model repository and download IPC are <b>Needs Wiring</b>.</p><div className="mt-5 flex justify-end gap-2"><button type="button" className="px-3 py-2 text-sm" onClick={() => setCustomOpen(false)}>Cancel</button><button className="sori-tactile-btn rounded-lg px-4 py-2 text-sm">Save preview</button></div></form></div>}
+  </div>;
 };

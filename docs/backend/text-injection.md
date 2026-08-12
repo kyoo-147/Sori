@@ -37,3 +37,25 @@ string. For terminals, verify that inserted newlines do not execute commands. Fo
 elevated apps, test both a denied request and an explicitly permitted matching
 integrity level; never bypass UAC. Do not use destructive clipboard tests in
 automated CI.
+
+## Safe Windows smoke procedure
+
+This is a manual, opt-in check; CI and the daemon doctor do **not** prove that
+text appeared in another application. Build the Windows daemon, start it with
+the normal local configuration, and run the diagnostic command:
+
+```powershell
+cargo test -p sori-core
+cargo run -p sorid
+# In another PowerShell window:
+cargo run -p sori-cli -- doctor
+```
+
+Open Notepad, click an empty document, and use the existing injection entry
+point with the reversible marker `SORI-SMOKE-✓` (including a newline only if
+testing multiline input). Observe the Notepad document before recording the
+check as passed, then undo or close without saving. A successful `SendInput`
+return value means only that Windows accepted the keyboard events; it is not
+evidence of insertion. Record `SKIP`/`UNVERIFIED` for targets not actually
+observed, including elevated applications, terminals, browsers, clipboard
+restore, and undo. Never paste secrets or issue commands in a focused terminal.

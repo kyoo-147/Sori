@@ -303,6 +303,12 @@ pub mod windows {
         pub fn new() -> Self {
             Self
         }
+
+        /// `SendInput` queues events but cannot prove that the foreground
+        /// application accepted or rendered the text.
+        pub const fn diagnostic() -> &'static str {
+            "direct UTF-16 SendInput available; focused-target insertion must be observed manually; clipboard fallback, restore, and undo unsupported"
+        }
     }
 
     #[cfg(windows)]
@@ -311,7 +317,11 @@ pub mod windows {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
                 INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
             };
-            let mut inputs = Vec::with_capacity(text.encode_utf16().count() * 2);
+            let utf16_units = text.encode_utf16().count();
+            if utf16_units > (u32::MAX as usize / 2) {
+                return Err("text is too large for one SendInput request".into());
+            }
+            let mut inputs = Vec::with_capacity(utf16_units * 2);
             for code_unit in text.encode_utf16() {
                 let key = KEYBDINPUT {
                     wVk: 0,

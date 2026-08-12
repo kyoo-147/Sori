@@ -70,6 +70,10 @@ async fn main() -> Result<()> {
             config.hotkey.binding = binding.to_owned();
         }
     }
+    let privacy_mode = store
+        .setting("privacy.mode")?
+        .and_then(|value| serde_json::from_value::<PrivacyMode>(value).ok())
+        .unwrap_or(PrivacyMode::LocalOnly);
     let history_retention = store
         .setting("history.retention_limit")?
         .and_then(|v| v.as_u64())
@@ -121,6 +125,7 @@ async fn main() -> Result<()> {
     let handler_runtime = Arc::clone(&runtime);
     let handler_store = Arc::clone(&store);
     let handler_config = Arc::new(Mutex::new(config.clone()));
+    let handler_privacy = Arc::new(Mutex::new(privacy_mode));
     let server_task = server.serve(move |request| {
         let mut handler_config = handler_config
             .lock()
@@ -128,8 +133,11 @@ async fn main() -> Result<()> {
         let mut runtime = handler_runtime
             .lock()
             .map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+        let mut privacy = handler_privacy
+            .lock()
+            .map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))?;
         let response = match request {
-            Request::Status => Response::Status(status_response(&runtime, &handler_config)),
+            Request::Status => Response::Status(status_response(&runtime, &handler_config, *privacy)),
             Request::DictationStart => {
                 runtime.start_audio().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Response::Control(ControlResponse { accepted: true, detail: "microphone capture started".into() })
@@ -168,7 +176,7 @@ async fn main() -> Result<()> {
             Request::Doctor => {
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);
                 Response::Doctor(DoctorResponse {
-                    status: status_response(&runtime, &handler_config),
+                    status: status_response(&runtime, &handler_config, *privacy),
                     checks: vec![
                         DoctorCheck {
                             name: "daemon".into(),
@@ -229,7 +237,7 @@ async fn main() -> Result<()> {
                     .unwrap_or(true);
                 Response::ConfigSummary(ConfigSummaryResponse {
                 profile: ProfileMode::Basic,
-                privacy: PrivacyMode::LocalOnly,
+                privacy: *privacy,
                 history_enabled,
                 hotkey: handler_config.hotkey.binding.clone(),
                 route: route_summary(&handler_config),
@@ -246,6 +254,7 @@ async fn main() -> Result<()> {
                 validate_setting(&key, &value).map_err(sori_ipc::IpcError::Transport)?;
                 handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 if key == "hotkey.binding" { handler_config.hotkey.binding = value.as_str().unwrap().to_owned(); }
+                if key == "privacy.mode" { *privacy = serde_json::from_value(value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
                 Response::Control(ControlResponse { accepted: true, detail: format!("setting {key} persisted") })
             }
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
@@ -318,6 +327,7 @@ fn route_summary(config: &DaemonConfig) -> RouteSummary {
 fn status_response<B: sori_core::EventBus>(
     runtime: &DaemonRuntime<B>,
     config: &DaemonConfig,
+    privacy: PrivacyMode,
 ) -> StatusResponse {
     let (running, activity, paused) = match runtime.state() {
         RuntimeState::Ready => (true, RuntimeActivity::Idle, false),
@@ -334,7 +344,7 @@ fn status_response<B: sori_core::EventBus>(
         hotkey: config.hotkey.binding.clone(),
         route: route_summary(config),
         profile: ProfileMode::Basic,
-        privacy: PrivacyMode::LocalOnly,
+        privacy,
     }
 }
 
@@ -343,10 +353,21 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
         "hotkey.binding" if value.as_str().is_some_and(|v| !v.trim().is_empty()) => Ok(()),
         "history.enabled" if value.is_boolean() => Ok(()),
         "history.retention_limit" if value.as_u64().is_some_and(|v| v > 0 && v <= 10_000) => Ok(()),
+        "privacy.mode"
+            if value
+                .as_str()
+                .and_then(|v| serde_json::from_str::<PrivacyMode>(&format!("\"{v}\"")).ok())
+                .is_some() =>
+        {
+            Ok(())
+        }
         "hotkey.binding" => Err("hotkey.binding must be a non-empty string".into()),
         "history.enabled" => Err("history.enabled must be boolean".into()),
         "history.retention_limit" => {
             Err("history.retention_limit must be an integer from 1 to 10000".into())
+        }
+        "privacy.mode" => {
+            Err("privacy.mode must be Auto, LocalOnly, CloudAllowed, or NeverCloud".into())
         }
         _ => Err(format!("unsupported setting: {key}")),
     }

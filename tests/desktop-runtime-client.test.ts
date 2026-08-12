@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DesktopIpcTransport, NativeIpcTransport, mapStatus, requestShape } from '../apps/desktop/src/runtime-client.js';
+import { DesktopIpcTransport, NativeIpcTransport, mapHistory, mapStatus, requestShape } from '../apps/desktop/src/runtime-client.js';
 import { responsePayload, type IpcResponse } from '../apps/desktop/src/ipc-contract.js';
 
 describe('desktop runtime IPC boundary', () => {
@@ -22,6 +22,10 @@ describe('desktop runtime IPC boundary', () => {
     ];
     expect(responses.map((response) => Object.keys(response)[0])).toEqual(['Status', 'Doctor', 'ConfigSummary', 'RecentEvents', 'Control']);
     expect(responsePayload(responses[4], 'Control')).toEqual({ accepted: true, detail: 'accepted' });
+  });
+
+  it('maps persisted history details without inventing audio or latency', () => {
+    expect(mapHistory({ RecentHistory: { entries: [{ id: 'h1', at: '2026-08-12T00:00:00Z', active_app: null, transcript: { text: 'hello', segments: [] }, intent: null, route: null, inserted_text: null }] } })).toEqual([{ id: 'h1', at: '2026-08-12T00:00:00Z', active_app: null, transcript: { text: 'hello', segments: [] }, intent: null, route: null, inserted_text: null }]);
   });
 
   it('maps paused activity without claiming dictation activity', () => {

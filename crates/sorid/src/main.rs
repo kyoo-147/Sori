@@ -2,9 +2,9 @@ use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{ModelId, ModelLicense, ModelManifest, PrivacyMode, ProfileMode};
 use sori_ipc::{
-    ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
-    IpcEvent, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse, Request, Response,
-    RouteSummary, RuntimeActivity, StatusResponse,
+    CapabilitySummary, ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck,
+    DoctorResponse, IpcEvent, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse,
+    RecentHistoryResponse, Request, Response, RouteSummary, RuntimeActivity, StatusResponse,
 };
 use sori_persistence::SqliteStore;
 use sori_provider_whisper::{WhisperCppConfig, WhisperCppProvider};
@@ -56,6 +56,16 @@ async fn main() -> Result<()> {
         Err(error) => (None, format!("unavailable: {error}")),
     };
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
+    if let Some(value) = store.setting("daemon.hotkey")? {
+        if let Some(binding) = value.as_str() {
+            config.hotkey.binding = binding.to_owned();
+        }
+    }
+    if let Some(value) = store.setting("daemon.route")? {
+        if let Ok(route) = serde_json::from_value(value) {
+            config.route = route;
+        }
+    }
     let events = SharedEventBus(Arc::clone(&store));
     let mut daemon = match whisper_provider {
         Some(provider) => DaemonRuntime::new_with_provider(events, provider),
@@ -77,13 +87,13 @@ async fn main() -> Result<()> {
 
     let handler_runtime = Arc::clone(&runtime);
     let handler_store = Arc::clone(&store);
-    let handler_config = config.clone();
+    let handler_config = Arc::new(Mutex::new(config.clone()));
     let server_task = server.serve(move |request| {
         let mut runtime = handler_runtime
             .lock()
             .map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
         let response = match request {
-            Request::Status => Response::Status(status_response(&runtime, &handler_config)),
+            Request::Status => Response::Status(status_response(&runtime, &*handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?)),
             Request::DictationStart => {
                 runtime.start_audio().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Response::Control(ControlResponse { accepted: true, detail: "microphone capture started".into() })
@@ -104,7 +114,7 @@ async fn main() -> Result<()> {
             Request::Doctor => {
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);
                 Response::Doctor(DoctorResponse {
-                    status: status_response(&runtime, &handler_config),
+                    status: status_response(&runtime, &*handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?),
                     checks: vec![
                         DoctorCheck {
                             name: "daemon".into(),
@@ -157,11 +167,28 @@ async fn main() -> Result<()> {
             Request::ConfigSummary => Response::ConfigSummary(ConfigSummaryResponse {
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
-                history_enabled: !handler_config.persistence_path.as_os_str().is_empty(),
-                hotkey: handler_config.hotkey.binding.clone(),
-                route: route_summary(&handler_config),
+                history_enabled: true,
+                hotkey: handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.hotkey.binding.clone(),
+                route: route_summary(&*handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?),
             }),
+            Request::RecentHistory { limit } => Response::RecentHistory(RecentHistoryResponse {
+                entries: handler_store.try_recent_history(usize::from(limit)).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?,
+            }),
+            Request::PurgeHistory => {
+                handler_store.try_purge_history().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Control(ControlResponse { accepted: true, detail: "history purged".into() })
+            }
+            Request::SetConfig { hotkey, route } => {
+                if hotkey.trim().is_empty() { return Err(sori_ipc::IpcError::Transport("hotkey binding must not be empty".into())); }
+                handler_store.set_setting("daemon.hotkey", &serde_json::json!(hotkey)).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                handler_store.set_setting("daemon.route", &serde_json::to_value(route).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                let mut config = handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?;
+                config.hotkey.binding = hotkey;
+                config.route = sori_core::RoutePolicy { prefer_local: route.prefer_local, allow_cloud: route.allow_cloud, prefer_warm_runtime: route.prefer_warm_runtime, optimize_battery: route.optimize_battery };
+                Response::ConfigSummary(ConfigSummaryResponse { profile: ProfileMode::Basic, privacy: PrivacyMode::LocalOnly, history_enabled: true, hotkey: config.hotkey.binding.clone(), route })
+            }
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
+
                 events: handler_store
                     .try_recent_events_limit(usize::from(limit))
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
@@ -239,5 +266,12 @@ fn status_response<B: sori_core::EventBus>(
         route: route_summary(config),
         profile: ProfileMode::Basic,
         privacy: PrivacyMode::LocalOnly,
+        capabilities: CapabilitySummary {
+            audio_capture: runtime.audio_available(),
+            whisper: runtime.whisper_available(),
+            hotkey: false,
+            text_injection: false,
+            history: true,
+        },
     }
 }

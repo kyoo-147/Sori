@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use sori_core::{
-    AudioChunk, Event, EventKind, ModelId, PrivacyMode, ProfileMode, Transcript,
+    AudioChunk, Event, EventKind, HistoryEntry, ModelId, PrivacyMode, ProfileMode, Transcript,
     event::serde_json_like,
 };
 use std::io::{Read, Write};
@@ -38,6 +38,14 @@ pub enum Request {
     RecentEvents {
         limit: u16,
     },
+    RecentHistory {
+        limit: u16,
+    },
+    PurgeHistory,
+    SetConfig {
+        hotkey: String,
+        route: RouteSummary,
+    },
     Pause,
     Resume,
 }
@@ -48,6 +56,8 @@ pub enum Response {
     Doctor(DoctorResponse),
     ConfigSummary(ConfigSummaryResponse),
     RecentEvents(RecentEventsResponse),
+    RecentHistory(RecentHistoryResponse),
+    Error(IpcErrorResponse),
     Control(ControlResponse),
     Transcript(Transcript),
 }
@@ -63,6 +73,7 @@ pub struct StatusResponse {
     pub route: RouteSummary,
     pub profile: ProfileMode,
     pub privacy: PrivacyMode,
+    pub capabilities: CapabilitySummary,
 }
 
 /// Activity reports only lifecycle states implemented by the daemon. It does
@@ -108,6 +119,27 @@ pub struct ConfigSummaryResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecentEventsResponse {
     pub events: Vec<IpcEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecentHistoryResponse {
+    pub entries: Vec<HistoryEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IpcErrorResponse {
+    pub code: String,
+    pub detail: String,
+    pub retryable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CapabilitySummary {
+    pub audio_capture: bool,
+    pub whisper: bool,
+    pub hotkey: bool,
+    pub text_injection: bool,
+    pub history: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -315,7 +347,14 @@ where
     }
     let request: Request = serde_json::from_slice(&bytes[body_start..body_start + length])
         .map_err(|e| IpcError::Protocol(e.to_string()))?;
-    let response = handler(request)?;
+    let response = match handler(request) {
+        Ok(response) => response,
+        Err(error) => Response::Error(IpcErrorResponse {
+            code: "request_failed".into(),
+            detail: error.to_string(),
+            retryable: true,
+        }),
+    };
     let body = serde_json::to_vec(&response).map_err(|e| IpcError::Protocol(e.to_string()))?;
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -364,6 +403,13 @@ impl Default for MockIpcServer {
                     },
                     profile: ProfileMode::Basic,
                     privacy: PrivacyMode::LocalOnly,
+                    capabilities: CapabilitySummary {
+                        audio_capture: false,
+                        whisper: false,
+                        hotkey: false,
+                        text_injection: false,
+                        history: true,
+                    },
                 },
                 config: ConfigSummaryResponse {
                     profile: ProfileMode::Basic,
@@ -423,6 +469,13 @@ impl Transport for MockTransport {
                 return Err(IpcError::Transport(
                     "mock transport does not execute dictation".into(),
                 ));
+            }
+            Request::RecentHistory { .. } | Request::PurgeHistory | Request::SetConfig { .. } => {
+                Response::Error(IpcErrorResponse {
+                    code: "unsupported".into(),
+                    detail: "mock transport does not execute this request".into(),
+                    retryable: false,
+                })
             }
             Request::Doctor => Response::Doctor(DoctorResponse {
                 status: state.status.clone(),
@@ -485,6 +538,13 @@ mod tests {
             },
             profile: ProfileMode::Basic,
             privacy: PrivacyMode::LocalOnly,
+            capabilities: CapabilitySummary {
+                audio_capture: false,
+                whisper: false,
+                hotkey: false,
+                text_injection: false,
+                history: true,
+            },
         });
         let encoded = serde_json::to_string(&response).unwrap();
         assert_eq!(
@@ -515,6 +575,13 @@ mod tests {
                 },
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
+                capabilities: CapabilitySummary {
+                    audio_capture: false,
+                    whisper: false,
+                    hotkey: false,
+                    text_injection: false,
+                    history: true,
+                },
             })),
             _ => Err(IpcError::UnexpectedResponse { request }),
         }));

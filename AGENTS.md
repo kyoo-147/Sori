@@ -10,3 +10,10 @@
 - No Mistakes is intentionally disabled until the MVP shape is proven.
 - The agent may review and merge acceptable PRs without asking for captain approval during this early phase.
 - Add stricter approval flow and No Mistakes guardrails after MVP.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

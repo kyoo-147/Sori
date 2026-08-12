@@ -1,17 +1,15 @@
-export type WindowAction = 'minimize' | 'toggle-maximize' | 'close';
+import { invoke } from '@tauri-apps/api/core';
+import type { WindowControlsApi } from './window-actions';
 
-export interface WindowControlsApi {
-  minimize: () => Promise<void>;
-  toggleMaximize: () => Promise<void>;
-  close: () => Promise<void>;
-}
+export type { WindowAction, WindowControlsApi } from './window-actions';
+export { performWindowAction } from './window-actions';
 
-/** Execute a native window action without coupling UI tests to Tauri's runtime. */
-export async function performWindowAction(
-  windowApi: WindowControlsApi,
-  action: WindowAction,
-): Promise<void> {
-  if (action === 'minimize') return windowApi.minimize();
-  if (action === 'toggle-maximize') return windowApi.toggleMaximize();
-  return windowApi.close();
-}
+/** The Rust command names are the authoritative native window boundary. */
+export const tauriWindowControls: WindowControlsApi = {
+  minimize: () => invoke<void>('window_minimize'),
+  maximize: () => invoke<void>('window_maximize'),
+  restore: () => invoke<void>('window_restore'),
+  toggleMaximize: () => invoke<void>('window_toggle_maximize'),
+  close: () => invoke<void>('window_close'),
+  startDragging: () => invoke<void>('window_start_dragging'),
+};

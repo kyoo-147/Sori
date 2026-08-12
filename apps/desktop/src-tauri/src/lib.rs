@@ -14,11 +14,85 @@ mod commands {
         let response = client.request(request).map_err(|error| error.to_string())?;
         serde_json::to_value(response).map_err(|error| error.to_string())
     }
+
+    fn window_error(action: &str, error: impl std::fmt::Display) -> String {
+        format!("window {action} failed: {error}")
+    }
+
+    #[tauri::command(rename = "window_minimize")]
+    pub fn window_minimize(window: tauri::Window) -> Result<(), String> {
+        window
+            .minimize()
+            .map_err(|error| window_error("minimize", error))
+    }
+
+    #[tauri::command(rename = "window_maximize")]
+    pub fn window_maximize(window: tauri::Window) -> Result<(), String> {
+        if !window
+            .is_maximized()
+            .map_err(|error| window_error("maximize state", error))?
+        {
+            window
+                .maximize()
+                .map_err(|error| window_error("maximize", error))?;
+        }
+        Ok(())
+    }
+
+    #[tauri::command(rename = "window_restore")]
+    pub fn window_restore(window: tauri::Window) -> Result<(), String> {
+        if window
+            .is_maximized()
+            .map_err(|error| window_error("maximize state", error))?
+        {
+            window
+                .unmaximize()
+                .map_err(|error| window_error("restore", error))?;
+        }
+        Ok(())
+    }
+
+    #[tauri::command(rename = "window_toggle_maximize")]
+    pub fn window_toggle_maximize(window: tauri::Window) -> Result<(), String> {
+        if window
+            .is_maximized()
+            .map_err(|error| window_error("maximize state", error))?
+        {
+            window
+                .unmaximize()
+                .map_err(|error| window_error("restore", error))?;
+        } else {
+            window
+                .maximize()
+                .map_err(|error| window_error("maximize", error))?;
+        }
+        Ok(())
+    }
+
+    #[tauri::command(rename = "window_close")]
+    pub fn window_close(window: tauri::Window) -> Result<(), String> {
+        window.close().map_err(|error| window_error("close", error))
+    }
+
+    #[tauri::command(rename = "window_start_dragging")]
+    pub fn window_start_dragging(window: tauri::Window) -> Result<(), String> {
+        window
+            .start_dragging()
+            .map_err(|error| window_error("drag", error))
+    }
 }
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![commands::sori_ipc])
+        .invoke_handler(tauri::generate_handler![
+            commands::sori_ipc,
+            commands::window_minimize,
+            commands::window_maximize,
+            commands::window_restore,
+            commands::window_toggle_maximize,
+            commands::window_close,
+            commands::window_start_dragging
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Sori desktop");
 }
@@ -31,5 +105,29 @@ mod titlebar_tests {
     fn native_decorations_are_disabled_for_the_custom_titlebar() {
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(config["app"]["windows"][0]["decorations"], false);
+    }
+
+    #[test]
+    fn minimum_window_size_is_kept_in_logical_pixels_for_dpi_scaling() {
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let window = &config["app"]["windows"][0];
+        assert_eq!(window["minWidth"], 720);
+        assert_eq!(window["minHeight"], 480);
+        assert_eq!(window["resizable"], true);
+    }
+
+    #[test]
+    fn custom_titlebar_commands_are_registered() {
+        let source = include_str!("lib.rs");
+        for command in [
+            "window_minimize",
+            "window_maximize",
+            "window_restore",
+            "window_toggle_maximize",
+            "window_close",
+            "window_start_dragging",
+        ] {
+            assert!(source.contains(command), "missing command: {command}");
+        }
     }
 }

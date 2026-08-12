@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppSettings } from '../types';
-import { Mic, Monitor, Tablet, Smartphone, Flame } from 'lucide-react';
+import { Mic, Monitor, Tablet, Smartphone, Flame, Command } from 'lucide-react';
 
 interface DesktopTitleBarProps {
   settings: AppSettings;
@@ -27,11 +27,9 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
     <div className="h-12 bg-[rgba(248,245,241,0.85)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.08)] px-4 flex items-center justify-between select-none text-[13px] text-[#68635D]">
       {/* Left: Window Controls & Title */}
       <div className="flex items-center gap-3">
-        {/* Traffic Light Buttons */}
-        <div className="flex items-center gap-1.5 mr-1">
-          <div className="w-3 h-3 rounded-full bg-[#E56A54] border border-black/10 hover:opacity-80 cursor-pointer" />
-          <div className="w-3 h-3 rounded-full bg-[#E5B54A] border border-black/10 hover:opacity-80 cursor-pointer" />
-          <div className="w-3 h-3 rounded-full bg-[#52B868] border border-black/10 hover:opacity-80 cursor-pointer" />
+        {/* The app owns its Windows caption; native decorations are disabled. */}
+        <div className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[rgba(92,84,75,0.10)] bg-white/70 text-[#5E564E] shadow-2xs" aria-hidden="true">
+          <Command className="h-3.5 w-3.5" />
         </div>
 
         {/* App Title */}

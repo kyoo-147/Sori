@@ -241,3 +241,17 @@
 @media (max-width: 760px) {
   .sori-window-control { width: 38px; }
 }
+
+.sori-titlebar button:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.sori-titlebar {
+  min-height: 48px;
+  touch-action: none;
+}
+
+.sori-window-control {
+  flex: 0 0 auto;
+}

@@ -141,7 +141,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         </div>
       </div>
 
-      {/* Right: Quick Tools & Viewport Controls */}
+      {/* Right: Quick Tools and native window controls */}
       <div className="flex items-center gap-2">
         {/* Tray Toggle */}
         <button

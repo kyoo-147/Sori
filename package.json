@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx src/adapters/http/server.ts",
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --exclude dist/**",
     "check": "npm run build && npm run test && npm run desktop:check",
     "tray:mock": "tsx src/tray/mock-shell.ts",
     "desktop:dev": "npm --prefix apps/desktop run dev",

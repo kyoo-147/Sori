@@ -193,7 +193,7 @@ export default function App() {
 
   return (
     <DeviceFrame deviceView={deviceView}>
-      <div className="h-screen bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans select-none overflow-hidden antialiased">
+      <div className="sori-shell select-none overflow-hidden antialiased" data-sori-layout="shell">
         {/* Top Window Titlebar (Chrome Window Header) */}
         <DesktopTitleBar
           settings={settings}
@@ -214,7 +214,7 @@ export default function App() {
         />
 
         {/* Main Application Window Shell */}
-        <div className="flex-1 flex overflow-hidden relative">
+        <div className="sori-shell__body flex-1 overflow-hidden relative" data-sori-layout="workspace">
           {/* Left Navigation Sidebar */}
           <DesktopSidebar
             activeScreen={activeScreen}
@@ -265,7 +265,7 @@ export default function App() {
           />
 
           {/* Main Content View Container */}
-          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FAF8F5] p-3 sm:p-4 md:p-6 custom-scrollbar">
+          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="sori-shell__workspace min-w-0 flex-1 custom-scrollbar" data-sori-pane="workspace">
             {(activeScreen === 'playground' || activeScreen === 'home') && (
               <OverviewScreen
                 settings={settings}

@@ -1,209 +1,384 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;450;500;600;700&display=swap');
-@import "tailwindcss";
+@import '../design-system/tokens.css';
+@import 'tailwindcss';
 
 @layer base {
   :root {
-    /* Sori Warm Pearl / Ivory / Stone / Greige System Palette */
-    --bg-canvas: #F3F0EB;
-    --bg-app: #F8F5F1;
-    --bg-sidebar: rgba(235, 231, 225, 0.72);
-    --bg-panel: rgba(251, 249, 246, 0.82);
-    --bg-panel-subtle: #F2EEE8;
-    --bg-elevated: #FFFDF9;
+    color-scheme: light;
+  }
 
-    /* Text Tokens - Warm Charcoal & Stone */
-    --text-primary: #1C1B19;
-    --text-secondary: #68635D;
-    --text-tertiary: #98928A;
-    --text-quiet: #B2AEA8;
-    --text-inverse: #FFFFFF;
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-    /* Border Tokens - Soft Warm Neutral */
-    --border-soft: rgba(92, 84, 75, 0.08);
-    --border-default: rgba(92, 84, 75, 0.13);
-    --border-strong: rgba(92, 84, 75, 0.20);
-    --border-focus: rgba(92, 84, 75, 0.30);
-
-    /* Neutral Fills */
-    --fill-hover: rgba(235, 230, 223, 0.5);
-    --fill-active: rgba(225, 220, 212, 0.6);
-    --fill-selected: rgba(221, 217, 211, 0.46);
-    --fill-disabled: #F5F3ED;
-
-    /* Soft Slate Accent (< 5% of UI) */
-    --accent-primary: #6E7A80;
-    --accent-primary-soft: #ECEEEB;
-
-    /* Semantic Tokens */
-    --success-text: #4E7A61;
-    --success-bg: #EAF3ED;
-    --success-border: rgba(78, 122, 97, 0.22);
-
-    --warning-text: #9A7442;
-    --warning-bg: #FAF3E8;
-    --warning-border: rgba(154, 116, 66, 0.22);
-
-    --error-text: #A75850;
-    --error-bg: #F9EBEA;
-    --error-border: rgba(167, 88, 80, 0.22);
+  html,
+  body,
+  #root {
+    min-width: 320px;
+    min-height: 100%;
+    margin: 0;
   }
 
   body {
-    background-color: var(--bg-canvas);
-    color: var(--text-primary);
-    font-family: "SF Pro Text", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--sori-bg-canvas);
+    color: var(--sori-text-primary);
+    font-family: var(--sori-font-sans);
+    font-size: var(--sori-type-body-size);
+    line-height: var(--sori-type-body-leading);
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
-  code, pre, kbd {
-    font-family: "SF Mono", "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
+  :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--sori-border-focus);
+    outline-offset: 2px;
+  }
+
+  code,
+  pre,
+  kbd {
+    font-family: var(--sori-font-mono);
   }
 }
 
-/* Sori Design System Glass & Tactile Utilities */
+/* -------------------------------------------------------------------------
+ * Shell architecture
+ *
+ * These classes describe the real application window, not the viewport
+ * simulator. The simulator may wrap the same shell without changing these
+ * layout contracts.
+ * ---------------------------------------------------------------------- */
+.sori-shell {
+  --sori-sidebar-width: 248px;
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--sori-bg-app);
+  color: var(--sori-text-primary);
+}
+
+.sori-shell__titlebar {
+  min-height: var(--sori-titlebar-height);
+  flex: 0 0 var(--sori-titlebar-height);
+  border-bottom: 1px solid var(--sori-border-default);
+  background: color-mix(in srgb, var(--sori-bg-app) 92%, transparent);
+  box-shadow: var(--sori-shadow-xs);
+}
+
+.sori-shell__body {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, var(--sori-sidebar-width)) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.sori-shell__sidebar {
+  width: var(--sori-sidebar-width);
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--sori-border-default);
+  background: color-mix(in srgb, var(--sori-bg-sidebar) 94%, transparent);
+  color: var(--sori-text-primary);
+  transition: transform var(--sori-motion-layout) ease, box-shadow var(--sori-motion-layout) ease;
+  z-index: 40;
+}
+
+.sori-shell__workspace {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--sori-workspace-padding);
+  background: var(--sori-bg-app);
+  scrollbar-gutter: stable;
+}
+
+/* Codex/Obsidian-like composition primitives. Layout is customizable by
+ * setting the documented --sori-* variables on a parent or pane. */
+.sori-layout-grid {
+  display: grid;
+  grid-template-columns: var(--sori-layout-columns, repeat(12, minmax(0, 1fr)));
+  gap: var(--sori-pane-gap);
+  min-width: 0;
+}
+
+.sori-layout-stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--sori-pane-gap);
+}
+
+.sori-layout-cluster {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sori-space-2);
+}
+
+.sori-layout-rail {
+  width: var(--sori-rail-width);
+  min-width: 0;
+  flex: 0 0 var(--sori-rail-width);
+  overflow: auto;
+}
+
+.sori-layout-split {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(var(--sori-inspector-min), var(--sori-inspector-width));
+  gap: var(--sori-pane-gap);
+}
+
+.sori-layout-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--sori-bg-panel);
+  border: 1px solid var(--sori-border-soft);
+  border-radius: var(--sori-radius-lg);
+  box-shadow: var(--sori-shadow-xs);
+}
+
+.sori-layout-toolbar {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sori-space-3);
+  padding: var(--sori-space-2) var(--sori-space-3);
+  border-bottom: 1px solid var(--sori-border-soft);
+}
+
+[data-sori-collapsed='true'] {
+  display: none;
+}
+
+[data-sori-layout='shell'] {
+  --sori-layout-mode: shell;
+}
+
+/* Type primitives */
 .sori-page-heading {
-  font-size: 25px;
-  line-height: 31px;
+  color: var(--sori-text-primary);
+  font-size: var(--sori-type-page-size);
   font-weight: 600;
-  letter-spacing: -0.015em;
-  color: #1C1B19;
+  line-height: var(--sori-type-page-leading);
+  letter-spacing: -0.02em;
 }
 
 .sori-section-heading {
-  font-size: 17.5px;
-  line-height: 25px;
+  color: var(--sori-text-primary);
+  font-size: var(--sori-type-section-size);
   font-weight: 600;
+  line-height: var(--sori-type-section-leading);
   letter-spacing: -0.01em;
-  color: #1C1B19;
 }
 
 .sori-body-text {
-  font-size: 14px;
-  line-height: 21px;
+  color: var(--sori-text-secondary);
+  font-size: var(--sori-type-body-size);
   font-weight: 400;
-  color: #68635D;
+  line-height: var(--sori-type-body-leading);
 }
 
 .sori-sidebar-text {
-  font-size: 13.5px;
-  line-height: 20px;
+  font-size: var(--sori-type-sidebar-size);
   font-weight: 500;
+  line-height: var(--sori-type-sidebar-leading);
 }
 
 .sori-button-text {
-  font-size: 13px;
-  line-height: 18px;
+  font-size: var(--sori-type-control-size);
   font-weight: 500;
+  line-height: var(--sori-type-control-leading);
 }
 
 .sori-meta-text {
-  font-size: 12px;
-  line-height: 17px;
+  color: var(--sori-text-tertiary);
+  font-size: var(--sori-type-meta-size);
   font-weight: 400;
-  color: #98928A;
+  line-height: var(--sori-type-meta-leading);
 }
 
-/* Tactile macOS Translucent Pearl Control Class */
+/* Shared control states: hover, keyboard focus, pressed, disabled, and error. */
 .sori-tactile-btn {
-  background: rgba(255, 253, 249, 0.76);
-  border: 1px solid rgba(93, 84, 75, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.90), 0 2px 6px rgba(40, 34, 28, 0.035);
-  color: #292724;
+  border: 1px solid var(--sori-border-default);
+  background: var(--sori-bg-elevated);
+  color: var(--sori-text-primary);
+  box-shadow: var(--sori-shadow-inset), var(--sori-shadow-xs);
   font-weight: 500;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background-color var(--sori-motion-fast) ease, border-color var(--sori-motion-fast) ease, box-shadow var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease, transform var(--sori-motion-fast) ease;
 }
-.sori-tactile-btn:hover {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: rgba(93, 84, 75, 0.18);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), 0 3px 8px rgba(40, 34, 28, 0.05);
-  color: #1C1B19;
+
+.sori-tactile-btn:hover:not(:disabled) {
+  border-color: var(--sori-border-strong);
+  background: var(--sori-fill-hover);
+  color: var(--sori-text-primary);
+  box-shadow: var(--sori-shadow-inset), var(--sori-shadow-sm);
 }
-.sori-tactile-btn:active {
+
+.sori-tactile-btn:active:not(:disabled),
+.sori-tactile-btn[aria-pressed='true'],
+.sori-tactile-btn[aria-expanded='true'] {
+  border-color: var(--sori-accent-primary-border);
+  background: var(--sori-fill-active);
   transform: translateY(1px);
-  background: rgba(245, 241, 234, 0.95);
-  box-shadow: inset 0 1px 2px rgba(40, 34, 28, 0.05);
 }
 
-/* Warm Translucent Segmented Control Track & Active Segment */
-.sori-segmented-track {
-  background: rgba(216, 211, 204, 0.30);
-  border: 1px solid rgba(92, 84, 75, 0.08);
-  border-radius: 10px;
-  padding: 3px;
-}
-.sori-segment-active {
-  background: rgba(255, 254, 251, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 4px 14px rgba(42, 35, 29, 0.055);
-  color: #1C1B19;
-  font-weight: 600;
+.sori-tactile-btn:focus-visible {
+  border-color: var(--sori-border-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sori-border-focus) 24%, transparent), var(--sori-shadow-xs);
 }
 
-/* Glass & Floating Material Recipes */
-.sori-glass {
-  background: rgba(250, 248, 244, 0.68);
-  backdrop-filter: blur(24px) saturate(105%);
-  -webkit-backdrop-filter: blur(24px) saturate(105%);
-  border: 1px solid rgba(255, 255, 255, 0.52);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 2px 5px rgba(40, 34, 28, 0.035), 0 14px 40px rgba(40, 34, 28, 0.075);
+.sori-tactile-btn:disabled,
+.sori-tactile-btn[aria-disabled='true'] {
+  border-color: var(--sori-border-soft);
+  background: var(--sori-fill-disabled);
+  color: var(--sori-text-quiet);
+  box-shadow: none;
+  opacity: 0.72;
 }
 
-.sori-glass-strong {
-  background: rgba(255, 253, 249, 0.82);
-  backdrop-filter: blur(28px) saturate(115%);
-  -webkit-backdrop-filter: blur(28px) saturate(115%);
-  border: 1px solid rgba(255, 255, 255, 0.70);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.90), 0 8px 30px rgba(42, 35, 29, 0.06);
+:where(input, select, textarea)[aria-invalid='true'],
+.sori-control[data-state='error'],
+.sori-error-state {
+  border-color: var(--sori-error-border) !important;
+  background: var(--sori-error-bg);
+  color: var(--sori-error-text);
 }
 
-.sori-floating {
-  background: rgba(248, 246, 242, 0.72);
-  backdrop-filter: blur(28px) saturate(108%);
-  -webkit-backdrop-filter: blur(28px) saturate(108%);
-  border: 1px solid rgba(255, 255, 255, 0.60);
-  border-radius: 18px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 16px 46px rgba(38, 32, 27, 0.11);
+:where(input, select, textarea)[aria-invalid='true']:focus-visible,
+.sori-control[data-state='error']:focus-visible {
+  outline-color: var(--sori-error-text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sori-error-text) 16%, transparent);
+}
+
+.sori-sidebar-item-active,
+.sori-selected-neutral {
+  border: 1px solid var(--sori-border-strong);
+  background: var(--sori-fill-selected);
+  color: var(--sori-text-primary);
+  box-shadow: var(--sori-shadow-inset);
 }
 
 .sori-sidebar-panel {
-  background: rgba(235, 231, 225, 0.72);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-right: 1px solid rgba(92, 84, 75, 0.08);
+  background: color-mix(in srgb, var(--sori-bg-sidebar) 94%, transparent);
+  border-right: 1px solid var(--sori-border-default);
 }
 
-.sori-sidebar-item-active {
-  background: rgba(214, 209, 201, 0.48);
-  border: 1px solid rgba(91, 84, 77, 0.12);
-  color: #1C1B19;
-  font-weight: 600;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+.sori-overlay {
+  background: var(--sori-glass-overlay-bg);
+  backdrop-filter: var(--sori-glass-strong-filter);
+  -webkit-backdrop-filter: var(--sori-glass-strong-filter);
+  border: 1px solid var(--sori-border-strong);
+  box-shadow: var(--sori-shadow-lg);
 }
 
-.sori-selected-neutral {
-  background: rgba(221, 217, 211, 0.46);
-  border: 1px solid rgba(91, 84, 77, 0.15);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
-  color: #1C1B19;
-}
-
-/* Custom crisp scrollbars */
+/* Scrollbars remain quiet so the content hierarchy stays primary. */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 142, 134, 0.25);
-  border-radius: 10px;
+  border: 2px solid transparent;
+  border-radius: var(--sori-radius-pill);
+  background: color-mix(in srgb, var(--sori-text-tertiary) 28%, transparent);
+  background-clip: padding-box;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 142, 134, 0.45);
+  background: color-mix(in srgb, var(--sori-text-tertiary) 48%, transparent);
+  background-clip: padding-box;
 }
 
+/* Real-window breakpoints. Keep these independent of the device simulator. */
+@media (max-width: 1199px) {
+  .sori-shell {
+    --sori-sidebar-width: 232px;
+    --sori-workspace-padding: 20px;
+  }
+}
 
+@media (max-width: 899px) {
+  .sori-shell {
+    --sori-sidebar-width: 216px;
+    --sori-workspace-padding: 16px;
+  }
 
+  .sori-layout-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .sori-shell__body {
+    display: block;
+    overflow: auto;
+  }
+
+  .sori-shell__sidebar {
+    position: fixed;
+    inset: var(--sori-titlebar-height) auto 0 0;
+    width: min(var(--sori-sidebar-width), 86vw);
+    box-shadow: var(--sori-shadow-lg);
+    transform: translateX(-104%);
+  }
+
+  .sori-shell__sidebar[data-open='true'] {
+    transform: translateX(0);
+  }
+
+  .sori-shell__workspace {
+    min-height: calc(100dvh - var(--sori-titlebar-height));
+    padding: var(--sori-space-4);
+  }
+
+  .sori-layout-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sori-layout-rail {
+    width: 100%;
+    flex-basis: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

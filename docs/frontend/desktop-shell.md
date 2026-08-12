@@ -54,3 +54,17 @@ produce an offline UI rather than block startup.
 The frontend build is independently deployable (`npm --prefix apps/desktop
 run build`), while `npm run check` at the repository root remains the required
 server and test validation.
+
+## Visual shell contract
+
+The production window uses the visual architecture in
+`apps/desktop/src/index.css`: `.sori-shell` contains the titlebar, a
+responsive sidebar rail, and the scrolling workspace. Shared values come from
+`apps/desktop/design-system/tokens.css` and its TypeScript mirror. Real-window
+breakpoints are 1200px, 900px, and 768px; `DeviceFrame` remains a preview
+wrapper and must not be used as a runtime layout breakpoint.
+
+Screens may compose `.sori-layout-grid`, `.sori-layout-split`,
+`.sori-layout-pane`, `.sori-layout-stack`, and `.sori-layout-cluster` with
+local `--sori-*` overrides. These are presentational primitives: they do not
+change screen business logic, titlebar behavior, or the daemon boundary.

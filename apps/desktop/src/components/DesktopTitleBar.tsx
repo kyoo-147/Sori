@@ -1,9 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { AppSettings } from '../types';
 import type { DaemonStatus, RuntimeSource } from '../runtime-client';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Mic, Monitor, Tablet, Smartphone, Flame, Command, CircleDot, Menu, X, Minus, Square, Copy } from 'lucide-react';
-import { performWindowAction, tauriWindowControls, type WindowAction } from '../window-controls';
+import { Mic, Flame, Command, CircleDot, Menu, X } from 'lucide-react';
 
 interface DesktopTitleBarProps {
   settings: AppSettings;
@@ -12,8 +10,6 @@ interface DesktopTitleBarProps {
   toggleListening: () => void;
   trayOpen: boolean;
   setTrayOpen: (open: boolean) => void;
-  deviceView: 'desktop' | 'tablet' | 'mobile';
-  setDeviceView: (view: 'desktop' | 'tablet' | 'mobile') => void;
   activeModelName: string;
   runtimeSource: RuntimeSource;
   runtimeStatus: DaemonStatus;
@@ -29,8 +25,6 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   toggleListening,
   trayOpen,
   setTrayOpen,
-  deviceView,
-  setDeviceView,
   runtimeSource,
   runtimeStatus,
   runtimeError,
@@ -39,62 +33,9 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   onToggleSidebar,
 }) => {
   const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
-  const [isMaximized, setIsMaximized] = useState(false);
-  const isTauri = '__TAURI_INTERNALS__' in globalThis;
-
-  const refreshMaximized = () => {
-    if (!isTauri) return;
-    void getCurrentWindow().isMaximized().then(setIsMaximized).catch(() => undefined);
-  };
-
-  useEffect(() => {
-    if (!('__TAURI_INTERNALS__' in globalThis)) return;
-    const window = getCurrentWindow();
-    let disposed = false;
-    const refreshMaximized = () => {
-      window.isMaximized().then((maximized) => {
-        if (!disposed) setIsMaximized(maximized);
-      }).catch(() => undefined);
-    };
-    refreshMaximized();
-    let unlisten: (() => void) | undefined;
-    window.onResized(refreshMaximized).then((unsubscribe) => {
-      if (disposed) unsubscribe();
-      else unlisten = unsubscribe;
-    }).catch(() => undefined);
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
-
-  const runWindowAction = async (action: WindowAction) => {
-    if (!isTauri) return;
-    try {
-      await performWindowAction(tauriWindowControls, action);
-      if (action === 'maximize' || action === 'restore' || action === 'toggle-maximize') {
-        refreshMaximized();
-      }
-    } catch (error) {
-      console.warn(`Window action ${action} failed:`, error);
-    }
-  };
-
-  const isInteractiveTarget = (target: EventTarget | null) =>
-    target instanceof HTMLElement && Boolean(target.closest('button, a, input, select, textarea'));
-
-  const handleTitlebarMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button === 0 && !isInteractiveTarget(event.target)) {
-      void runWindowAction('drag');
-    }
-  };
-
-  const handleTitlebarDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!isInteractiveTarget(event.target)) void runWindowAction('toggle-maximize');
-  };
 
   return (
-    <div data-tauri-drag-region role="toolbar" aria-label="Sori window title bar" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl border-b border-[rgba(92,84,75,0.10)] px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D] shadow-[0_1px_8px_rgba(40,34,28,0.03)]">
+    <div className="sori-shell__titlebar min-h-12 bg-[rgba(250,248,245,0.92)] backdrop-blur-xl px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
       <button
         type="button"
         onClick={onToggleSidebar}
@@ -103,7 +44,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
       >
         {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
       </button>
-      {/* Left: product command context. The native frame is replaced by this bar. */}
+      {/* Left: product command context. Native OS chrome owns close/minimize/maximize. */}
       <div className="min-w-0 flex items-center gap-2.5">
         <div className="hidden sm:flex h-7 w-7 items-center justify-center rounded-[9px] border border-[rgba(92,84,75,0.10)] bg-white/70 text-[#5E564E] shadow-2xs" aria-hidden="true">
           <Command className="h-3.5 w-3.5" />
@@ -145,7 +86,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         </div>
       </div>
 
-      {/* Right: Quick Tools & Viewport Controls */}
+      {/* Right: Quick Tools */}
       <div className="flex items-center gap-2">
         {/* Tray Toggle */}
         <button
@@ -164,51 +105,6 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           <span className="hidden sm:inline">Quick controls</span>
         </button>
 
-        {/* Viewport Switcher - Translucent Warm Track */}
-        <div aria-label="Preview viewport" className="flex items-center bg-[rgba(216,211,204,0.30)] p-1 rounded-[10px] border border-[rgba(92,84,75,0.08)]">
-          <button
-            onClick={() => setDeviceView('desktop')}
-            className={`p-1 rounded-[6px] transition-all ${
-              deviceView === 'desktop' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
-            }`}
-            aria-label="Desktop preview"
-            title="Desktop preview"
-          >
-            <Monitor className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setDeviceView('tablet')}
-            className={`p-1 rounded-[6px] transition-all ${
-              deviceView === 'tablet' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
-            }`}
-            aria-label="Tablet preview"
-            title="Tablet preview (768px)"
-          >
-            <Tablet className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setDeviceView('mobile')}
-            className={`p-1 rounded-[6px] transition-all ${
-              deviceView === 'mobile' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
-            }`}
-            aria-label="Mobile preview"
-            title="Mobile preview (375px)"
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="sori-window-controls flex items-center ml-1 -mr-2 sm:-mr-4 h-12" role="group" aria-label="Window controls">
-          <button type="button" aria-label="Minimize window" title="Minimize" onClick={() => void runWindowAction('minimize')} className="sori-window-control" data-tauri-drag-region="false">
-            <Minus className="h-4 w-4" aria-hidden="true" />
-          </button>
-          <button type="button" aria-label={isMaximized ? 'Restore window' : 'Maximize window'} aria-pressed={isMaximized} title={isMaximized ? 'Restore' : 'Maximize'} onClick={() => void runWindowAction(isMaximized ? 'restore' : 'maximize')} className="sori-window-control" data-tauri-drag-region="false">
-            {isMaximized ? <Copy className="h-3.5 w-3.5" aria-hidden="true" /> : <Square className="h-3.5 w-3.5" aria-hidden="true" />}
-          </button>
-          <button type="button" aria-label="Close window" title="Close" onClick={() => void runWindowAction('close')} className="sori-window-control sori-window-control-close" data-tauri-drag-region="false">
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
       </div>
     </div>
   );

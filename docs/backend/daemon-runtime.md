@@ -10,3 +10,16 @@
 - `sori.db` persistence path.
 
 The daemon registers the Windows hotkey on a worker-owned message loop and reports conflicts/unsupported platforms through Doctor. It also wires captured audio into the configured whisper.cpp provider on `DictationStop`. A transcript is returned only after the sidecar exits successfully and its output parses; missing executable/model, capture errors, non-zero exits, timeouts, cancellation, and empty output remain errors. Native text injection remains a separate seam. See [MVP capability matrix](../mvp-capability-matrix.md).
+
+## Lifecycle integration
+
+The Windows hold-to-talk service normalizes a registered hotkey press/release and
+drives the same `DaemonRuntime` methods as loopback `DictationStart`,
+`DictationStop`, and `DictationCancel`. Capture ownership remains in the CPAL
+adapter's worker thread; the daemon owns the session and consumes chunks before
+calling the configured Rust `ModelProvider`.
+
+Runtime events include `AudioError`, `CapabilityAvailable`, and
+`CapabilityUnavailable` with details suitable for Doctor/recent-events views.
+The fake capture/provider test in `crates/sorid/src/runtime.rs` proves this
+ordering without claiming microphone, ASR, or physical hotkey hardware proof.

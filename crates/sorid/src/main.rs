@@ -80,13 +80,22 @@ async fn main() -> Result<()> {
         Some(provider) => DaemonRuntime::new_with_provider(events.clone(), provider),
         None => DaemonRuntime::new(events.clone()),
     };
-    match CpalAudioController::new(Default::default()) {
+    match CpalAudioController::new(config.audio.clone()) {
         Ok(audio) => daemon.set_audio_engine(Box::new(audio)),
         Err(error) => info!(detail = %error, "microphone adapter unavailable"),
     }
+    daemon.publish_capability("asr", daemon.whisper_available(), whisper_detail.clone());
+    let runtime = Arc::new(Mutex::new(daemon));
+    let hotkey_runtime = Arc::clone(&runtime);
+    let hotkey_model = ModelId::from(whisper_model.as_str());
     let hotkey_result: Result<(HotkeyService, HotkeyServiceStatus), _> = start_hotkey_service(
         Arc::new(events.clone()),
         sori_core::HotkeyCombination::new(1, 0x20),
+        Arc::new(move |event| {
+            if let Ok(mut runtime) = hotkey_runtime.lock() {
+                runtime.handle_hotkey(event, &hotkey_model);
+            }
+        }),
     );
     let (_hotkey_service, hotkey_status) = match hotkey_result {
         Ok((service, status)) => (Some(service), status),
@@ -95,9 +104,13 @@ async fn main() -> Result<()> {
             (None, HotkeyServiceStatus::Unavailable(error.to_string()))
         }
     };
-    let runtime = Arc::new(Mutex::new(daemon));
     let endpoint: SocketAddr = DEFAULT_ENDPOINT.parse().expect("valid IPC endpoint");
-    let server = LocalIpcServer::bind(endpoint).await?;
+    let server = LocalIpcServer::bind(endpoint).await.map_err(|error| {
+        anyhow::anyhow!(
+            "cannot bind local IPC endpoint {endpoint}: {error}; another process may own it. {}",
+            "Inspect with `Get-NetTCPConnection -LocalPort 17373` and stop only a known stale sorid process"
+        )
+    })?;
     info!(
         hotkey = %config.hotkey.binding,
         persistence_path = ?config.persistence_path,
@@ -133,8 +146,7 @@ async fn main() -> Result<()> {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(20) as usize;
                 let chunks = runtime.stop_audio(false).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                let audio = runtime.take_captured_audio();
-                let transcript = runtime.transcribe(&ModelId::from(whisper_model.as_str()), &audio)
+                let transcript = runtime.transcribe_captured(&ModelId::from(whisper_model.as_str()))
                     .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but Whisper inference failed: {error}")))?;
                 if history_enabled {
                     let entry = HistoryEntry { id: uuid::Uuid::new_v4(), at: time::OffsetDateTime::now_utc(), active_app: None, transcript: transcript.clone(), intent: FastIntent::Dictation { text: transcript.text.clone() }, route: None, inserted_text: None };

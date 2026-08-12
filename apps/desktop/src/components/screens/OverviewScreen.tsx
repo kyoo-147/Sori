@@ -1,17 +1,6 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { AppSettings, HistoryItem } from '../../types';
-import {
-  Mic,
-  CheckCircle2,
-  Terminal,
-  FileCode,
-  MessageSquare,
-  Sparkles,
-  Copy,
-  Play,
-  Clock,
-  BookOpen,
-} from 'lucide-react';
+import { Activity, AlertCircle, BookOpen, CheckCircle2, ChevronRight, Clock3, FileText, Mic, Play, Radio, Settings2, Sparkles, Target, WifiOff } from 'lucide-react';
 
 interface OverviewScreenProps {
   settings: AppSettings;
@@ -20,227 +9,92 @@ interface OverviewScreenProps {
   onNavigate: (screen: any) => void;
   history: HistoryItem[];
   activeModelName: string;
+  runtimeSource?: 'native' | 'backend' | 'mock' | 'unavailable';
+  runtimeActivity?: string;
 }
 
-export const OverviewScreen: React.FC<OverviewScreenProps> = ({
-  settings,
-  isListening,
-  toggleListening,
-  onNavigate,
-  history,
-}) => {
-  const [activeAppMock, setActiveAppMock] = useState<'vscode' | 'terminal' | 'slack'>('vscode');
-  const [inputText, setInputText] = useState<string>(
-    'Short, friendly email to my team asking if we can review the new design system PR today.'
-  );
-  const [lastInserted, setLastInserted] = useState<string>('');
+type CaptureState = 'ready' | 'listening' | 'processing' | 'inserting' | 'no-target' | 'mic-error' | 'model-loading' | 'injection-error' | 'error';
 
-  const sampleVoicePrompts = [
-    { label: 'Dictate Vietnamese comment', text: '// Cấu hình ASR router với độ trễ dưới 100ms' },
-    { label: 'Dictate Rust code snippet', text: 'pub fn route_asr_request(ctx: &Context) -> Result<ModelId> {' },
-    { label: 'Dictate Terminal command', text: 'cargo run --release -- --config sori.toml' },
-    { label: 'Dictate Email / Slack message', text: 'Hi team, local Whisper Q5 baseline is running at 65ms latency!' },
-  ];
+const stateCopy: Record<CaptureState, { label: string; detail: string }> = {
+  ready: { label: 'Ready to capture', detail: 'Hold the hotkey to dictate into the focused app.' },
+  listening: { label: 'Listening', detail: 'Speak naturally. Release the hotkey when you are done.' },
+  processing: { label: 'Processing audio', detail: 'The active route is transcribing your capture.' },
+  inserting: { label: 'Inserting text', detail: 'The daemon is sending output to the focused window.' },
+  'no-target': { label: 'No focused target', detail: 'Focus a writable app before starting capture.' },
+  'mic-error': { label: 'Microphone unavailable', detail: 'Check microphone permission and the selected input device.' },
+  'model-loading': { label: 'Model loading', detail: 'The selected model is warming up. Try again shortly.' },
+  'injection-error': { label: 'Injection unavailable', detail: 'The runtime does not currently expose focused-app injection.' },
+  error: { label: 'Capture error', detail: 'The local runtime reported an error. Open Diagnostics for details.' },
+};
 
-  const handleSimulateVoice = (phrase: string) => {
-    setInputText((prev) => prev + (prev.endsWith('\n') ? '' : '\n') + phrase);
-    setLastInserted(phrase);
+export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isListening, toggleListening, onNavigate, history, activeModelName, runtimeSource = 'unavailable', runtimeActivity = 'error' }) => {
+  const [stateOverride, setStateOverride] = useState<CaptureState | null>(null);
+  const [target, setTarget] = useState<'VS Code' | 'Terminal' | 'Slack'>('VS Code');
+  const [preview, setPreview] = useState('Project Update\n\nThe focused target is ready for a local capture.');
+  const state: CaptureState = stateOverride ?? (isListening ? 'listening' : runtimeActivity === 'processing' ? 'processing' : runtimeSource === 'unavailable' ? 'injection-error' : 'ready');
+  const copy = stateCopy[state];
+  const routeLabel = runtimeSource === 'native' || runtimeSource === 'backend' ? 'Connected runtime' : 'Runtime unavailable';
+  const quickPrompts = useMemo(() => [
+    'Summarize the selected project update in three bullets.',
+    'Draft a concise status update for the team.',
+    'Add error handling and preserve the existing return type.',
+  ], []);
+
+  const startCapture = () => {
+    if (runtimeSource === 'unavailable' || runtimeSource === 'mock') {
+      setStateOverride('injection-error');
+      return;
+    }
+    setStateOverride(null);
+    toggleListening();
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto p-4 md:p-6 text-[#1C1B19]">
-      {/* Top Single-Purpose Banner */}
-      <div className="bg-[rgba(251,249,246,0.85)] border border-[rgba(92,84,75,0.12)] rounded-[18px] p-5 shadow-2xs flex flex-wrap items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#4E7A61] animate-pulse" />
-            <h1 className="text-[20px] leading-[28px] font-semibold text-[#1C1B19] tracking-[-0.01em]">
-              Sori preview — Try a local capture
-            </h1>
-          </div>
-          <p className="sori-body-text text-xs text-[#68635D]">
-            Browser capture and sample prompts update this preview only. OS hotkeys, microphone routing, and text injection are not connected yet.
-          </p>
+    <div className="mx-auto max-w-[1180px] space-y-6 p-1 text-[#1C1B19] sm:p-2 md:p-4">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-[#98928A]">Overview</p>
+          <h1 className="sori-page-heading">Sori is ready to help</h1>
+          <p className="sori-body-text mt-1">Local-first dictation with a clear path from voice to useful output.</p>
         </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => onNavigate('vocabulary')}
-            className="sori-tactile-btn px-3.5 py-1.5 rounded-[10px] text-xs transition flex items-center gap-1.5"
-          >
-            <BookOpen className="w-3.5 h-3.5 text-[#6E7A80]" />
-            <span>Teach Sori your words</span>
-          </button>
-
-          <button
-            onClick={toggleListening}
-            className={`px-4 py-2 rounded-[10px] text-xs font-medium shadow-2xs flex items-center gap-2 transition-all border ${
-              isListening
-                ? 'bg-[#A75850] text-white border-[#A75850] animate-pulse'
-                : 'sori-tactile-btn'
-            }`}
-          >
-            <Mic className="w-4 h-4 text-[#6E7A80]" />
-            <span>{isListening ? 'Listening...' : 'Simulate Dictation'}</span>
-          </button>
+        <div className="flex items-center gap-2 rounded-full border border-[rgba(92,84,75,0.12)] bg-[#FFFDF9] px-3 py-2 text-xs text-[#68635D] shadow-[0_2px_8px_rgba(92,84,75,0.05)]">
+          <span className={`h-2 w-2 rounded-full ${runtimeSource === 'native' || runtimeSource === 'backend' ? 'bg-[#4E7A61]' : 'bg-[#9A7442]'}`} />
+          {routeLabel} · {activeModelName}
         </div>
-      </div>
+      </header>
 
-      {/* Main Interactive Playground & Active Window Simulator */}
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6">
-        {/* Focused Application Simulator */}
-        <div className="bg-[rgba(251,249,246,0.85)] border border-[rgba(92,84,75,0.12)] rounded-[18px] p-5 shadow-2xs space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[rgba(92,84,75,0.08)]">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#E5B54A]/30" />
-              <div className="w-2.5 h-2.5 rounded-full bg-[#E5B54A]/30" />
-              <div className="w-2.5 h-2.5 rounded-full bg-[#E5B54A]/30" />
-              <span className="text-xs font-semibold text-[#1C1B19] ml-1">Focused Target Window:</span>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <section className="rounded-[18px] border border-[rgba(92,84,75,0.13)] bg-[#FBF9F6] p-5 shadow-[0_4px_18px_rgba(92,84,75,0.05)] md:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[rgba(92,84,75,0.08)] pb-4">
+            <div className="flex gap-3">
+              <div className="rounded-xl bg-[#ECEEEB] p-2.5 text-[#6E7A80]"><Target className="h-5 w-5" /></div>
+              <div><h2 className="sori-section-heading">Focused target window</h2><p className="sori-meta-text mt-1">{target} · writable editor preview</p></div>
             </div>
-
-            {/* App Switcher Tabs */}
-            <div className="flex items-center gap-1 bg-[rgba(216,211,204,0.30)] p-1 rounded-[10px] text-xs border border-[rgba(92,84,75,0.08)]">
-              <button
-                onClick={() => setActiveAppMock('vscode')}
-                className={`px-3 py-1 rounded-[8px] flex items-center gap-1.5 transition-all ${
-                  activeAppMock === 'vscode' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] font-semibold shadow-2xs' : 'text-[#68635D] hover:text-[#1C1B19]'
-                }`}
-              >
-                <FileCode className="w-3.5 h-3.5 text-[#68635D]" />
-                VS Code
-              </button>
-              <button
-                onClick={() => setActiveAppMock('terminal')}
-                className={`px-3 py-1 rounded-[8px] flex items-center gap-1.5 transition-all ${
-                  activeAppMock === 'terminal' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] font-semibold shadow-2xs' : 'text-[#68635D] hover:text-[#1C1B19]'
-                }`}
-              >
-                <Terminal className="w-3.5 h-3.5 text-[#68635D]" />
-                Terminal
-              </button>
-              <button
-                onClick={() => setActiveAppMock('slack')}
-                className={`px-3 py-1 rounded-[8px] flex items-center gap-1.5 transition-all ${
-                  activeAppMock === 'slack' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] font-semibold shadow-2xs' : 'text-[#68635D] hover:text-[#1C1B19]'
-                }`}
-              >
-                <MessageSquare className="w-3.5 h-3.5 text-[#68635D]" />
-                Slack / Mail
-              </button>
-            </div>
+            <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${state === 'ready' ? 'bg-[#EAF3ED] text-[#4E7A61]' : state === 'injection-error' ? 'bg-[#FAEDEA] text-[#A75850]' : 'bg-[#F5EEDC] text-[#9A7442]'}`}>
+              {copy.label}
+            </span>
           </div>
 
-          {/* Interactive Input Container */}
-          <div className="relative space-y-2">
-            <div className="flex items-center justify-between text-[11px] text-[#98928A] font-mono">
-              <span>{activeAppMock === 'vscode' ? 'src/router.rs' : activeAppMock === 'terminal' ? 'zsh — local daemon' : '#general-dev'}</span>
-              <span className="text-[#9A7442] font-medium">Preview target · no OS injection</span>
-            </div>
-
-            <textarea
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              rows={6}
-              className="w-full bg-[rgba(242,238,232,0.6)] border border-[rgba(92,84,75,0.12)] rounded-[12px] p-3.5 font-mono text-[12px] leading-[20px] font-normal text-[#1C1B19] focus:outline-none focus:bg-white focus:border-[rgba(92,84,75,0.25)] resize-none"
-              placeholder="Use a sample prompt or type here to preview output..."
-            />
-
-            {/* Quick Voice Simulation Triggers */}
-            <div className="space-y-2 pt-1">
-              <div className="text-xs text-[#1C1B19] font-semibold flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#6E7A80]" />
-                <span>Test Voice Dictation Triggers:</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {sampleVoicePrompts.map((prompt, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleSimulateVoice(prompt.text)}
-                    className="p-2.5 rounded-[10px] bg-[rgba(242,238,232,0.6)] border border-[rgba(92,84,75,0.1)] hover:border-[rgba(92,84,75,0.2)] hover:bg-white text-left transition-all group"
-                  >
-                    <div className="text-xs font-semibold text-[#1C1B19] flex items-center justify-between">
-                      <span>{prompt.label}</span>
-                      <Play className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-[#6E7A80]" />
-                    </div>
-                    <div className="text-[11px] text-[#98928A] font-mono truncate mt-0.5">{prompt.text}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Focused target">
+            {(['VS Code', 'Terminal', 'Slack'] as const).map((name) => <button key={name} type="button" aria-pressed={target === name} onClick={() => setTarget(name)} className={`sori-tactile-btn rounded-[10px] px-3 py-1.5 text-xs ${target === name ? 'sori-selected-neutral' : ''}`}>{name}</button>)}
           </div>
-
-          {/* Live Action Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[rgba(92,84,75,0.08)]">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={toggleListening}
-                className={`px-4 py-2 rounded-[10px] text-xs font-medium flex items-center gap-2 transition-all border ${
-                  isListening
-                    ? 'bg-[#A75850] text-white border-[#A75850] animate-pulse'
-                    : 'sori-tactile-btn'
-                }`}
-              >
-                <Mic className="w-3.5 h-3.5 text-[#6E7A80]" />
-                {isListening ? 'Stop Capture' : 'Start Speech Capture'}
-              </button>
-              <button
-                onClick={() => setInputText('')}
-                className="sori-tactile-btn px-3.5 py-2 rounded-[10px] text-xs transition-all font-medium"
-              >
-                Clear Text
-              </button>
-            </div>
-
-            {lastInserted && (
-              <div className="text-xs text-[#4E7A61] font-mono flex items-center gap-1.5 bg-[#EAF3ED] px-3 py-1 rounded-[8px] border border-[rgba(78,122,97,0.22)] font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5 text-[#4E7A61]" />
-                Preview text updated locally
-              </div>
-            )}
+          <div className="mt-4 overflow-hidden rounded-[14px] border border-[rgba(92,84,75,0.12)] bg-[#FFFDF9]">
+            <div className="flex items-center justify-between border-b border-[rgba(92,84,75,0.08)] px-4 py-3 text-[11px] text-[#98928A]"><span className="font-mono">{target === 'Terminal' ? 'sori-daemon — local' : target === 'Slack' ? '# engineering' : 'src/project-update.md'}</span><span>{state === 'listening' ? 'Input level active' : 'Preview only'}</span></div>
+            <textarea value={preview} onChange={(event) => setPreview(event.target.value)} aria-label="Focused editor preview" className="min-h-[210px] w-full resize-y border-0 bg-transparent p-5 text-sm leading-7 text-[#1C1B19] outline-none" />
+            <div className="flex items-center justify-between border-t border-[rgba(92,84,75,0.08)] px-4 py-3 text-xs text-[#68635D]"><span className="flex items-center gap-2"><Activity className="h-4 w-4 text-[#6E7A80]" />{copy.detail}</span><span className="font-mono">{settings.hotkey}</span></div>
           </div>
-        </div>
-
-        {/* Sidebar: Recent Transcripts */}
-        <div className="space-y-4">
-          <div className="bg-[rgba(251,249,246,0.85)] border border-[rgba(92,84,75,0.12)] rounded-[18px] p-4 space-y-3 shadow-2xs">
-            <div className="flex items-center justify-between font-semibold text-xs text-[#1C1B19]">
-              <span className="flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-[#6E7A80]" />
-                Recent Dictations
-              </span>
-              <button
-                onClick={() => onNavigate('transcripts')}
-                className="text-[11px] text-[#6E7A80] hover:underline font-normal"
-              >
-                View all
-              </button>
-            </div>
-
-            <div className="space-y-2 text-xs">
-              {history.map((item) => (
-                <div key={item.id} className="p-3 rounded-[12px] bg-[rgba(242,238,232,0.6)] border border-[rgba(92,84,75,0.08)] space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px] text-[#98928A] font-mono">
-                    <span className="text-[#1C1B19] font-semibold">{item.activeApp}</span>
-                    <span className="text-[#4E7A61] font-semibold">{item.latencyMs}ms</span>
-                  </div>
-                  <p className="text-[#1C1B19] text-xs line-clamp-3 leading-relaxed">{item.processedText}</p>
-                  <div className="flex items-center justify-between text-[11px] text-[#98928A] pt-1 border-t border-[rgba(92,84,75,0.08)]">
-                    <span className="bg-white px-2 py-0.5 rounded text-[#68635D] border border-[rgba(92,84,75,0.1)] font-mono">{item.modelUsed}</span>
-                    <button
-                      onClick={() => handleSimulateVoice(item.processedText)}
-                      className="hover:text-[#1C1B19] flex items-center gap-1 transition-colors font-semibold text-[#68635D]"
-                    >
-                      <Copy className="w-3 h-3" /> Re-insert
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex gap-2"><button type="button" onClick={startCapture} className="sori-tactile-btn rounded-[10px] px-4 py-2 text-xs font-medium"><Mic className="mr-2 inline h-4 w-4" />{isListening ? 'Stop capture' : 'Start capture'}</button><button type="button" onClick={() => setPreview('')} className="sori-tactile-btn rounded-[10px] px-3 py-2 text-xs">Clear</button></div>
+            {state === 'injection-error' && <span className="flex items-center gap-1.5 text-[11px] text-[#A75850]"><WifiOff className="h-3.5 w-3.5" /> No fake success: connect sorid to enable injection.</span>}
           </div>
-        </div>
+        </section>
+
+        <aside className="space-y-5">
+          <section className="rounded-[18px] border border-[rgba(92,84,75,0.13)] bg-[#FBF9F6] p-4 shadow-[0_4px_18px_rgba(92,84,75,0.05)]"><div className="mb-3 flex items-center justify-between"><h2 className="sori-section-heading">Recent dictations</h2><button type="button" onClick={() => onNavigate('transcripts')} className="text-xs text-[#6E7A80]">View all <ChevronRight className="inline h-3.5 w-3.5" /></button></div><div className="divide-y divide-[rgba(92,84,75,0.08)]">{history.slice(0, 4).map((item) => <button type="button" key={item.id} onClick={() => onNavigate('transcripts')} className="flex w-full items-start gap-3 py-3 text-left first:pt-0 last:pb-0"><div className="mt-0.5 rounded-lg bg-[#F2EEE8] p-2"><FileText className="h-4 w-4 text-[#6E7A80]" /></div><span className="min-w-0 flex-1"><strong className="block truncate text-xs font-medium">{item.activeApp}</strong><span className="mt-1 block line-clamp-2 text-[11px] leading-4 text-[#68635D]">{item.processedText}</span></span><span className="font-mono text-[10px] text-[#98928A]">{item.latencyMs}ms</span></button>)}</div></section>
+          <section className="rounded-[18px] border border-[rgba(92,84,75,0.13)] bg-[#FBF9F6] p-4 shadow-[0_4px_18px_rgba(92,84,75,0.05)]"><h2 className="sori-section-heading mb-3">Quick actions</h2><button type="button" onClick={() => onNavigate('vocabulary')} className="sori-tactile-btn mb-2 flex w-full items-center gap-3 rounded-[12px] p-3 text-left"><BookOpen className="h-4 w-4 text-[#6E7A80]" /><span><strong className="block text-xs">Teach Sori your words</strong><span className="text-[11px] text-[#98928A]">Add terms and pronunciation hints</span></span><ChevronRight className="ml-auto h-4 w-4 text-[#98928A]" /></button><button type="button" onClick={() => onNavigate('diagnostics')} className="sori-tactile-btn flex w-full items-center gap-3 rounded-[12px] p-3 text-left"><Settings2 className="h-4 w-4 text-[#6E7A80]" /><span><strong className="block text-xs">Check runtime health</strong><span className="text-[11px] text-[#98928A]">See microphone and injection readiness</span></span><ChevronRight className="ml-auto h-4 w-4 text-[#98928A]" /></button></section>
+          <section className="rounded-[18px] border border-[rgba(92,84,75,0.13)] bg-[#F2EEE8] p-4"><div className="flex items-start gap-3"><Radio className="mt-0.5 h-4 w-4 text-[#6E7A80]" /><div><h3 className="text-xs font-medium">Runtime status</h3><p className="mt-1 text-[11px] leading-4 text-[#68635D]">{runtimeSource === 'mock' ? 'Mock fallback is active. Hardware capabilities are UNVERIFIED.' : runtimeSource === 'unavailable' ? 'Daemon unavailable. Microphone, model, hotkey, and injection are UNVERIFIED.' : 'Connected to the local Sori runtime.'}</p></div></div></section>
+        </aside>
       </div>
     </div>
   );
 };
-
-

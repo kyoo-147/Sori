@@ -8,3 +8,11 @@ preview data when running outside Tauri.
 
 Native builds are intentionally not part of the default CI path. Packaging,
 signing, and platform-specific daemon endpoints remain separate work.
+
+## Custom Windows title bar
+
+The native window decorations are disabled atomically in `tauri.conf.json`.
+`DesktopTitleBar` owns drag, double-click maximize/restore, and accessible
+minimize, maximize/restore, and close controls through Tauri's current-window
+API. Browser preview keeps these controls inert; native behavior is covered by
+the titlebar source and configuration tests.

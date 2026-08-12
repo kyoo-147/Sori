@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { performWindowAction, type WindowAction } from '../apps/desktop/src/window-controls';
+import { performWindowAction, type WindowAction } from '../apps/desktop/src/window-controls.js';
 
 describe('desktop window controls', () => {
   it.each<WindowAction>(['minimize', 'toggle-maximize', 'close'])('forwards %s to the native window', async (action) => {

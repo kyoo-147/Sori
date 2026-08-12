@@ -13,13 +13,7 @@ import {
   AssistantVoiceSettings,
 } from './types';
 import {
-  initialModels,
-  initialRoutes,
-  initialDictionary,
-  initialSnippets,
   initialExtensions,
-  initialHistory,
-  initialBenchmarkResults,
   defaultSettings,
   defaultVoiceProfile,
   defaultAssistantVoice,
@@ -44,19 +38,21 @@ import { VoiceIdentityScreen } from './components/screens/VoiceIdentityScreen';
 import { AssistantVoiceScreen } from './components/screens/AssistantVoiceScreen';
 import { CoverageChecklistScreen } from './components/screens/CoverageChecklistScreen';
 import { SystemDesignScreen } from './components/screens/SystemDesignScreen';
-import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
+import { RuntimeClient, eventText, unavailableStatus, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
 import { readPreference, readSettings, writePreference } from './preferences';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
   const [settings, setSettings] = useState<AppSettings>(() => readSettings(defaultSettings));
-  const [models, setModels] = useState<ModelInfo[]>(initialModels);
-  const [routes, setRoutes] = useState<RouteRule[]>(initialRoutes);
-  const [dictionary, setDictionary] = useState<DictionaryTerm[]>(initialDictionary);
-  const [snippets, setSnippets] = useState<Snippet[]>(initialSnippets);
-  const [extensions, setExtensions] = useState<ExtensionItem[]>(() => readPreference('extensions', initialExtensions));
-  const [history, setHistory] = useState<HistoryItem[]>(initialHistory);
-  const [benchmarkResults] = useState<BenchmarkResult[]>(initialBenchmarkResults);
+  // These collections are populated only from the daemon contract. Empty means the
+  // daemon has no data; it is never a preview fixture.
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [routes, setRoutes] = useState<RouteRule[]>([]);
+  const [dictionary, setDictionary] = useState<DictionaryTerm[]>([]);
+  const [snippets, setSnippets] = useState<Snippet[]>([]);
+  const [extensions, setExtensions] = useState<ExtensionItem[]>(() => readPreference('extensions', []));
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [benchmarkResults] = useState<BenchmarkResult[]>([]);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
   const [assistantVoice, setAssistantVoice] = useState<AssistantVoiceSettings>(defaultAssistantVoice);
 
@@ -67,18 +63,26 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
-  const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly', version: null });
+  const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>(unavailableStatus);
   const [runtimeSource, setRuntimeSource] = useState<RuntimeSource>('unavailable');
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [runtimeLoading, setRuntimeLoading] = useState(true);
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
 
   const refreshRuntime = useCallback(async () => {
-    const [statusResult, doctorResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor()]);
-    setRuntimeStatus(statusResult.data);
-    setRuntimeSource(statusResult.source);
-    setRuntimeError(statusResult.error ?? doctorResult.error);
-    setDoctorChecks(doctorResult.data);
+    setRuntimeLoading(true);
+    try {
+      const [statusResult, doctorResult, eventsResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.recentEvents()]);
+      setRuntimeStatus(statusResult.data ?? unavailableStatus);
+      setRuntimeSource(statusResult.source);
+      setRuntimeError(statusResult.error ?? doctorResult.error ?? eventsResult.error);
+      setDoctorChecks(doctorResult.data ?? []);
+      if (eventsResult.data) setHistory(eventsResult.data.filter((event) => event.kind === 'TranscriptFinal').flatMap((event) => {
+        const text = eventText(event);
+        return text ? [{ id: event.id, timestamp: event.at, rawTranscript: text, processedText: text, activeApp: 'Unknown application', mode: 'dictation' as const, latencyMs: 0, modelUsed: 'Daemon' }] : [];
+      }));
+    } finally { setRuntimeLoading(false); }
   }, [runtimeClient]);
 
   useEffect(() => {
@@ -99,13 +103,14 @@ export default function App() {
 
   const setPaused = async (paused: boolean) => {
     const result = await (paused ? runtimeClient.pause() : runtimeClient.resume());
-    setRuntimeStatus(result.data);
+    setRuntimeStatus(result.data ?? unavailableStatus);
     setRuntimeSource(result.source);
     setRuntimeError(result.error);
   };
 
   // Active warm model
   const activeWarmModel = models.find((m) => m.isWarm && m.isInstalled) || models[0];
+  const activeModelName = activeWarmModel?.name ?? 'Unavailable — connect sorid';
 
   // Speech Recognition setup (Web Speech API with graceful fallback)
   useEffect(() => {
@@ -133,8 +138,8 @@ export default function App() {
                   processedText: text,
                   activeApp: 'VS Code',
                   mode: 'dictation',
-                  latencyMs: activeWarmModel.latencyMs,
-                  modelUsed: activeWarmModel.name,
+                  latencyMs: activeWarmModel?.latencyMs ?? 0,
+                  modelUsed: activeModelName,
                 },
                 ...prev,
               ]);
@@ -166,16 +171,7 @@ export default function App() {
 
   // Toggle speech simulation/listening
   const toggleListening = () => {
-    if (!isListening) {
-      setIsListening(true);
-      setInterimTranscript('Listening for speech audio...');
-      setTimeout(() => {
-        setInterimTranscript('Short, friendly email to my team asking if we can review the new PR today.');
-      }, 1000);
-    } else {
-      setIsListening(false);
-      setInterimTranscript('');
-    }
+    setErrorMessage('Microphone capture is unavailable until the native daemon is connected. No audio was captured.');
   };
 
   const handleApplyRecommendedPolicy = () => {
@@ -204,7 +200,7 @@ export default function App() {
           setTrayOpen={setTrayOpen}
           deviceView={deviceView}
           setDeviceView={setDeviceView}
-          activeModelName={activeWarmModel.name}
+          activeModelName={activeModelName}
           runtimeSource={runtimeSource}
           runtimeStatus={runtimeStatus}
           runtimeError={runtimeError}
@@ -241,7 +237,7 @@ export default function App() {
             onClose={() => setTrayOpen(false)}
             settings={settings}
             setSettings={setSettings}
-            activeModelName={activeWarmModel.name}
+            activeModelName={activeModelName}
             runtimeSource={runtimeSource}
             runtimeStatus={runtimeStatus}
             onTogglePaused={() => setPaused(!runtimeStatus.paused)}
@@ -258,7 +254,7 @@ export default function App() {
             transcript=""
             interimTranscript={interimTranscript}
             activeApp={activeScreen === 'voice-edit' ? 'VS Code Selection' : 'VS Code (src/router.rs)'}
-            activeModel={activeWarmModel.name}
+            activeModel={activeModelName}
             errorMessage={errorMessage}
             onCloseError={() => setErrorMessage(null)}
             onStyleChange={(st) => setSettings((prev) => ({ ...prev, overlayStyle: st }))}
@@ -266,6 +262,9 @@ export default function App() {
 
           {/* Main Content View Container */}
           <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FAF8F5] p-3 sm:p-4 md:p-6 custom-scrollbar">
+            {runtimeLoading && <div role="status" className="mb-4 rounded-xl border border-[#D5E0EA] bg-white p-3 text-xs text-[#5C728A]">Loading daemon-backed workspace data…</div>}
+            {!runtimeLoading && runtimeSource === 'unavailable' && <div role="alert" className="mb-4 rounded-xl border border-[#F8D2D2] bg-[#FDF2F2] p-3 text-xs text-[#A33A3A]">Daemon IPC is unavailable. Models, transcripts, settings, privacy, and vocabulary are empty until sorid connects. Native microphone and text injection are not available.</div>}
+
             {(activeScreen === 'playground' || activeScreen === 'home') && (
               <OverviewScreen
                 settings={settings}
@@ -273,12 +272,13 @@ export default function App() {
                 toggleListening={toggleListening}
                 onNavigate={setActiveScreen}
                 history={history}
-                activeModelName={activeWarmModel.name}
+                activeModelName={activeModelName}
+                runtimeAvailable={runtimeSource !== 'unavailable'}
               />
             )}
 
             {activeScreen === 'transcripts' && (
-              <TranscriptsScreen history={history} setHistory={setHistory} />
+              <TranscriptsScreen history={history} setHistory={setHistory} runtimeLoading={runtimeLoading} runtimeAvailable={runtimeSource !== 'unavailable'} />
             )}
 
             {activeScreen === 'onboarding' && (
@@ -293,6 +293,7 @@ export default function App() {
                 setModels={setModels}
                 routes={routes}
                 setRoutes={setRoutes}
+                runtimeAvailable={runtimeSource !== 'unavailable'}
               />
             )}
 
@@ -304,7 +305,7 @@ export default function App() {
             )}
 
             {(activeScreen === 'studio' || activeScreen === 'settings') && (
-              <StudioSettingsScreen settings={settings} setSettings={setSettings} />
+              <StudioSettingsScreen settings={settings} setSettings={setSettings} runtimeAvailable={runtimeSource !== 'unavailable'} />
             )}
 
             {(activeScreen === 'dictionary' || activeScreen === 'snippets' || activeScreen === 'vocabulary') && (
@@ -313,6 +314,7 @@ export default function App() {
                 setDictionary={setDictionary}
                 snippets={snippets}
                 setSnippets={setSnippets}
+                runtimeAvailable={runtimeSource !== 'unavailable'}
               />
             )}
 
@@ -326,6 +328,7 @@ export default function App() {
                 setVoiceProfile={setVoiceProfile}
                 history={history}
                 setHistory={setHistory}
+                runtimeAvailable={runtimeSource !== 'unavailable'}
               />
             )}
 
@@ -354,7 +357,7 @@ export default function App() {
         {isSettingsModalOpen && (
           <div className="fixed inset-0 z-50 bg-[#1C1B1A]/20 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="w-full max-w-3xl relative animate-in fade-in zoom-in-95 duration-200">
-              <StudioSettingsScreen settings={settings} setSettings={setSettings} />
+              <StudioSettingsScreen settings={settings} setSettings={setSettings} runtimeAvailable={runtimeSource !== 'unavailable'} />
               <button
                 type="button"
                 aria-label="Close settings"

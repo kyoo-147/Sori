@@ -20,6 +20,7 @@ interface OverviewScreenProps {
   onNavigate: (screen: any) => void;
   history: HistoryItem[];
   activeModelName: string;
+  runtimeAvailable?: boolean;
 }
 
 export const OverviewScreen: React.FC<OverviewScreenProps> = ({
@@ -28,6 +29,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({
   toggleListening,
   onNavigate,
   history,
+  runtimeAvailable = true,
 }) => {
   const [activeAppMock, setActiveAppMock] = useState<'vscode' | 'terminal' | 'slack'>('vscode');
   const [inputText, setInputText] = useState<string>(
@@ -43,6 +45,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({
   ];
 
   const handleSimulateVoice = (phrase: string) => {
+    if (!runtimeAvailable) return;
     setInputText((prev) => prev + (prev.endsWith('\n') ? '' : '\n') + phrase);
     setLastInserted(phrase);
   };

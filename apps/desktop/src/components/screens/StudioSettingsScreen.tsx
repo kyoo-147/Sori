@@ -5,6 +5,7 @@ import { Sliders, Mic, Volume2, Shield, X, Check, Activity, Keyboard, Layers, Sp
 interface StudioSettingsScreenProps {
   settings: AppSettings;
   setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
+  runtimeAvailable?: boolean;
 }
 
 export type SettingsTab =
@@ -22,6 +23,7 @@ export type SettingsTab =
 export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
   settings,
   setSettings,
+  runtimeAvailable = true,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('Microphone');
   const [selectedMic, setSelectedMic] = useState<string>('realtek');
@@ -48,6 +50,10 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
   ];
 
   const handleTestMic = () => {
+    if (!runtimeAvailable) {
+      setMicTestMsg('Microphone test unavailable: sorid IPC is not connected.');
+      return;
+    }
     setIsTestingMic(true);
     setMicTestMsg('Testing audio input levels (48kHz 16-bit)...');
     setTimeout(() => {
@@ -65,6 +71,8 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
           Configure microphone input, local hotkey triggers, overlay visuals, and daemon behavior.
         </p>
       </div>
+
+      {!runtimeAvailable && <div role="status" className="mb-6 rounded-xl border border-[#D5E0EA] bg-[#F8FAFC] p-4 text-xs text-[#5C728A]">Settings are disconnected from sorid. Controls that require microphone, hotkey, injection, startup, or privacy capabilities are unavailable and are not reporting success.</div>}
 
       {/* Settings Dialog Container */}
       <div className="bg-white border border-[#E2E4E8] rounded-[18px] shadow-2xs overflow-hidden grid md:grid-cols-[210px_1fr]">
@@ -122,7 +130,7 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
 
               {/* Status Banner */}
               <div className="p-3 bg-[#EAF6EE] border border-[#CBE5D4] rounded-[10px] text-[#1F6B43] flex items-center justify-between">
-                <span className="font-semibold">OS Permission: Granted</span>
+                <span className="font-semibold">OS Permission: {runtimeAvailable ? 'Reported by daemon' : 'Unavailable'}</span>
                 <span className="text-[11px] font-mono">Sample Rate: 48,000 Hz</span>
               </div>
 

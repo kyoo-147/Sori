@@ -18,6 +18,7 @@ interface VoiceIdentityScreenProps {
   setVoiceProfile: React.Dispatch<React.SetStateAction<VoiceProfile>>;
   history: HistoryItem[];
   setHistory: React.Dispatch<React.SetStateAction<HistoryItem[]>>;
+  runtimeAvailable?: boolean;
 }
 
 export const VoiceIdentityScreen: React.FC<VoiceIdentityScreenProps> = ({
@@ -25,6 +26,7 @@ export const VoiceIdentityScreen: React.FC<VoiceIdentityScreenProps> = ({
   setVoiceProfile,
   history,
   setHistory,
+  runtimeAvailable = true,
 }) => {
   const [saveTranscripts, setSaveTranscripts] = useState<boolean>(true);
   const [retentionDays, setRetentionDays] = useState<number>(30);
@@ -40,6 +42,7 @@ export const VoiceIdentityScreen: React.FC<VoiceIdentityScreenProps> = ({
   ];
 
   const advanceEnrollment = () => {
+    if (!runtimeAvailable) return;
     if (enrollStep < sampleSentences.length) {
       setEnrollStep((prev) => prev + 1);
       if (enrollStep + 1 === sampleSentences.length) {
@@ -75,6 +78,7 @@ export const VoiceIdentityScreen: React.FC<VoiceIdentityScreenProps> = ({
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto p-4 md:p-6 text-[#161616]">
+      {!runtimeAvailable && <div role="status" className="rounded-xl border border-[#D5E0EA] bg-[#F8FAFC] p-4 text-xs text-[#5C728A]">Privacy and voice identity are unavailable until sorid provides the canonical IPC configuration. No native permission or enrollment success is being reported.</div>}
       {/* Page Header */}
       <div className="border-b border-[#E2E4E8] pb-3">
         <h1 className="sori-page-heading">Privacy</h1>

@@ -20,6 +20,7 @@ interface DictionarySnippetsScreenProps {
   setDictionary: React.Dispatch<React.SetStateAction<DictionaryTerm[]>>;
   snippets: Snippet[];
   setSnippets: React.Dispatch<React.SetStateAction<Snippet[]>>;
+  runtimeAvailable?: boolean;
 }
 
 export const DictionarySnippetsScreen: React.FC<DictionarySnippetsScreenProps> = ({
@@ -27,6 +28,7 @@ export const DictionarySnippetsScreen: React.FC<DictionarySnippetsScreenProps> =
   setDictionary,
   snippets,
   setSnippets,
+  runtimeAvailable = true,
 }) => {
   const [activeTab, setActiveTab] = useState<'vocabulary' | 'snippets'>('vocabulary');
   const [inputTerm, setInputTerm] = useState<string>('');
@@ -118,6 +120,7 @@ export const DictionarySnippetsScreen: React.FC<DictionarySnippetsScreenProps> =
           </button>
         </div>
       </div>
+      {!runtimeAvailable && <div role="status" className="rounded-xl border border-[#D5E0EA] bg-[#F8FAFC] p-4 text-xs text-[#5C728A]">Vocabulary and snippets are not connected to sorid. Showing an empty state; local edits will not be persisted.</div>}
 
       {importSuccessMessage && (
         <div className="p-3 bg-[#EAF6EE] border border-[#CBE5D4] rounded-[12px] text-xs font-medium text-[#1F6B43] flex items-center gap-2">

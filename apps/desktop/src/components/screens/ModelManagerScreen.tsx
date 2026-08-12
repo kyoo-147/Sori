@@ -16,6 +16,7 @@ interface ModelManagerScreenProps {
   setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
   routes: RouteRule[];
   setRoutes: React.Dispatch<React.SetStateAction<RouteRule[]>>;
+  runtimeAvailable?: boolean;
 }
 
 export const ModelManagerScreen: React.FC<ModelManagerScreenProps> = ({
@@ -23,6 +24,7 @@ export const ModelManagerScreen: React.FC<ModelManagerScreenProps> = ({
   setModels,
   routes,
   setRoutes,
+  runtimeAvailable = true,
 }) => {
   const [topTab, setTopTab] = useState<'stt' | 'aimodels'>('aimodels');
   const [environmentFilter, setEnvironmentFilter] = useState<'cloud' | 'local'>('cloud');
@@ -81,6 +83,12 @@ export const ModelManagerScreen: React.FC<ModelManagerScreenProps> = ({
 
       {/* Main Panel */}
       <div className="bg-white border border-[#E6E3DD] rounded-[16px] p-6 shadow-2xs space-y-6">
+        {!runtimeAvailable && models.length === 0 && (
+          <div role="status" className="rounded-xl border border-[#D5E0EA] bg-[#F8FAFC] p-6 text-center text-xs text-[#5C728A]">
+            <p className="font-semibold">No models reported by sorid</p>
+            <p className="mt-1">Model inventory and routing controls are unavailable until the daemon provides them through IPC.</p>
+          </div>
+        )}
         {/* Environment Filter: Cloud vs Local */}
         <div className="flex items-center gap-4 text-xs font-medium border-b border-[#E6E3DD] pb-3">
           <button
@@ -123,7 +131,7 @@ export const ModelManagerScreen: React.FC<ModelManagerScreenProps> = ({
         </div>
 
         {/* Models List */}
-        {topTab === 'aimodels' ? (
+        {topTab === 'aimodels' && runtimeAvailable ? (
           <div className="space-y-2 pt-2">
             {aiModelsList.map((m) => {
               const isSelected = selectedModelId === m.id;

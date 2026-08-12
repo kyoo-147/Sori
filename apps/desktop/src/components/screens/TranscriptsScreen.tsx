@@ -6,18 +6,22 @@ interface TranscriptsScreenProps {
   history: HistoryItem[];
   setHistory?: React.Dispatch<React.SetStateAction<HistoryItem[]>>;
   onReinsert?: (text: string) => void;
+  runtimeLoading?: boolean;
+  runtimeAvailable?: boolean;
 }
 
 export const TranscriptsScreen: React.FC<TranscriptsScreenProps> = ({
   history,
   setHistory,
   onReinsert,
+  runtimeLoading = false,
+  runtimeAvailable = true,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [appFilter, setAppFilter] = useState<string>('all');
   const [selectedItem, setSelectedItem] = useState<HistoryItem | null>(history[0] || null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [viewState, setViewState] = useState<'normal' | 'empty' | 'loading' | 'error'>('normal');
+  const viewState: 'normal' | 'empty' | 'loading' | 'error' = runtimeLoading ? 'loading' : !runtimeAvailable ? 'error' : history.length === 0 ? 'empty' : 'normal';
 
   const filteredHistory = history.filter((item) => {
     const matchesSearch =
@@ -49,44 +53,8 @@ export const TranscriptsScreen: React.FC<TranscriptsScreenProps> = ({
         <div>
           <h1 className="sori-page-heading">Transcripts Timeline</h1>
           <p className="sori-body-text mt-0.5">
-            Local voice capture audit log. Review, copy, or re-insert recent dictations across all applications.
+            Local voice capture audit log from the connected sorid daemon.
           </p>
-        </div>
-
-        {/* View State Test Toggles */}
-        <div className="flex items-center gap-1.5 bg-[#F0F1F2] p-1 rounded-[10px] border border-[#E2E4E8] text-[12px]">
-          <button
-            onClick={() => setViewState('normal')}
-            className={`px-2.5 py-1 rounded-[8px] font-medium transition ${
-              viewState === 'normal' ? 'bg-white text-[#161616] shadow-2xs font-semibold' : 'text-[#5F6368]'
-            }`}
-          >
-            Normal
-          </button>
-          <button
-            onClick={() => setViewState('empty')}
-            className={`px-2.5 py-1 rounded-[8px] font-medium transition ${
-              viewState === 'empty' ? 'bg-white text-[#161616] shadow-2xs font-semibold' : 'text-[#5F6368]'
-            }`}
-          >
-            Empty
-          </button>
-          <button
-            onClick={() => setViewState('loading')}
-            className={`px-2.5 py-1 rounded-[8px] font-medium transition ${
-              viewState === 'loading' ? 'bg-white text-[#161616] shadow-2xs font-semibold' : 'text-[#5F6368]'
-            }`}
-          >
-            Loading
-          </button>
-          <button
-            onClick={() => setViewState('error')}
-            className={`px-2.5 py-1 rounded-[8px] font-medium transition ${
-              viewState === 'error' ? 'bg-white text-[#161616] shadow-2xs font-semibold' : 'text-[#5F6368]'
-            }`}
-          >
-            Error
-          </button>
         </div>
       </div>
 
@@ -111,15 +79,10 @@ export const TranscriptsScreen: React.FC<TranscriptsScreenProps> = ({
         <div className="p-6 bg-[#FDF2F2] border border-[#F8D2D2] rounded-[16px] text-center space-y-3 max-w-md mx-auto">
           <AlertCircle className="w-8 h-8 text-[#A33A3A] mx-auto" />
           <div className="space-y-1">
-            <h3 className="text-sm font-semibold text-[#161616]">Could not load local history database</h3>
-            <p className="text-xs text-[#5F6368]">SQLite database file was temporarily locked by another daemon process.</p>
+            <h3 className="text-sm font-semibold text-[#161616]">Transcript IPC is unavailable</h3>
+            <p className="text-xs text-[#5F6368]">The connected sorid daemon did not provide a recent-events response.</p>
           </div>
-          <button
-            onClick={() => setViewState('normal')}
-            className="px-4 py-2 bg-white border border-[#F8D2D2] text-[#A33A3A] text-xs font-semibold rounded-[10px] shadow-2xs hover:bg-[#FDF2F2] transition"
-          >
-            Retry Database Connection
-          </button>
+          <p className="text-xs text-[#A33A3A]">Reconnect sorid, then refresh this page to retry.</p>
         </div>
       )}
 

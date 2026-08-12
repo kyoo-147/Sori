@@ -7,15 +7,15 @@ interface DeviceFrameProps {
 
 export const DeviceFrame: React.FC<DeviceFrameProps> = ({ deviceView, children }) => {
   if (deviceView === 'desktop') {
-    return <div className="w-full min-h-screen bg-[#F4F1EC] text-[#1C1B1A]">{children}</div>;
+    return <div className="sori-device-frame w-full min-h-screen bg-[#F4F1EC] text-[#1C1B1A]">{children}</div>;
   }
 
   const widthClass = deviceView === 'tablet' ? 'max-w-[768px]' : 'max-w-[375px]';
 
   return (
-    <div className="min-h-screen w-full bg-[#F4F1EC] p-2 sm:p-8 flex justify-center items-start overflow-x-hidden">
+    <div className="sori-device-frame sori-device-frame--simulator min-h-screen w-full bg-[#F4F1EC] p-2 sm:p-8 flex justify-center items-start overflow-x-hidden">
       <div
-        className={`w-full min-w-0 ${widthClass} bg-[#FAF8F5] border-2 sm:border-4 border-[#DAD7D0] rounded-[20px] sm:rounded-[32px] shadow-xl overflow-hidden min-h-[700px] flex flex-col transition-all duration-300 relative`}
+        className={`sori-device-frame__viewport w-full min-w-0 ${widthClass} bg-[#FAF8F5] border-2 sm:border-4 border-[#DAD7D0] rounded-[20px] sm:rounded-[32px] shadow-xl overflow-hidden min-h-[700px] flex flex-col transition-all duration-300 relative`}
       >
         {/* Device Notch / Top Bar */}
         <div className="bg-[#EFECE6] py-2 px-4 sm:px-6 flex items-center justify-between border-b border-[#E6E3DD] text-[10px] text-[#656461] font-mono select-none">

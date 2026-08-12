@@ -29,7 +29,6 @@ import { DesktopTitleBar } from './components/DesktopTitleBar';
 import { DesktopSidebar } from './components/DesktopSidebar';
 import { OverlaySimulator } from './components/OverlaySimulator';
 import { TrayQuickControls } from './components/TrayQuickControls';
-import { DeviceFrame } from './components/DeviceFrame';
 
 import { OverviewScreen } from './components/screens/OverviewScreen';
 import { TranscriptsScreen } from './components/screens/TranscriptsScreen';
@@ -46,40 +45,10 @@ import { CoverageChecklistScreen } from './components/screens/CoverageChecklistS
 import { SystemDesignScreen } from './components/screens/SystemDesignScreen';
 import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
 import { readPreference, readSettings, writePreference } from './preferences';
-import { createShellFoundation, readShellPreferences, writeShellPreferences, defaultShellPreferences, type ShellPreferences } from './shell';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
   const [settings, setSettings] = useState<AppSettings>(() => readSettings(defaultSettings));
-  const [shellPreferences, setShellPreferences] = useState<ShellPreferences>(() => readShellPreferences(defaultShellPreferences));
-  const [shell] = useState(() => createShellFoundation(shellPreferences));
-
-  useEffect(() => {
-    const removeCommands = shell.commands.registerMany([
-      { id: 'shell.open-home', title: 'Open Home', category: 'Navigation', execute: () => setActiveScreen('home') },
-      { id: 'shell.open-transcripts', title: 'Open Transcripts', category: 'Navigation', execute: () => setActiveScreen('transcripts') },
-      { id: 'shell.open-settings', title: 'Open Settings', category: 'Navigation', execute: () => setActiveScreen('settings') },
-    ]);
-    const removeShortcuts = shell.shortcuts.registerMany([
-      { id: 'shell.shortcut.home', commandId: 'shell.open-home', shortcut: 'Ctrl+1', scope: 'shell' },
-      { id: 'shell.shortcut.transcripts', commandId: 'shell.open-transcripts', shortcut: 'Ctrl+2', scope: 'shell' },
-      { id: 'shell.shortcut.settings', commandId: 'shell.open-settings', shortcut: 'Ctrl+,', scope: 'shell' },
-    ]);
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
-      const input = { key: event.key, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey, metaKey: event.metaKey };
-      if (!shell.shortcuts.resolve(input, 'shell')) return;
-      event.preventDefault();
-      void shell.shortcuts.dispatch(input, shell.commands, {}, 'shell');
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      removeShortcuts();
-      removeCommands();
-    };
-  }, [shell]);
   const [models, setModels] = useState<ModelInfo[]>(initialModels);
   const [routes, setRoutes] = useState<RouteRule[]>(initialRoutes);
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>(initialDictionary);
@@ -90,7 +59,6 @@ export default function App() {
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
   const [assistantVoice, setAssistantVoice] = useState<AssistantVoiceSettings>(defaultAssistantVoice);
 
-  const [deviceView, setDeviceView] = useState<'desktop' | 'tablet' | 'mobile'>(() => readPreference('deviceView', 'desktop'));
   const [isListening, setIsListening] = useState<boolean>(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [trayOpen, setTrayOpen] = useState<boolean>(false);
@@ -120,22 +88,8 @@ export default function App() {
   }, [settings]);
 
   useEffect(() => {
-    writeShellPreferences({ ...shellPreferences, theme: settings.theme });
-  }, [settings.theme, shellPreferences]);
-
-  useEffect(() => {
-    if (shellPreferences.theme !== settings.theme) {
-      setShellPreferences((current) => ({ ...current, theme: settings.theme }));
-    }
-  }, [settings.theme, shellPreferences.theme]);
-
-  useEffect(() => {
     writePreference('extensions', extensions);
   }, [extensions]);
-
-  useEffect(() => {
-    writePreference('deviceView', deviceView);
-  }, [deviceView]);
 
   const setPaused = async (paused: boolean) => {
     const result = await (paused ? runtimeClient.pause() : runtimeClient.resume());
@@ -232,23 +186,16 @@ export default function App() {
   };
 
   return (
-    <DeviceFrame deviceView={deviceView}>
-      <div
-        data-sori-shell-theme={shellPreferences.theme}
-        data-sori-density={shellPreferences.density}
-        data-sori-workspace={shell.layout.snapshot().activeWorkspaceId}
-        className="h-screen bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans select-none overflow-hidden antialiased"
-      >
-        {/* Top Window Titlebar (Chrome Window Header) */}
-        <DesktopTitleBar
+    <div className="sori-shell select-none sori-app-shell h-full min-h-0 bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell">
+      {/* Top Window Titlebar (Chrome Window Header) */}
+      <div className="sori-shell__titlebar">
+      <DesktopTitleBar
           settings={settings}
           setSettings={setSettings}
           isListening={isListening}
           toggleListening={toggleListening}
           trayOpen={trayOpen}
           setTrayOpen={setTrayOpen}
-          deviceView={deviceView}
-          setDeviceView={setDeviceView}
           activeModelName={activeWarmModel.name}
           runtimeSource={runtimeSource}
           runtimeStatus={runtimeStatus}
@@ -256,10 +203,11 @@ export default function App() {
           onTogglePaused={() => setPaused(!runtimeStatus.paused)}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
-        />
+      />
+      </div>
 
         {/* Main Application Window Shell */}
-        <div className="flex-1 flex overflow-hidden relative">
+      <div className="sori-shell__body flex-1 sori-app-body min-h-0 flex overflow-hidden relative" data-sori-layout="workspace">
           {/* Left Navigation Sidebar */}
           <DesktopSidebar
             activeScreen={activeScreen}
@@ -310,7 +258,7 @@ export default function App() {
           />
 
           {/* Main Content View Container */}
-          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FAF8F5] p-3 sm:p-4 md:p-6 custom-scrollbar">
+          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="sori-shell__workspace sori-main-content min-w-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FAF8F5] p-3 sm:p-4 md:p-6 custom-scrollbar" data-sori-pane="workspace">
             {(activeScreen === 'playground' || activeScreen === 'home') && (
               <OverviewScreen
                 settings={settings}
@@ -393,10 +341,10 @@ export default function App() {
               />
             )}
           </main>
-        </div>
+      </div>
 
         {/* Studio Settings Modal overlay if invoked */}
-        {isSettingsModalOpen && (
+      {isSettingsModalOpen && (
           <div className="fixed inset-0 z-50 bg-[#1C1B1A]/20 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="w-full max-w-3xl relative animate-in fade-in zoom-in-95 duration-200">
               <StudioSettingsScreen settings={settings} setSettings={setSettings} />
@@ -410,8 +358,7 @@ export default function App() {
               </button>
             </div>
           </div>
-        )}
-      </div>
-    </DeviceFrame>
+      )}
+    </div>
   );
 }

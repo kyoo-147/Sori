@@ -29,7 +29,6 @@ import { DesktopTitleBar } from './components/DesktopTitleBar';
 import { DesktopSidebar } from './components/DesktopSidebar';
 import { OverlaySimulator } from './components/OverlaySimulator';
 import { TrayQuickControls } from './components/TrayQuickControls';
-import { DeviceFrame } from './components/DeviceFrame';
 
 import { OverviewScreen } from './components/screens/OverviewScreen';
 import { TranscriptsScreen } from './components/screens/TranscriptsScreen';
@@ -59,7 +58,6 @@ export default function App() {
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
   const [assistantVoice, setAssistantVoice] = useState<AssistantVoiceSettings>(defaultAssistantVoice);
 
-  const [deviceView, setDeviceView] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [isListening, setIsListening] = useState<boolean>(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [trayOpen, setTrayOpen] = useState<boolean>(false);
@@ -154,8 +152,7 @@ export default function App() {
   };
 
   return (
-    <DeviceFrame deviceView={deviceView}>
-      <div className="h-screen bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans select-none overflow-hidden antialiased">
+    <div className="sori-app-shell h-full min-h-0 bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans select-none overflow-hidden antialiased">
         {/* Top Window Titlebar (Chrome Window Header) */}
         <DesktopTitleBar
           settings={settings}
@@ -164,8 +161,6 @@ export default function App() {
           toggleListening={toggleListening}
           trayOpen={trayOpen}
           setTrayOpen={setTrayOpen}
-          deviceView={deviceView}
-          setDeviceView={setDeviceView}
           activeModelName={activeWarmModel.name}
         />
 
@@ -297,7 +292,6 @@ export default function App() {
             </div>
           </div>
         )}
-      </div>
-    </DeviceFrame>
+    </div>
   );
 }

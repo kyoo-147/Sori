@@ -59,7 +59,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   ];
 
   return (
-    <aside className={`${isOpen ? 'flex' : 'hidden'} md:flex w-60 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-xl bg-[rgba(235,231,225,0.96)] backdrop-blur-2xl border-r border-[rgba(92,84,75,0.08)] flex-col justify-between h-full select-none text-[#1C1B19]`}>
+    <aside className={`${isOpen ? 'flex' : 'hidden'} sori-shell__sidebar md:flex max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 flex-col justify-between h-full select-none`} data-open={isOpen}>
       <button type="button" aria-label="Close navigation" onClick={onClose} className="md:hidden absolute top-3 right-3 text-[#68635D] p-2 rounded-md hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#6E7A80]">×</button>
       {/* Top Search & Nav */}
       <div className="p-3 space-y-3.5 overflow-y-auto custom-scrollbar" role="navigation" aria-label="Primary Sori navigation">

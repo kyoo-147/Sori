@@ -48,7 +48,7 @@ describe('desktop shell and truthful preview contracts', () => {
     expect(onboarding).toContain('runtimeClient.dictationStop()');
     expect(onboarding).toContain('UNVERIFIED');
     expect(onboarding).not.toContain('successfully injected text');
-    expect(runtime).toContain("this.controlResponse('dictation_start')");
-    expect(runtime).toContain("this.transport.request('dictation_stop')");
+    expect(runtime).toContain("this.control('dictation_start')");
+    expect(runtime).toContain("this.call('dictation_stop'");
   });
 });

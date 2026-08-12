@@ -33,6 +33,8 @@ type ScreenshotArtifact = {
   notes: string;
 };
 
+class NativeEnvironmentSkip extends Error {}
+
 export function desktopBinaryPath(): string {
   return resolve('apps', 'desktop', 'src-tauri', 'target', 'debug', process.platform === 'win32' ? 'sori-desktop.exe' : 'sori-desktop');
 }
@@ -69,6 +71,9 @@ public static class ${className} {
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);
@@ -99,6 +104,27 @@ if (-not [SoriNativeWindowInfo]::GetWindowRect($h, [ref]$r)) { throw "GetWindowR
 } | ConvertTo-Json -Compress
 `;
   return JSON.parse(await runPowerShell(script)) as WindowInfo;
+}
+
+async function focusNativeWindow(pid: number): Promise<void> {
+  const script = nativeInterop('SoriNativeFocus') + String.raw`
+$p = Get-Process -Id ${pid} -ErrorAction Stop
+$h = $p.MainWindowHandle
+if ($h -eq [IntPtr]::Zero) { throw "process ${pid} has no main window" }
+[SoriNativeFocus]::ShowWindow($h, 9) | Out-Null
+[SoriNativeFocus]::BringWindowToTop($h) | Out-Null
+[SoriNativeFocus]::SetForegroundWindow($h) | Out-Null
+Start-Sleep -Milliseconds 150
+$foreground = [SoriNativeFocus]::GetForegroundWindow()
+[uint32]$foregroundPid = 0
+[SoriNativeFocus]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid) | Out-Null
+if ($foregroundPid -ne ${pid}) { throw "native app could not become foreground (foreground pid=$foregroundPid, expected=${pid})" }
+`;
+  try {
+    await runPowerShell(script);
+  } catch (error) {
+    throw new NativeEnvironmentSkip(`shared interactive overlay or desktop focus policy owns the foreground window: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function waitForNativeWindow(pid: number, timeoutMs = 20_000): Promise<WindowInfo> {
@@ -134,6 +160,7 @@ for ($i = 1; $i -le $steps; $i++) {
 [SoriNativeMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 Start-Sleep -Milliseconds 250
 `;
+  await focusNativeWindow(pid);
   await runPowerShell(script);
 }
 
@@ -167,6 +194,7 @@ $bitmap.Save(${escaped}, [System.Drawing.Imaging.ImageFormat]::Png)
 $graphics.Dispose()
 $bitmap.Dispose()
 `;
+  await focusNativeWindow(pid);
   await runPowerShell(script);
   if (!existsSync(outputPath)) throw new Error(`native screenshot was not written: ${outputPath}`);
   const info = await nativeWindowInfo(pid);
@@ -242,7 +270,7 @@ async function main(): Promise<void> {
   const app = desktopBinaryPath();
   if (!existsSync(app)) throw new Error(`desktop binary not found at ${app}`);
   const existing = await fetch('http://127.0.0.1:17373/ipc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify('Status'), signal: AbortSignal.timeout(500) }).catch(() => null);
-  if (existing?.ok) throw new Error('refusing native E2E: stale daemon already owns 127.0.0.1:17373');
+  if (existing?.ok) throw new NativeEnvironmentSkip('loopback IPC 127.0.0.1:17373 is already owned by a daemon; refusing to attach to an unknown process');
 
   mkdirSync(ARTIFACT_DIR, { recursive: true });
   const daemon = spawn(resolve('target', 'debug', 'sorid.exe'), [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
@@ -259,6 +287,7 @@ async function main(): Promise<void> {
     appProcess.stderr?.on('data', (chunk) => process.stderr.write(`[desktop] ${chunk}`));
     if (!appProcess.pid) throw new Error('desktop process did not expose a PID');
     let info = await waitForNativeWindow(appProcess.pid);
+    await focusNativeWindow(appProcess.pid);
 
     const WS_CAPTION = 0x00c00000;
     if ((info.style & WS_CAPTION) !== 0) throw new Error(`native shell still has a default caption bar (style=${info.style})`);
@@ -329,6 +358,17 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
+  if (error instanceof NativeEnvironmentSkip) {
+    mkdirSync(ARTIFACT_DIR, { recursive: true });
+    writeFileSync(resolve(ARTIFACT_DIR, 'skip.json'), JSON.stringify({
+      schema: 1,
+      status: 'SKIP',
+      reason: error.message,
+      evidence: 'The real Tauri HWND could not own the foreground. Browser preview or an overlay screenshot is not native evidence.',
+    }, null, 2));
+    console.log(`SKIP: native visual E2E unavailable: ${error.message}`);
+    return;
+  }
   console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 });

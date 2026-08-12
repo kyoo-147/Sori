@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "Sori", "decorations": false, "resizable": true, "width": 1100, "height": 720, "minWidth": 720, "minHeight": 480 }],
+    "windows": [{ "title": "Sori", "decorations": false, "alwaysOnTop": false, "resizable": true, "width": 1100, "height": 720, "minWidth": 720, "minHeight": 480 }],
     "security": { "csp": null }
   },
   "bundle": { "active": false }

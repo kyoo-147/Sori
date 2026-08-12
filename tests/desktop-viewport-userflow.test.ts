@@ -5,18 +5,22 @@ import { describe, expect, it } from 'vitest';
 const desktopSource = (relativePath: string) =>
   readFileSync(resolve(process.cwd(), 'apps/desktop/src', relativePath), 'utf8');
 
-describe('desktop viewport and truthful preview contracts', () => {
-  it('exposes stable desktop, tablet, and mobile viewport controls', () => {
+describe('desktop shell and truthful preview contracts', () => {
+  it('uses one native-window shell without production viewport simulation', () => {
+    const app = desktopSource('App.tsx');
     const titleBar = desktopSource('components/DesktopTitleBar.tsx');
-    const frame = desktopSource('components/DeviceFrame.tsx');
+    const sidebar = desktopSource('components/DesktopSidebar.tsx');
 
-    expect(titleBar).toContain('aria-label="Desktop preview"');
-    expect(titleBar).toContain('aria-label="Tablet preview"');
-    expect(titleBar).toContain('aria-label="Mobile preview"');
-    expect(titleBar).toContain("setDeviceView('desktop')");
-    expect(titleBar).toContain("setDeviceView('tablet')");
-    expect(titleBar).toContain("setDeviceView('mobile')");
-    expect(frame).toContain("deviceView === 'tablet' ? 'max-w-[768px]' : 'max-w-[375px]'");
+    expect(app).toContain('sori-app-shell');
+    expect(app).toContain('sori-app-body');
+    expect(app).toContain('sori-main-content');
+    expect(app).not.toContain('DeviceFrame');
+    expect(app).not.toContain('deviceView');
+    expect(titleBar).not.toContain('Preview viewport');
+    expect(titleBar).not.toContain('setDeviceView');
+    expect(titleBar).not.toContain('Tablet preview');
+    expect(titleBar).not.toContain('Mobile preview');
+    expect(sidebar).toContain('max-md:top-12');
   });
 
   it('keeps the primary navigation labels explicit and stable', () => {

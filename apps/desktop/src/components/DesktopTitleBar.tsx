@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppSettings } from '../types';
 import type { DaemonStatus, RuntimeSource } from '../runtime-client';
-import { Mic, Monitor, Tablet, Smartphone, Flame, Command, CircleDot, Menu, X } from 'lucide-react';
+import { Mic, Flame, Command, CircleDot, Menu, X } from 'lucide-react';
 
 interface DesktopTitleBarProps {
   settings: AppSettings;
@@ -10,8 +10,6 @@ interface DesktopTitleBarProps {
   toggleListening: () => void;
   trayOpen: boolean;
   setTrayOpen: (open: boolean) => void;
-  deviceView: 'desktop' | 'tablet' | 'mobile';
-  setDeviceView: (view: 'desktop' | 'tablet' | 'mobile') => void;
   activeModelName: string;
   runtimeSource: RuntimeSource;
   runtimeStatus: DaemonStatus;
@@ -27,8 +25,6 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   toggleListening,
   trayOpen,
   setTrayOpen,
-  deviceView,
-  setDeviceView,
   runtimeSource,
   runtimeStatus,
   runtimeError,
@@ -90,7 +86,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         </div>
       </div>
 
-      {/* Right: Quick Tools & Viewport Controls */}
+      {/* Right: Quick Tools */}
       <div className="flex items-center gap-2">
         {/* Tray Toggle */}
         <button
@@ -109,39 +105,6 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           <span className="hidden sm:inline">Quick controls</span>
         </button>
 
-        {/* Viewport Switcher - Translucent Warm Track */}
-        <div aria-label="Preview viewport" className="flex items-center bg-[rgba(216,211,204,0.30)] p-1 rounded-[10px] border border-[rgba(92,84,75,0.08)]">
-          <button
-            onClick={() => setDeviceView('desktop')}
-            className={`p-1 rounded-[6px] transition-all ${
-              deviceView === 'desktop' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
-            }`}
-            aria-label="Desktop preview"
-            title="Desktop preview"
-          >
-            <Monitor className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setDeviceView('tablet')}
-            className={`p-1 rounded-[6px] transition-all ${
-              deviceView === 'tablet' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
-            }`}
-            aria-label="Tablet preview"
-            title="Tablet preview (768px)"
-          >
-            <Tablet className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setDeviceView('mobile')}
-            className={`p-1 rounded-[6px] transition-all ${
-              deviceView === 'mobile' ? 'bg-[rgba(255,254,251,0.88)] text-[#1C1B19] shadow-2xs border border-white/60 font-bold' : 'text-[#98928A] hover:text-[#1C1B19]'
-            }`}
-            aria-label="Mobile preview"
-            title="Mobile preview (375px)"
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-          </button>
-        </div>
       </div>
     </div>
   );

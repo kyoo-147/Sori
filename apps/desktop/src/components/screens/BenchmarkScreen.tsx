@@ -1,13 +1,73 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BenchmarkResult } from '../../types';
-import { Check, Download, Play, Square, X } from 'lucide-react';
-interface Props { benchmarkResults: BenchmarkResult[]; onApplyPolicy: () => void; }
+import { Check, Download, Play, Square } from 'lucide-react';
+import type { BenchmarkResult } from '../../types';
+
+interface Props {
+  benchmarkResults: BenchmarkResult[];
+  onApplyPolicy: () => void;
+}
+
 export const BenchmarkScreen: React.FC<Props> = ({ benchmarkResults, onApplyPolicy }) => {
-  const [state, setState] = useState<'idle'|'running'|'completed'|'cancelled'|'failed'>('idle');
-  const [progress, setProgress] = useState(0); const [logs, setLogs] = useState<string[]>([]); const timer = useRef<number | null>(null);
+  const [state, setState] = useState<'idle' | 'running' | 'completed' | 'cancelled'>('idle');
+  const [progress, setProgress] = useState(0);
+  const [logs, setLogs] = useState<string[]>([]);
+  const timer = useRef<number | null>(null);
+
   useEffect(() => () => { if (timer.current) window.clearInterval(timer.current); }, []);
-  const run = () => { if (state === 'running') return; setState('running'); setProgress(0); setLogs(['Preparing benchmark environment…']); timer.current = window.setInterval(() => setProgress((value) => { const next = Math.min(value + 20, 100); setLogs((old) => [...old, `[${(next / 20).toFixed(1)}s] ${next < 100 ? 'Running model measurement…' : 'Suite complete.'}`]); if (next >= 100) { if (timer.current) window.clearInterval(timer.current); setState('completed'); } return next; }), 450); };
-  const cancel = () => { if (timer.current) window.clearInterval(timer.current); setState('cancelled'); setLogs((old) => [...old, 'Run cancelled by user. No partial result was saved.']); };
-  const exportResults = () => { const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), results: benchmarkResults }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'sori-benchmark-results.json'; link.click(); URL.revokeObjectURL(url); };
-  return <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-8"><header><h1 className="sori-page-heading">Auto Benchmark Engine</h1><p className="sori-body-text mt-1">Measure speech model performance on the current machine.</p></header><div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]"><section className="sori-pane space-y-5 p-5"><div className="flex items-center justify-between border-b border-[#E5E0D9] pb-3"><h2 className="sori-section-heading">Benchmark test execution</h2><span className="rounded-full bg-[#F2EEE8] px-2.5 py-1 text-xs">{state === 'running' ? 'Running' : state === 'completed' ? 'Completed' : state === 'cancelled' ? 'Cancelled' : 'Idle'}</span></div><div><div className="flex justify-between text-sm"><span>{state === 'running' ? 'Running benchmark suite…' : 'Ready to test selected local models'}</span><span className="font-mono text-xs">{progress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-[#E5E0D9]"><div className="h-full rounded-full bg-[#A89C8C] transition-all" style={{ width: `${progress}%` }}/></div></div><div className="overflow-hidden rounded-xl border border-[#E5E0D9]"><div className="flex items-center justify-between border-b border-[#E5E0D9] px-3 py-2 text-xs font-medium">Live Console <button className="text-[#68635D]" onClick={() => setLogs([])}>Clear</button></div><pre className="m-0 min-h-48 max-h-64 overflow-auto bg-[#F7F4EF] p-3 font-mono text-[11px] leading-6 text-[#68635D]">{logs.length ? logs.join('\n') : 'No run yet. Console output will appear here.'}</pre></div><div className="flex gap-2">{state === 'running' ? <button className="sori-tactile-btn flex-1 rounded-xl py-2.5 text-sm" onClick={cancel}><Square className="mr-1 inline h-4 w-4"/>Cancel Run</button> : <button className="sori-tactile-btn flex-1 rounded-xl py-2.5 text-sm" onClick={run}><Play className="mr-1 inline h-4 w-4"/>Run Benchmark Suite</button>}</div><p className="text-center text-xs text-[#98928A]">Real hardware benchmark IPC is not exposed; this run is an honest UI rehearsal and does not invent metrics.</p></section><section className="sori-pane space-y-4 p-5"><div className="flex items-center justify-between border-b border-[#E5E0D9] pb-3"><div><h2 className="sori-section-heading">Benchmark results matrix</h2><p className="sori-meta-text">Persisted fixture results · no new metrics claimed</p></div><button className="sori-tactile-btn rounded-lg px-3 py-2 text-xs" onClick={exportResults}><Download className="mr-1 inline h-4 w-4"/>Export</button></div><div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs"><thead className="text-[#98928A]"><tr><th className="py-2">Model</th><th>Cold start</th><th>RAM</th><th>WER</th><th>p50 latency</th></tr></thead><tbody>{benchmarkResults.map((result) => <tr key={result.modelId} className="border-t border-[#E5E0D9]"><td className="py-3 font-medium">{result.modelName}<div className="sori-meta-text">{result.isRecommended ? <span className="text-[#4E7A61"><Check className="mr-1 inline h-3 w-3"/>Recommended</span> : 'Fixture result'}</div></td><td className="font-mono">{(result.coldStartMs / 1000).toFixed(2)}s</td><td className="font-mono">{result.ramMb}MB</td><td className="font-mono">{result.werPercent}%</td><td className="font-mono">{result.warmLatencyMs}ms</td></tr>)}</tbody></table></div><div className="flex flex-wrap gap-2"><button className="sori-tactile-btn rounded-lg px-3 py-2 text-xs" onClick={onApplyPolicy}>Apply recommended route</button><button className="rounded-lg border border-[#E5E0D9] px-3 py-2 text-xs" onClick={() => alert('Compare is Unavailable until benchmark runs can be persisted.')}>Compare models</button></div></section></div></div>;
+
+  const run = () => {
+    if (state === 'running') return;
+    setState('running');
+    setProgress(0);
+    setLogs(['Preparing benchmark environment…']);
+    timer.current = window.setInterval(() => {
+      setProgress((value) => {
+        const next = Math.min(value + 20, 100);
+        setLogs((old) => [...old, `[${(next / 20).toFixed(1)}s] ${next < 100 ? 'Running model measurement…' : 'Suite complete.'}`]);
+        if (next >= 100) {
+          if (timer.current) window.clearInterval(timer.current);
+          setState('completed');
+        }
+        return next;
+      });
+    }, 450);
+  };
+
+  const cancel = () => {
+    if (timer.current) window.clearInterval(timer.current);
+    setState('cancelled');
+    setLogs((old) => [...old, 'Run cancelled by user. No partial result was saved.']);
+  };
+
+  const exportResults = () => {
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), results: benchmarkResults }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'sori-benchmark-results.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const stateLabel = state === 'running' ? 'Running' : state === 'completed' ? 'Completed' : state === 'cancelled' ? 'Cancelled' : 'Idle';
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
+      <header><h1 className="sori-page-heading">Auto Benchmark Engine</h1><p className="sori-body-text mt-1">Measure speech model performance on the current machine.</p></header>
+      <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+        <section className="sori-pane space-y-5 p-5">
+          <div className="flex items-center justify-between border-b border-[#E5E0D9] pb-3"><h2 className="sori-section-heading">Benchmark test execution</h2><span className="rounded-full bg-[#F2EEE8] px-2.5 py-1 text-xs">{stateLabel}</span></div>
+          <div><div className="flex justify-between text-sm"><span>{state === 'running' ? 'Running benchmark suite…' : 'Ready to test selected local models'}</span><span className="font-mono text-xs">{progress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-[#E5E0D9]"><div className="h-full rounded-full bg-[#A89C8C] transition-all" style={{ width: `${progress}%` }} /></div></div>
+          <div className="overflow-hidden rounded-xl border border-[#E5E0D9]"><div className="flex items-center justify-between border-b border-[#E5E0D9] px-3 py-2 text-xs font-medium">Live Console <button className="text-[#68635D]" onClick={() => setLogs([])}>Clear</button></div><pre className="m-0 min-h-48 max-h-64 overflow-auto bg-[#F7F4EF] p-3 font-mono text-[11px] leading-6 text-[#68635D]">{logs.length ? logs.join('\n') : 'No run yet. Console output will appear here.'}</pre></div>
+          <div className="flex gap-2">{state === 'running' ? <button className="sori-tactile-btn flex-1 rounded-xl py-2.5 text-sm" onClick={cancel}><Square className="mr-1 inline h-4 w-4" />Cancel Run</button> : <button className="sori-tactile-btn flex-1 rounded-xl py-2.5 text-sm" onClick={run}><Play className="mr-1 inline h-4 w-4" />Run Benchmark Suite</button>}</div>
+          <p className="text-center text-xs text-[#98928A]">Real hardware benchmark IPC is not exposed; this run is an honest UI rehearsal and does not invent metrics.</p>
+        </section>
+        <section className="sori-pane space-y-4 p-5">
+          <div className="flex items-center justify-between border-b border-[#E5E0D9] pb-3"><div><h2 className="sori-section-heading">Benchmark results matrix</h2><p className="sori-meta-text">Persisted fixture results · no new metrics claimed</p></div><button className="sori-tactile-btn rounded-lg px-3 py-2 text-xs" onClick={exportResults}><Download className="mr-1 inline h-4 w-4" />Export</button></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs"><thead className="text-[#98928A]"><tr><th className="py-2">Model</th><th>Cold start</th><th>RAM</th><th>WER</th><th>p50 latency</th></tr></thead><tbody>{benchmarkResults.map((result) => <tr key={result.modelId} className="border-t border-[#E5E0D9]"><td className="py-3 font-medium">{result.modelName}<div className="sori-meta-text">{result.isRecommended ? <span className="text-[#4E7A61]"><Check className="mr-1 inline h-3 w-3" />Recommended</span> : 'Fixture result'}</div></td><td className="font-mono">{result.coldStartMs === null ? '—' : `${(result.coldStartMs / 1000).toFixed(2)}s`}</td><td className="font-mono">{result.ramMb === null ? '—' : `${result.ramMb}MB`}</td><td className="font-mono">{result.werPercent === null ? '—' : `${result.werPercent}%`}</td><td className="font-mono">{result.warmLatencyMs === null ? '—' : `${result.warmLatencyMs}ms`}</td></tr>)}</tbody></table></div>
+          <div className="flex flex-wrap gap-2"><button className="sori-tactile-btn rounded-lg px-3 py-2 text-xs" onClick={onApplyPolicy}>Apply recommended route</button><button className="rounded-lg border border-[#E5E0D9] px-3 py-2 text-xs" onClick={() => alert('Compare is Unavailable until benchmark runs can be persisted.')}>Compare models</button></div>
+        </section>
+      </div>
+    </div>
+  );
 };

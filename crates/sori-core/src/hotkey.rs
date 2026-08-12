@@ -421,6 +421,28 @@ mod tests {
         assert_eq!(backend.registration().unregister_calls, 1);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_backend_translates_registered_message_and_release() {
+        let registration = FakeHotkeyRegistration::default();
+        let mut backend =
+            WindowsHotkeyBackend::with_registration(HotkeyCombination::new(1, 0x20), registration);
+        backend.start().unwrap();
+        assert_eq!(
+            backend.handle_message(
+                windows_sys::Win32::UI::WindowsAndMessaging::WM_HOTKEY,
+                0x534f,
+                0
+            ),
+            Ok(Some(HotkeyEvent::Pressed))
+        );
+        assert_eq!(
+            backend.handle_input(HotkeyInput::Released),
+            Ok(Some(HotkeyEvent::Released))
+        );
+        backend.stop().unwrap();
+    }
+
     #[test]
     fn fake_backend_preserves_registration_conflicts() {
         let registration = FakeHotkeyRegistration {

@@ -1,7 +1,7 @@
 # Windows hotkey and overlay trigger
 
-The core scaffold in `sori-core::hotkey` separates native registration from the
-hold-to-talk state machine:
+The daemon's Windows listener in `sorid::hotkey` uses the authoritative
+`sori-core::hotkey` registration and hold-to-talk state machine:
 
 - `HotkeyBackend` owns platform registration lifecycle.
 - `HotkeyStateMachine` converts native pressed/released/cancelled notifications
@@ -10,8 +10,8 @@ hold-to-talk state machine:
 - Repeated press notifications and stale release/cancel notifications are
   ignored. Cancellation always returns a held session to `Idle`.
 - `WindowsHotkeyBackend` owns a safe `RegisterHotKey`/`UnregisterHotKey`
-  boundary. A host message loop forwards `WM_HOTKEY` to the backend and reports
-  release/cancel inputs from its key-state or shutdown handling.
+  boundary. `sorid` runs its message pump on a worker thread, translates
+  `WM_HOTKEY`, polls key state for release, and unregisters during shutdown.
 - `FakeHotkeyBackend` and `FakeHotkeyRegistration` provide deterministic tests
   without OS hooks. Non-Windows builds use `UnsupportedHotkeyBackend`.
 
@@ -27,5 +27,6 @@ hold-to-talk state machine:
    no duplicate press and release produces one event.
 4. On focus loss or shutdown, forward `Cancelled`, then call `stop`; verify a
    later notification is ignored and the registration is released.
-5. Connect the overlay to the hotkey events; UI polish is intentionally out of
-   scope for this scaffold.
+5. The daemon Doctor response reports registration, conflict, unsupported, and
+   other native failures explicitly. A successful registration is not physical
+   key proof; verify the key on a real Windows desktop separately.

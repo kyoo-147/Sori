@@ -22,3 +22,14 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Sori desktop");
 }
+
+#[cfg(test)]
+mod titlebar_tests {
+    use serde_json::Value;
+
+    #[test]
+    fn native_decorations_are_disabled_for_the_custom_titlebar() {
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(config["app"]["windows"][0]["decorations"], false);
+    }
+}

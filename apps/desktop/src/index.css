@@ -16,6 +16,7 @@
   body,
   #root {
     min-width: 320px;
+    height: 100%;
     min-height: 100%;
     margin: 0;
   }
@@ -70,6 +71,7 @@
 .sori-shell {
   --sori-sidebar-width: 248px;
   display: flex;
+  height: 100%;
   min-height: 100dvh;
   flex-direction: column;
   overflow: hidden;
@@ -79,6 +81,9 @@
 }
 
 .sori-shell__titlebar {
+  position: relative;
+  z-index: 50;
+  min-width: 0;
   min-height: var(--sori-titlebar-height);
   flex: 0 0 var(--sori-titlebar-height);
   border-bottom: 1px solid var(--sori-border-default);
@@ -95,6 +100,10 @@
 }
 
 .sori-shell__sidebar {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
   width: var(--sori-sidebar-width);
   min-width: 0;
   min-height: 0;
@@ -103,6 +112,17 @@
   color: var(--sori-text-primary);
   transition: transform var(--sori-motion-layout) ease, box-shadow var(--sori-motion-layout) ease;
   z-index: 40;
+}
+
+.sori-shell__sidebar-nav {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.sori-shell__sidebar-footer {
+  flex: 0 0 auto;
 }
 
 .sori-shell__workspace {
@@ -342,12 +362,14 @@
 @media (max-width: 767px) {
   .sori-shell__body {
     display: block;
-    overflow: auto;
+    height: 100%;
+    overflow: hidden;
   }
 
   .sori-shell__sidebar {
     position: fixed;
     inset: var(--sori-titlebar-height) auto 0 0;
+    height: auto;
     width: min(var(--sori-sidebar-width), 86vw);
     box-shadow: var(--sori-shadow-lg);
     transform: translateX(-104%);
@@ -358,6 +380,8 @@
   }
 
   .sori-shell__workspace {
+    height: 100%;
+    max-height: 100%;
     min-height: calc(100dvh - var(--sori-titlebar-height));
     padding: var(--sori-space-4);
   }

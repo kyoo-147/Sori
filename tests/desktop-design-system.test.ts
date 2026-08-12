@@ -60,6 +60,13 @@ describe('desktop visual architecture contracts', () => {
     expect(app).toContain('className="sori-shell__workspace');
     expect(sidebar).toContain('className={`${isOpen ? \'flex\' : \'hidden\'} sori-shell__sidebar');
     expect(sidebar).toContain('data-open={isOpen}');
+    expect(sidebar).toContain('sori-shell__sidebar-nav');
+    expect(sidebar).toContain('sori-shell__sidebar-footer');
+    expect(css).toContain('.sori-shell__sidebar-nav');
+    expect(css).toContain('overflow-y: auto;');
+    expect(css).toContain('.sori-shell__sidebar-footer');
+    expect(css).toContain('overflow: hidden;');
+    expect(css).toContain('height: 100%;');
   });
 
   it('covers keyboard, hover, disabled, pressed, and error states', () => {

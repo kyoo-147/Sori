@@ -71,6 +71,8 @@ public static class ${className} {
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -113,7 +115,22 @@ $h = $p.MainWindowHandle
 if ($h -eq [IntPtr]::Zero) { throw "process ${pid} has no main window" }
 [SoriNativeFocus]::ShowWindow($h, 9) | Out-Null
 [SoriNativeFocus]::BringWindowToTop($h) | Out-Null
+[uint32]$targetThread = 0
+[SoriNativeFocus]::GetWindowThreadProcessId($h, [ref]$targetThread) | Out-Null
+$foreground = [SoriNativeFocus]::GetForegroundWindow()
+[uint32]$foregroundThread = 0
+if ($foreground -ne [IntPtr]::Zero) {
+  [SoriNativeFocus]::GetWindowThreadProcessId($foreground, [ref]$foregroundThread) | Out-Null
+}
+$attached = $false
+if ($foregroundThread -ne 0 -and $foregroundThread -ne $targetThread) {
+  $attached = [SoriNativeFocus]::AttachThreadInput($foregroundThread, $targetThread, $true)
+}
 [SoriNativeFocus]::SetForegroundWindow($h) | Out-Null
+[SoriNativeFocus]::BringWindowToTop($h) | Out-Null
+if ($attached) {
+  [SoriNativeFocus]::AttachThreadInput($foregroundThread, $targetThread, $false) | Out-Null
+}
 Start-Sleep -Milliseconds 150
 $foreground = [SoriNativeFocus]::GetForegroundWindow()
 [uint32]$foregroundPid = 0

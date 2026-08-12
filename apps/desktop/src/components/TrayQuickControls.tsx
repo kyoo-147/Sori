@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppSettings, OverlayStyle } from '../types';
+import { AppSettings } from '../types';
 import type { DaemonStatus, RuntimeSource } from '../runtime-client';
 import {
   X,
@@ -40,7 +40,6 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
 
   const profiles: AppSettings['activeProfile'][] = ['Coding', 'Writing', 'Vietnamese', 'General'];
   const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
-  const overlayStyles: OverlayStyle[] = ['dot', 'pill', 'wave', 'orb', 'monochrome'];
 
   return (
     <div id="tray-quick-controls" role="dialog" aria-label="Sori quick controls" className="fixed top-14 right-2 sm:right-6 z-40 w-[calc(100vw-1rem)] max-w-80 sori-floating p-5 shadow-xl text-[#1C1B19] animate-in fade-in zoom-in-95 duration-200 border border-[rgba(255,255,255,0.7)]">
@@ -102,28 +101,6 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
             >
               <span>{prof}</span>
               {settings.activeProfile === prof && <Check className="w-3 h-3 text-[#1C1B19]" />}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Overlay Style Selector */}
-      <div className="py-3 border-b border-[rgba(92,84,75,0.08)] space-y-2">
-        <label className="text-xs text-[#98928A] font-medium">Overlay Widget Style</label>
-        <div className="flex flex-wrap gap-1">
-          {overlayStyles.map((style) => (
-            <button
-              type="button"
-              key={style}
-              aria-pressed={settings.overlayStyle === style}
-              onClick={() => setSettings((prev) => ({ ...prev, overlayStyle: style }))}
-              className={`px-2.5 py-1 rounded-[8px] text-xs capitalize transition-all ${
-                settings.overlayStyle === style
-                  ? 'bg-[rgba(221,217,211,0.46)] text-[#1C1B19] border border-[rgba(91,84,77,0.15)] font-semibold'
-                  : 'sori-tactile-btn'
-              }`}
-            >
-              {style}
             </button>
           ))}
         </div>

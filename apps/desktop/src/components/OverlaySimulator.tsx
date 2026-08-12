@@ -11,7 +11,6 @@ interface OverlaySimulatorProps {
   activeModel: string;
   errorMessage?: string | null;
   onCloseError?: () => void;
-  onStyleChange?: (style: OverlayStyle) => void;
   editDiff?: { original: string; replacement: string } | null;
 }
 
@@ -23,7 +22,6 @@ export const OverlaySimulator: React.FC<OverlaySimulatorProps> = ({
   activeModel,
   errorMessage,
   onCloseError,
-  onStyleChange,
   editDiff,
 }) => {
   const waveHeights = [20, 45, 80, 50, 30, 65, 90, 40, 25];
@@ -76,25 +74,6 @@ export const OverlaySimulator: React.FC<OverlaySimulatorProps> = ({
         /* Standard Overlay Widget based on style choice */
         <div className="flex flex-col items-end gap-2">
           {/* Overlay Style Selector Pills (mini) */}
-          {onStyleChange && (
-            <div className="flex items-center gap-1 sori-glass px-3 py-1 rounded-full text-[10px] text-[#68635D] shadow-2xs">
-              <span className="text-[#98928A] mr-1">Style:</span>
-              {(['dot', 'pill', 'wave', 'orb', 'monochrome'] as OverlayStyle[]).map((style) => (
-                <button
-                  type="button"
-                  key={style}
-                  aria-pressed={overlayStyle === style}
-                  onClick={() => onStyleChange(style)}
-                  className={`px-2 py-0.5 rounded-full capitalize transition-all ${
-                    overlayStyle === style ? 'bg-[rgba(255,254,251,0.9)] text-[#1C1B19] font-semibold border border-white/80' : 'hover:text-[#1C1B19]'
-                  }`}
-                >
-                  {style}
-                </button>
-              ))}
-            </div>
-          )}
-
           {/* DOT STYLE */}
           {overlayStyle === 'dot' && (
             <div

@@ -70,6 +70,8 @@
  * ---------------------------------------------------------------------- */
 .sori-shell {
   --sori-sidebar-width: 248px;
+  --sori-window-line: rgba(70, 62, 55, 0.12);
+  --sori-window-line-soft: rgba(70, 62, 55, 0.07);
   display: flex;
   height: 100%;
   min-height: 100dvh;
@@ -86,20 +88,22 @@
   min-width: 0;
   min-height: var(--sori-titlebar-height);
   flex: 0 0 var(--sori-titlebar-height);
-  border-bottom: 1px solid var(--sori-border-default);
-  background: color-mix(in srgb, var(--sori-bg-app) 92%, transparent);
-  box-shadow: var(--sori-shadow-xs);
+  border-bottom: 0;
+  background: linear-gradient(to right, var(--sori-bg-sidebar) 0, var(--sori-bg-sidebar) var(--sori-sidebar-width), var(--sori-bg-app) var(--sori-sidebar-width), var(--sori-bg-app) 100%);
 }
 
 .sori-shell__titlebar {
-  height: 52px;
-  flex-basis: 52px;
+  height: var(--sori-titlebar-height);
+  flex-basis: var(--sori-titlebar-height);
 }
 
 .sori-titlebar {
-  min-height: 52px;
-  height: 52px;
-  padding-inline: 12px;
+  min-height: var(--sori-titlebar-height);
+  height: var(--sori-titlebar-height);
+  padding-inline: 12px 0;
+  border-bottom: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 .sori-shell__body {
@@ -119,8 +123,8 @@
   width: var(--sori-sidebar-width);
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid var(--sori-border-default);
-  background: color-mix(in srgb, var(--sori-bg-sidebar) 94%, transparent);
+  border-right: 0;
+  background: var(--sori-bg-sidebar);
   color: var(--sori-text-primary);
   transition: transform var(--sori-motion-layout) ease, box-shadow var(--sori-motion-layout) ease;
   z-index: 40;
@@ -148,41 +152,44 @@
   position: relative;
   z-index: 1;
   margin-top: -1px;
-  border-top: 1px solid var(--sori-border-default);
-  border-left: 1px solid var(--sori-border-default);
-  border-top-left-radius: 18px;
+  margin-left: -1px;
+  border-top: 1px solid var(--sori-window-line);
+  border-left: 1px solid var(--sori-window-line);
+  border-top-left-radius: 16px;
+  background: var(--sori-bg-app);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.42);
   overflow: auto;
 }
 
 .sori-window-controls {
-  gap: 2px;
-  margin-left: 8px;
-  padding: 4px;
-  border: 1px solid color-mix(in srgb, var(--sori-border-default) 82%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--sori-bg-elevated) 76%, transparent);
+  gap: 0;
+  margin-left: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .sori-window-control {
   display: inline-flex;
-  width: 36px;
-  height: 32px;
+  width: 46px;
+  height: var(--sori-titlebar-height);
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
   color: var(--sori-text-secondary);
   transition: background-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease;
 }
 
 .sori-window-control:hover {
-  background: var(--sori-fill-hover);
+  background: rgba(70, 62, 55, 0.08);
   color: var(--sori-text-primary);
 }
 
 .sori-window-control-close:hover {
-  background: #a75850;
+  background: #c94f4f;
   color: #fff;
 }
 
@@ -358,7 +365,7 @@
 
 .sori-sidebar-panel {
   background: color-mix(in srgb, var(--sori-bg-sidebar) 94%, transparent);
-  border-right: 1px solid var(--sori-border-default);
+  border-right: 0;
 }
 
 .sori-overlay {
@@ -456,4 +463,43 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+.sori-titlebar__center-actions > button,
+.sori-titlebar__center-actions > div {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sori-titlebar__center-actions > button:hover:not(:disabled),
+.sori-titlebar__center-actions > div:hover {
+  border-color: var(--sori-window-line-soft);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+@media (min-width: 768px) {
+  .sori-shell__sidebar {
+    z-index: 1;
+  }
+
+  .sori-shell__workspace {
+    z-index: 2;
+  }
+}
+
+/* The navigation rail is one continuous material with the left titlebar. */
+.sori-shell__sidebar .border-t {
+  border-top-color: transparent !important;
+}
+
+.sori-shell__sidebar button[aria-current='page'] {
+  border-color: transparent;
+  background: rgba(214, 209, 201, 0.34);
+  box-shadow: none;
+}
+
+/* The content pane owns the only shell seam; keep it quiet and local. */
+.sori-shell__workspace {
+  border-color: rgba(70, 62, 55, 0.12);
 }

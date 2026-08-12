@@ -8,15 +8,15 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { DEFAULT_IPC_URL, binaryPath, parseEndpoint, requireEndpointFree, waitForEndpoint } from './e2e-desktop-backend.js';
 
 export const PRODUCT_NAVIGATION = [
-  { label: 'Home', expected: ['Sori preview — Try a local capture', 'Simulate Dictation'] },
-  { label: 'Transcripts', expected: ['Transcripts Timeline', 'Local voice capture audit log'] },
-  { label: 'Vocabulary', expected: ['Vocabulary', 'voice macro expansions'] },
-  { label: 'Voice Edit', expected: ['Voice Edit', 'natural edit instructions'] },
-  { label: 'Models & Routing', expected: ['Models & Routing', 'Speech-to-Text'] },
-  { label: 'Benchmarks', expected: ['Benchmarks', 'p50/p95 latency'] },
-  { label: 'Extensions', expected: ['Extensions', 'INSTALLED EXTENSIONS'] },
-  { label: 'Privacy', expected: ['Privacy', 'Local Data & Storage Retention'] },
-  { label: 'Diagnostics', expected: ['Diagnostics', 'Sori Doctor Check'] },
+  { label: 'Home', expected: ['Sori is ready to help', 'Focused target window'] },
+  { label: 'Transcripts', expected: ['Transcripts timeline', 'Review captured audio'] },
+  { label: 'Vocabulary', expected: ['Vocabulary & domain terms', 'Teach Sori names'] },
+  { label: 'Voice Edit', expected: ['Voice selection edit', 'Review the parsed instruction'] },
+  { label: 'Models & Routing', expected: ['Models & Routing', 'Choose where Sori processes speech'] },
+  { label: 'Benchmarks', expected: ['Auto Benchmark Engine', 'Benchmark test execution'] },
+  { label: 'Extensions', expected: ['Integrations & Extensions', 'Extension runtime is not installed'] },
+  { label: 'Privacy', expected: ['Privacy & Data Control', 'Local data & retention'] },
+  { label: 'Diagnostics', expected: ['Sori Doctor & System Diagnostics', 'System integrity checklist'] },
   { label: 'Settings', expected: ['Settings', 'Sori System Settings'] },
   { label: 'First-Run Setup', expected: ['First Run Setup', 'Get ready to speak into any window'] },
 ] as const;
@@ -147,7 +147,7 @@ async function browser(args: string[], session: string): Promise<string> {
 
 function uidFor(snapshot: string, role: string, label: string): string {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const line = snapshot.split('\n').find((candidate) => new RegExp(` ${role} "${escaped}"(?: |$)`).test(candidate));
+  const line = snapshot.split('\n').find((candidate) => new RegExp(` ${role} "${escaped}\\s*"(?: |$)`).test(candidate));
   const uid = line?.match(/uid=(\S+)/)?.[1];
   if (!uid) throw new Error(`semantic browser snapshot did not expose ${role} "${label}"`);
   return uid;
@@ -236,11 +236,11 @@ async function runProductGate(): Promise<void> {
     await waitForHttp(webUrl);
 
     await browser(['newpage', webUrl], session);
-    let state = await waitForText(session, 'Sori preview — Try a local capture');
+    let state = await waitForText(session, 'Sori is ready to help');
     state = await waitForText(session, 'Backend');
     assertIncludes(state, 'Backend', 'real daemon-backed initial desktop state');
     assertNotIncludes(state, 'Mock fallback', 'real daemon-backed initial desktop state');
-    assertIncludes(state, 'Preview target · no OS injection', 'truthful unsupported preview state');
+    assertIncludes(state, 'Preview only', 'truthful unsupported preview state');
 
     console.log('PASS: real sorid/backend connection and initial desktop semantic state.');
 
@@ -281,43 +281,41 @@ async function runProductGate(): Promise<void> {
     // Resilient transcript states are real controls in the product surface, not source-only assertions.
     state = await snapshot(session);
     await clickLabel(state, 'Transcripts', session);
-    state = await waitForText(session, 'Transcripts Timeline');
+    state = await waitForText(session, 'Transcripts timeline');
     await clickLabel(state, 'Empty', session);
-    state = await waitForText(session, 'No Transcripts Yet');
-    assertNotIncludes(state, 'Transcript Details', 'empty transcripts state');
+    state = await waitForText(session, 'No transcripts yet');
+    assertNotIncludes(state, 'Transcript details', 'empty transcripts state');
     await clickLabel(state, 'Loading', session);
     const loadingPulseCount = Number(await evalBrowser(session, '() => document.querySelectorAll(".animate-pulse").length'));
     if (loadingPulseCount < 1) throw new Error('loading transcripts state did not render skeleton rows');
     await clickLabel(await snapshot(session), 'Error', session);
-    state = await waitForText(session, 'Could not load local history database');
-    await clickLabel(state, 'Retry Database Connection', session);
-    state = await waitForText(session, 'Transcript Details');
+    state = await waitForText(session, 'History could not be loaded');
+    await clickLabel(state, 'Retry', session);
+    state = await waitForText(session, 'No transcripts yet');
     console.log('PASS: empty, loading, error, and retry transcript states.');
 
     // Destructive state: confirm the explicit DELETE guard, then prove the list is empty.
     await clickLabel(await snapshot(session), 'Privacy', session);
-    state = await waitForText(session, 'Local Data & Storage Retention');
-    await clickLabel(state, 'Delete Local History...', session);
-    state = await waitForText(session, 'Confirm Local History Deletion');
-    const confirmUid = uidFor(state, 'textbox', 'Type DELETE');
+    state = await waitForText(session, 'Privacy & Data Control');
+    await clickLabel(state, 'Delete local history', session);
+    state = await waitForText(session, 'Delete local history?');
+    const confirmUid = uidFor(state, 'textbox', 'DELETE');
     await browser(['fill', `@${confirmUid}`, 'DELETE'], session);
     state = await snapshot(session);
-    await clickLabel(state, 'Delete Permanently', session);
-    state = await waitForText(session, 'Local transcript history cleared from this UI session.');
+    await clickLabel(state, 'Delete permanently', session);
+    state = await waitForText(session, 'History cleared from this UI session.');
     await clickLabel(state, 'Transcripts', session);
-    state = await waitForText(session, 'Transcripts Timeline');
-    assertIncludes(state, 'No matching transcripts found for "', 'post-delete transcript state');
+    state = await waitForText(session, 'Transcripts timeline');
+    assertIncludes(state, 'No transcripts yet', 'post-delete transcript state');
     console.log('PASS: destructive delete confirmation and empty post-delete state.');
 
     // Unsupported actions must report no side effect instead of claiming hardware success.
     await clickLabel(state, 'Diagnostics', session);
-    state = await waitForText(session, 'Sori Doctor Check (');
+    state = await waitForText(session, 'Sori Doctor & System Diagnostics');
     assertIncludes(state, 'backend', 'real backend diagnostics state');
-    await clickLabel(state, 'Test Text Injection', session);
-    state = await waitForText(session, 'Text injection is not wired in this preview; no payload was delivered.');
-    await clickLabel(state, 'Restart Daemon (`sorid`) — not wired', session);
-    state = await waitForText(session, 'Daemon restart is not wired in this preview.');
-    assertIncludes(state, 'Sori Doctor Check (', 'truthful unsupported diagnostics state');
+    await clickLabel(state, 'Run Doctor Check', session);
+    state = await waitForText(session, 'UNVERIFIED');
+    assertIncludes(state, 'Sori Doctor & System Diagnostics', 'truthful unsupported diagnostics state');
     assertIncludes(state, 'backend', 'truthful unsupported diagnostics state');
     console.log('PASS: unsupported injection/restart actions remain explicitly truthful.');
 

@@ -1,159 +1,18 @@
 import React, { useState } from 'react';
 import { AppSettings } from '../../types';
-import {
-  FileCode2,
-  Mic,
-  CheckCircle2,
-  Sparkles,
-  ArrowRight,
-  GitCommit,
-  Check,
-  X,
-  RotateCcw,
-  Play,
-} from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronRight, Eye, FileCode2, LoaderCircle, Play, RotateCcw, Sparkles, X } from 'lucide-react';
 
-interface VoiceEditScreenProps {
-  settings: AppSettings;
-}
+interface VoiceEditScreenProps { settings: AppSettings; runtimeSource?: 'native' | 'backend' | 'mock' | 'unavailable'; }
+type EditState = 'selection' | 'processing' | 'diff' | 'low-confidence' | 'no-selection' | 'blocked' | 'error' | 'applied';
+const prompts = ['Add error handling and preserve the return type.', 'Rename this function and update its callers.', 'Convert this block to async and add a docstring.'];
 
-export const VoiceEditScreen: React.FC<VoiceEditScreenProps> = ({ settings }) => {
-  const [prompt, setPrompt] = useState<string>('Add an Esc shortcut to exit voice mode.');
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [applied, setApplied] = useState<boolean>(false);
-
-  const handleApply = () => {
-    setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
-      setApplied(true);
-    }, 600);
-  };
-
-  return (
-    <div className="space-y-6 max-w-6xl mx-auto p-4 md:p-6 text-[#161616]">
-      {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E4E8] pb-3">
-        <div>
-          <h1 className="sori-page-heading">Voice Edit</h1>
-          <p className="sori-body-text mt-0.5">
-            Select code or text in any focused window, hold hotkey, and speak natural edit instructions.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {applied && (
-            <button
-              onClick={() => setApplied(false)}
-              className="px-3.5 py-1.5 rounded-[10px] bg-white hover:bg-[#F0F1F2] text-[#2B2F33] text-xs font-medium border border-[#E2E4E8] transition flex items-center gap-1.5"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-[#5C728A]" />
-              <span>Undo Last Edit</span>
-            </button>
-          )}
-          <button
-            onClick={handleApply}
-            className="px-4 py-2 rounded-[10px] bg-[#EEF2F6] hover:bg-[#E1E8F0] text-[#24384C] border border-[#D5E0EA] text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5 text-[#1F6B43]" />
-            <span>Accept & Inject Edit</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Main 2-Column Split */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Left Column: Voice Instruction & Context */}
-        <div className="bg-white border border-[#E2E4E8] rounded-[18px] p-5 shadow-2xs space-y-5 flex flex-col justify-between">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between text-xs text-[#858A90] font-mono">
-              <span className="font-semibold text-[#161616]">Active Target: VS Code</span>
-              <span className="text-[#1F6B43] font-semibold">Selection Detected (3 lines)</span>
-            </div>
-
-            {/* Instruction Bubble */}
-            <div className="bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] p-4 text-xs font-semibold text-[#161616] leading-relaxed">
-              "{prompt}"
-            </div>
-
-            <div className="text-xs text-[#5F6368] space-y-2 leading-relaxed">
-              <p>
-                Parsed intent: Add <code className="px-1.5 py-0.5 bg-[#EEF2F6] border border-[#D5E0EA] rounded text-[#161616] font-mono text-[11px]">Esc</code> shortcut to exit voice mode in <span className="font-mono text-[#161616]">shortcuts.ts</span>.
-              </p>
-              <div className="text-[11px] text-[#858A90] font-mono flex items-center gap-3">
-                <span>Latency: <strong className="text-[#1F6B43]">74ms</strong></span>
-                <span>•</span>
-                <span>Model: <strong className="text-[#161616]">Whisper Q5</strong></span>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Trigger Presets */}
-          <div className="pt-3 border-t border-[#E2E4E8] space-y-2">
-            <div className="text-xs font-semibold text-[#161616] flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-[#5C728A]" />
-              <span>Test Voice Transformations:</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5 text-xs">
-              {[
-                'Add Esc shortcut to exit voice mode.',
-                'Refactor this function to return Result<T, Error>.',
-                'Convert snake_case to camelCase and add docstring.',
-              ].map((p, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    setPrompt(p);
-                    setApplied(false);
-                  }}
-                  className="px-3 py-1.5 rounded-[10px] bg-[#F8F8F7] border border-[#E2E4E8] hover:border-[#BAC7D8] hover:bg-white text-[#2B2F33] text-xs transition font-medium text-left"
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Code Diff Panel */}
-        <div className="bg-white border border-[#E2E4E8] rounded-[18px] p-5 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between text-xs pb-2 border-b border-[#E2E4E8] font-mono">
-            <span className="font-semibold text-[#161616]">1 file changed <span className="text-[#1F6B43]">+1</span> <span className="text-[#A33A3A]">-0</span></span>
-            <span className="text-[#858A90]">Diff Preview</span>
-          </div>
-
-          {/* File Diff View */}
-          <div className="border border-[#E2E4E8] rounded-[12px] overflow-hidden font-mono text-xs bg-[#F8F8F7]">
-            <div className="bg-[#EEF2F6] px-3 py-2 border-b border-[#D5E0EA] text-[#24384C] text-[11px] flex justify-between font-semibold">
-              <span>src/voice/shortcuts.ts</span>
-              <span className="text-[#1F6B43]">+1 -0</span>
-            </div>
-
-            <div className="p-3 space-y-1 text-[#161616] leading-relaxed overflow-x-auto text-[12px]">
-              <div><span className="text-[#A33A3A] font-semibold">export const</span> shortcuts = [</div>
-              <div className="pl-4 text-[#5F6368]">{`{ key: "Space", action: "toggle" },`}</div>
-              {/* Added Line */}
-              <div className="bg-[#EAF6EE] text-[#1F6B43] font-semibold px-2 py-0.5 rounded border border-[#CBE5D4] flex items-center">
-                <span className="w-4 select-none mr-1">+</span>
-                <span>{`{ key: "Esc", action: "exit" },`}</span>
-              </div>
-              <div>];</div>
-              <br />
-              <div><span className="text-[#A33A3A] font-semibold">export function</span> formatShortcut(key: string) {'{'}</div>
-              <div className="pl-4">return key.<span className="font-bold text-[#161616]">toUpperCase</span>();</div>
-              <div>{'}'}</div>
-            </div>
-          </div>
-
-          {applied && (
-            <div className="p-3 bg-[#EAF6EE] border border-[#CBE5D4] rounded-[12px] text-xs text-[#1F6B43] font-semibold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-[#1F6B43]" />
-              <span>Voice edit cleanly injected into focused window!</span>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+export const VoiceEditScreen: React.FC<VoiceEditScreenProps> = ({ settings, runtimeSource = 'unavailable' }) => {
+  const [instruction, setInstruction] = useState(prompts[0]); const [state, setState] = useState<EditState>('diff'); const connected = runtimeSource === 'native' || runtimeSource === 'backend';
+  const canInject = connected && state === 'diff';
+  const runPreview = () => { setState('processing'); window.setTimeout(() => setState('diff'), 450); };
+  const accept = () => { if (!connected) { setState('blocked'); return; } setState('applied'); };
+  return <div className="mx-auto max-w-[1180px] space-y-6 p-1 text-[#1C1B19] sm:p-2 md:p-4"><header className="flex flex-wrap items-end justify-between gap-4"><div><p className="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-[#98928A]">Review before action</p><h1 className="sori-page-heading">Voice selection edit</h1><p className="sori-body-text mt-1">Review the parsed instruction and diff before anything touches the focused application.</p></div><div className="flex gap-2"><button type="button" onClick={runPreview} disabled={state === 'processing'} className="sori-tactile-btn rounded-[10px] px-3 py-2 text-xs"><Eye className="mr-1.5 inline h-3.5 w-3.5" />Preview in editor</button><button type="button" onClick={accept} disabled={state === 'processing' || state === 'applied'} className={`rounded-[10px] px-4 py-2 text-xs font-medium ${canInject ? 'bg-[#1C1B19] text-[#FFFDF9]' : 'sori-tactile-btn'}`}><Check className="mr-1.5 inline h-3.5 w-3.5" />Accept & inject</button></div></header>
+    <div className="grid gap-5 lg:grid-cols-[minmax(340px,0.85fr)_minmax(0,1.35fr)]"><section className="rounded-[18px] border border-[rgba(92,84,75,0.13)] bg-[#FBF9F6] p-5 shadow-[0_4px_18px_rgba(92,84,75,0.05)]"><div className="flex items-center justify-between border-b border-[rgba(92,84,75,0.08)] pb-4"><h2 className="sori-section-heading">Intent</h2><span className={`rounded-full px-2.5 py-1 text-[10px] ${state === 'low-confidence' ? 'bg-[#F5EEDC] text-[#9A7442]' : 'bg-[#EAF3ED] text-[#4E7A61]'}`}>{state === 'low-confidence' ? 'Low confidence' : 'Selection detected'}</span></div><div className="mt-4 rounded-[14px] border border-[rgba(92,84,75,0.1)] bg-[#FFFDF9] p-4"><div className="mb-2 flex items-center gap-2 text-xs font-medium"><FileCode2 className="h-4 w-4 text-[#6E7A80]" />VS Code · active window</div><p className="text-[11px] text-[#98928A]">src/api/userService.ts · 3 lines selected</p></div><label className="mt-5 block text-xs font-medium">You said<textarea value={instruction} onChange={(event) => { setInstruction(event.target.value); setState('diff'); }} rows={3} className="mt-2 w-full rounded-[12px] border border-[rgba(92,84,75,0.12)] bg-[#FFFDF9] p-3 text-sm leading-6 outline-none focus:border-[#6E7A80]" /></label><div className="mt-4 rounded-[14px] bg-[#F2EEE8] p-4"><p className="mb-3 text-xs font-medium">Parsed intent</p>{['Preserve existing behavior', 'Add the requested transformation', 'Keep the current return type'].map((item) => <p key={item} className="mb-2 flex items-center gap-2 text-[11px] text-[#68635D]"><CheckCircle2 className="h-3.5 w-3.5 text-[#4E7A61]" />{item}</p>)}<div className="mt-3 border-t border-[rgba(92,84,75,0.08)] pt-3 text-[11px] text-[#4E7A61]">Confidence: high · Model: {settings.activeProfile === 'Coding' ? 'Whisper Q5' : 'active route'}</div></div><div className="mt-5"><p className="mb-2 text-xs font-medium">Test transformations</p><div className="flex flex-wrap gap-2">{prompts.map((prompt) => <button type="button" key={prompt} onClick={() => { setInstruction(prompt); setState('diff'); }} className="sori-tactile-btn rounded-full px-3 py-1.5 text-[11px]">{prompt.slice(0, 24)}…</button>)}</div></div></section>
+      <section className="min-w-0 rounded-[18px] border border-[rgba(92,84,75,0.13)] bg-[#FBF9F6] p-5 shadow-[0_4px_18px_rgba(92,84,75,0.05)]"><div className="flex items-center justify-between border-b border-[rgba(92,84,75,0.08)] pb-4"><div><h2 className="sori-section-heading">Diff preview</h2><p className="sori-meta-text mt-1">src/api/userService.ts · TypeScript</p></div><span className="font-mono text-[11px] text-[#4E7A61]">+2 · -1</span></div>{state === 'processing' ? <div className="flex min-h-[330px] flex-col items-center justify-center text-center"><LoaderCircle className="mb-3 h-6 w-6 animate-spin text-[#6E7A80]" /><p className="text-xs font-medium">Re-running the edit preview</p><p className="sori-meta-text mt-1">The diff will remain unapplied.</p></div> : <><div className="mt-4 overflow-x-auto rounded-[12px] border border-[rgba(92,84,75,0.1)] bg-[#FFFDF9] font-mono text-[12px] leading-6"><div className="border-b border-[rgba(92,84,75,0.08)] bg-[#F2EEE8] px-4 py-2 text-[11px] text-[#68635D]">Reviewable change</div><div className="p-4"><div>const response = await fetch(url);</div><div className="my-1 bg-[#FAEDEA] px-2 text-[#A75850]">− const data = await response.json();</div><div className="bg-[#EAF3ED] px-2 text-[#4E7A61]">+ try {'{'}</div><div className="bg-[#EAF3ED] px-2 text-[#4E7A61]">+   const data = await response.json();</div><div className="bg-[#EAF3ED] px-2 text-[#4E7A61]">+ {'}'} catch (error) {'{'}</div><div className="bg-[#EAF3ED] px-2 text-[#4E7A61]">+   console.error('Request failed', error);</div><div className="bg-[#EAF3ED] px-2 text-[#4E7A61]">+ {'}'}</div></div></div><div className="mt-4 flex items-start gap-2 rounded-[12px] bg-[#F2EEE8] p-3 text-[11px] text-[#68635D]"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#9A7442]" />{state === 'blocked' || !connected ? 'Injection is unavailable until a real Sori runtime is connected. Preview remains unapplied.' : 'This edit will be sent to the focused editor only after explicit approval.'}</div>{state === 'applied' && <div role="status" className="mt-4 rounded-[12px] border border-[rgba(78,122,97,0.2)] bg-[#EAF3ED] p-3 text-xs text-[#4E7A61]"><Check className="mr-2 inline h-4 w-4" />Edit accepted by the connected runtime.</div>}<div className="mt-4 flex items-center justify-between"><span className="font-mono text-[11px] text-[#98928A]">{connected ? 'Runtime connected' : 'UNVERIFIED · injection unavailable'}</span><button type="button" onClick={runPreview} className="text-xs text-[#6E7A80]"><RotateCcw className="mr-1 inline h-3.5 w-3.5" />Re-run edit</button></div></>}</section></div>
+  </div>;
 };
-

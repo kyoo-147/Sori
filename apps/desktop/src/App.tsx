@@ -278,6 +278,8 @@ export default function App() {
                 onNavigate={setActiveScreen}
                 history={history}
                 activeModelName={activeWarmModel.name}
+                runtimeSource={runtimeSource}
+                runtimeActivity={runtimeStatus.activity}
               />
             )}
 
@@ -289,7 +291,7 @@ export default function App() {
               <FirstRunOnboardingScreen settings={settings} onComplete={() => setActiveScreen('home')} />
             )}
 
-            {activeScreen === 'voice-edit' && <VoiceEditScreen settings={settings} />}
+            {activeScreen === 'voice-edit' && <VoiceEditScreen settings={settings} runtimeSource={runtimeSource} />}
 
             {activeScreen === 'models' && (
               <ModelManagerScreen

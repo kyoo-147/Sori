@@ -68,13 +68,22 @@ async fn main() -> Result<()> {
         Some(provider) => DaemonRuntime::new_with_provider(events.clone(), provider),
         None => DaemonRuntime::new(events.clone()),
     };
-    match CpalAudioController::new(Default::default()) {
+    match CpalAudioController::new(config.audio.clone()) {
         Ok(audio) => daemon.set_audio_engine(Box::new(audio)),
         Err(error) => info!(detail = %error, "microphone adapter unavailable"),
     }
+    daemon.publish_capability("asr", daemon.whisper_available(), whisper_detail.clone());
+    let runtime = Arc::new(Mutex::new(daemon));
+    let hotkey_runtime = Arc::clone(&runtime);
+    let hotkey_model = ModelId::from(whisper_model.as_str());
     let hotkey_result: Result<(HotkeyService, HotkeyServiceStatus), _> = start_hotkey_service(
         Arc::new(events.clone()),
         sori_core::HotkeyCombination::new(1, 0x20),
+        Arc::new(move |event| {
+            if let Ok(mut runtime) = hotkey_runtime.lock() {
+                runtime.handle_hotkey(event, &hotkey_model);
+            }
+        }),
     );
     let (_hotkey_service, hotkey_status) = match hotkey_result {
         Ok((service, status)) => (Some(service), status),
@@ -83,7 +92,6 @@ async fn main() -> Result<()> {
             (None, HotkeyServiceStatus::Unavailable(error.to_string()))
         }
     };
-    let runtime = Arc::new(Mutex::new(daemon));
     let endpoint: SocketAddr = DEFAULT_ENDPOINT.parse().expect("valid IPC endpoint");
     let server = LocalIpcServer::bind(endpoint).await.map_err(|error| {
         anyhow::anyhow!(
@@ -113,8 +121,7 @@ async fn main() -> Result<()> {
             }
             Request::DictationStop => {
                 let chunks = runtime.stop_audio(false).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                let audio = runtime.take_captured_audio();
-                Response::Transcript(runtime.transcribe(&ModelId::from(whisper_model.as_str()), &audio)
+                Response::Transcript(runtime.transcribe_captured(&ModelId::from(whisper_model.as_str()))
                     .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but Whisper inference failed: {error}")))?)
             }
             Request::DictationCancel => {

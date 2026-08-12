@@ -68,6 +68,22 @@ impl<B: EventBus> DaemonRuntime<B> {
 
     pub fn set_audio_engine(&mut self, engine: Box<dyn AudioCaptureEngine>) {
         self.audio = Some(engine);
+        self.publish_capability(
+            "audio",
+            true,
+            "capture adapter configured; device proof requires a session",
+        );
+    }
+
+    pub fn publish_capability(&self, name: &str, available: bool, detail: impl Into<String>) {
+        self.publish(
+            if available {
+                EventKind::CapabilityAvailable
+            } else {
+                EventKind::CapabilityUnavailable
+            },
+            Value::String(format!("{name}: {}", detail.into())),
+        );
     }
 
     pub fn audio_available(&self) -> bool {
@@ -81,9 +97,12 @@ impl<B: EventBus> DaemonRuntime<B> {
                 "dictation session is already running".into(),
             ));
         }
-        let engine = self.audio.as_mut().ok_or_else(|| {
-            AudioError::BackendUnavailable("microphone capture is unavailable".into())
-        })?;
+        if self.audio.is_none() {
+            let error = AudioError::BackendUnavailable("microphone capture is unavailable".into());
+            self.publish_capability("audio", false, error.to_string());
+            return Err(error);
+        }
+        let engine = self.audio.as_mut().expect("audio presence checked");
         let device = match engine.start_capture() {
             Ok(device) => device,
             Err(error) => {
@@ -174,6 +193,52 @@ impl<B: EventBus> DaemonRuntime<B> {
 
     pub fn whisper_available(&self) -> bool {
         self.provider.is_some()
+    }
+
+    pub fn transcribe_captured(&mut self, model: &ModelId) -> Result<Transcript, ModelError> {
+        let audio = self.take_captured_audio();
+        self.publish(EventKind::AsrSelected, Value::String(model.0.clone()));
+        match self.transcribe(model, &audio) {
+            Ok(transcript) => {
+                self.publish(
+                    EventKind::TranscriptFinal,
+                    Value::String(transcript.text.clone()),
+                );
+                Ok(transcript)
+            }
+            Err(error) => {
+                self.publish(
+                    EventKind::AudioError,
+                    Value::String(format!("ASR: {error}")),
+                );
+                Err(error)
+            }
+        }
+    }
+
+    pub fn handle_hotkey(&mut self, event: sori_core::HotkeyEvent, model: &ModelId) {
+        let result: Result<(), String> = match event {
+            sori_core::HotkeyEvent::Pressed => self
+                .start_audio()
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
+            sori_core::HotkeyEvent::Released => (|| {
+                self.stop_audio(false).map_err(|error| error.to_string())?;
+                self.transcribe_captured(model)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            })(),
+            sori_core::HotkeyEvent::Cancelled => self
+                .stop_audio(true)
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
+        };
+        if let Err(error) = result {
+            self.publish(
+                EventKind::AudioError,
+                Value::String(format!("hotkey: {error}")),
+            );
+        }
     }
 
     pub fn state(&self) -> &RuntimeState {
@@ -280,6 +345,56 @@ mod tests {
         }
     }
 
+    struct FakeProvider;
+    impl ModelProvider for FakeProvider {
+        fn provider_name(&self) -> &'static str {
+            "fake"
+        }
+        fn can_transcribe(&self, _: &ModelId) -> bool {
+            true
+        }
+        fn transcribe(&self, _: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError> {
+            Ok(Transcript::plain(format!(
+                "fake transcript ({} chunks)",
+                audio.len()
+            )))
+        }
+    }
+
+    fn fake_chunk(value: f32) -> AudioChunk {
+        AudioChunk {
+            captured_at: time::OffsetDateTime::UNIX_EPOCH,
+            format: AudioFormat {
+                sample_rate_hz: 16_000,
+                channels: 1,
+                sample_format: SampleFormat::F32,
+            },
+            samples: vec![value],
+        }
+    }
+
+    #[test]
+    fn hotkey_lifecycle_runs_fake_capture_and_provider() {
+        let events = InMemoryEventBus::default();
+        let mut runtime = DaemonRuntime::new_with_provider(events.clone(), Arc::new(FakeProvider));
+        runtime.set_audio_engine(Box::new(FakeCapture {
+            chunks: vec![fake_chunk(0.5), fake_chunk(0.0)],
+            started: false,
+            stopped: false,
+        }));
+        let model = ModelId::from("fake-model");
+        runtime.handle_hotkey(sori_core::HotkeyEvent::Pressed, &model);
+        runtime.handle_hotkey(sori_core::HotkeyEvent::Released, &model);
+        let kinds = events
+            .recent()
+            .into_iter()
+            .map(|event| event.kind)
+            .collect::<Vec<_>>();
+        assert!(kinds.contains(&EventKind::AudioStarted));
+        assert!(kinds.contains(&EventKind::AudioStopped));
+        assert!(kinds.contains(&EventKind::AsrSelected));
+        assert!(kinds.contains(&EventKind::TranscriptFinal));
+    }
     #[test]
     fn fake_capture_session_publishes_vad_and_stop_without_asr() {
         let events = InMemoryEventBus::default();

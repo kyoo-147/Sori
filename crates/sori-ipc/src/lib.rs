@@ -35,6 +35,14 @@ pub enum Request {
     },
     Doctor,
     ConfigSummary,
+    RecentHistory {
+        limit: u16,
+    },
+    PurgeHistory,
+    SetConfig {
+        key: String,
+        value: serde_json::Value,
+    },
     RecentEvents {
         limit: u16,
     },
@@ -48,6 +56,8 @@ pub enum Response {
     Doctor(DoctorResponse),
     ConfigSummary(ConfigSummaryResponse),
     RecentEvents(RecentEventsResponse),
+    RecentHistory(RecentHistoryResponse),
+    Error(IpcErrorResponse),
     Control(ControlResponse),
     Transcript(Transcript),
 }
@@ -110,6 +120,16 @@ pub struct RecentEventsResponse {
     pub events: Vec<IpcEvent>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecentHistoryResponse {
+    pub entries: Vec<sori_core::HistoryEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IpcErrorResponse {
+    pub code: String,
+    pub detail: String,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ControlResponse {
     pub accepted: bool,
@@ -315,7 +335,19 @@ where
     }
     let request: Request = serde_json::from_slice(&bytes[body_start..body_start + length])
         .map_err(|e| IpcError::Protocol(e.to_string()))?;
-    let response = handler(request)?;
+    let response = match handler(request) {
+        Ok(response) => response,
+        Err(error) => Response::Error(IpcErrorResponse {
+            code: match &error {
+                IpcError::Unavailable => "unavailable",
+                IpcError::Transport(_) => "transport",
+                IpcError::UnexpectedResponse { .. } => "unexpected_response",
+                IpcError::Protocol(_) => "protocol",
+            }
+            .into(),
+            detail: error.to_string(),
+        }),
+    };
     let body = serde_json::to_vec(&response).map_err(|e| IpcError::Protocol(e.to_string()))?;
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -429,6 +461,11 @@ impl Transport for MockTransport {
                 checks: state.checks.clone(),
             }),
             Request::ConfigSummary => Response::ConfigSummary(state.config.clone()),
+            Request::RecentHistory { .. } | Request::PurgeHistory | Request::SetConfig { .. } => {
+                return Err(IpcError::Transport(
+                    "mock transport does not persist history/config".into(),
+                ));
+            }
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
                 events: state
                     .events

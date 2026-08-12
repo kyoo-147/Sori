@@ -77,6 +77,16 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// Keep the newest `limit` entries. Ordering is deterministic for equal timestamps.
+    pub fn try_retain_history(&self, limit: usize) -> Result<usize> {
+        let deleted = self.connection()?.execute(
+            "DELETE FROM history WHERE id NOT IN
+             (SELECT id FROM history ORDER BY at_seconds DESC, at_nanos DESC, id DESC LIMIT ?1)",
+            [limit as i64],
+        )?;
+        Ok(deleted)
+    }
+
     pub fn set_setting(&self, key: &str, value: &serde_json::Value) -> Result<()> {
         self.connection()?.execute(
             "INSERT INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)
@@ -320,6 +330,22 @@ mod tests {
     }
 
     #[test]
+    fn history_survives_reopen_and_retention_is_deterministic() {
+        let database = NamedTempFile::new().unwrap();
+        let first = history(Uuid::new_v4(), "first");
+        let second = history(Uuid::new_v4(), "second");
+        {
+            let store = SqliteStore::open(database.path()).unwrap();
+            store.try_push_history(&first).unwrap();
+            store.try_push_history(&second).unwrap();
+            assert_eq!(store.try_retain_history(1).unwrap(), 1);
+        }
+        let reopened = SqliteStore::open(database.path()).unwrap();
+        assert_eq!(reopened.try_recent_history(20).unwrap().len(), 1);
+        assert_eq!(reopened.try_recent_history(20).unwrap()[0].id, second.id);
+    }
+
+    #[test]
     fn events_round_trip_in_order() {
         let database = NamedTempFile::new().unwrap();
         let store = SqliteStore::open(database.path()).unwrap();
@@ -331,6 +357,30 @@ mod tests {
         };
         store.try_publish_event(&event).unwrap();
         assert_eq!(store.try_recent_events().unwrap(), vec![event]);
+    }
+
+    #[test]
+    fn events_and_settings_survive_reopen() {
+        let database = NamedTempFile::new().unwrap();
+        let event = Event {
+            id: Uuid::new_v4(),
+            at: OffsetDateTime::now_utc(),
+            kind: EventKind::DaemonReady,
+            payload: sori_core::event::serde_json_like::Value::Null,
+        };
+        {
+            let store = SqliteStore::open(database.path()).unwrap();
+            store.try_publish_event(&event).unwrap();
+            store
+                .set_setting("hotkey.binding", &serde_json::json!("Ctrl+Space"))
+                .unwrap();
+        }
+        let reopened = SqliteStore::open(database.path()).unwrap();
+        assert_eq!(reopened.try_recent_events().unwrap(), vec![event]);
+        assert_eq!(
+            reopened.setting("hotkey.binding").unwrap(),
+            Some(serde_json::json!("Ctrl+Space"))
+        );
     }
 
     #[test]

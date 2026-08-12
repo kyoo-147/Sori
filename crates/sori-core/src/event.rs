@@ -9,6 +9,8 @@ pub enum EventKind {
     AudioChunkCaptured,
     AudioStopped,
     AudioError,
+    CapabilityAvailable,
+    CapabilityUnavailable,
     HotkeyPressed,
     HotkeyReleased,
     HotkeyCancelled,

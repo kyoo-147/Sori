@@ -1,4 +1,4 @@
-use sori_core::{EventBus, HotkeyCombination, HotkeyError};
+use sori_core::{EventBus, HotkeyCombination, HotkeyError, HotkeyEvent};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +22,7 @@ pub struct HotkeyService;
 pub fn start_hotkey_service<B: EventBus + 'static>(
     events: Arc<B>,
     hotkey: HotkeyCombination,
+    on_event: Arc<dyn Fn(HotkeyEvent) + Send + Sync>,
 ) -> Result<(HotkeyService, HotkeyServiceStatus), HotkeyError> {
     use sori_core::{HotkeyBackend, HotkeyEvent, WindowsHotkeyBackend};
     use std::sync::mpsc;
@@ -63,6 +64,7 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
                         message.lParam,
                     ) {
                         events.publish(event.into_event());
+                        on_event(event);
                         if event == HotkeyEvent::Pressed {
                             while hotkey_is_down(hotkey) && stop_rx.try_recv().is_err() {
                                 std::thread::sleep(Duration::from_millis(10));
@@ -71,6 +73,7 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
                                 backend.handle_input(sori_core::HotkeyInput::Released)
                             {
                                 events.publish(released.into_event());
+                                on_event(released);
                             }
                         }
                     }
@@ -104,6 +107,7 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
 pub fn start_hotkey_service<B: EventBus + 'static>(
     _events: Arc<B>,
     _hotkey: HotkeyCombination,
+    _on_event: Arc<dyn Fn(HotkeyEvent) + Send + Sync>,
 ) -> Result<(HotkeyService, HotkeyServiceStatus), HotkeyError> {
     Ok((HotkeyService, HotkeyServiceStatus::Unsupported))
 }

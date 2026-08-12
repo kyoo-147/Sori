@@ -147,9 +147,8 @@ async fn main() -> Result<()> {
                         },
                         DoctorCheck {
                             name: "text-injection".into(),
-                            ok: false,
-                            detail: "unavailable: native text injection adapter is not wired"
-                                .into(),
+                            ok: cfg!(windows),
+                            detail: native_text_injection_detail().into(),
                         },
                     ],
                 })
@@ -210,6 +209,15 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn native_text_injection_detail() -> &'static str {
+    sori_core::WindowsSendInputAdapter::diagnostic()
+}
+
+#[cfg(not(windows))]
+fn native_text_injection_detail() -> &'static str {
+    "unavailable: Windows SendInput adapter is only available on Windows"
+}
 fn route_summary(config: &DaemonConfig) -> RouteSummary {
     RouteSummary {
         prefer_local: config.route.prefer_local,

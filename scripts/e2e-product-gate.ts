@@ -243,16 +243,13 @@ async function runProductGate(): Promise<void> {
 
     console.log('PASS: real sorid/backend connection and initial desktop semantic state.');
 
-    // Persistence/reload: exercise the UI control, then verify its local preference survives a reload.
-    await clickLabel(state, 'Mobile preview', session);
-    await delay(250);
-    const persisted = await evalBrowser(session, '() => localStorage.getItem("sori.desktop.deviceView")');
-    if (!persisted.includes('mobile')) throw new Error(`device viewport preference was not persisted: ${persisted}`);
-    await evalBrowser(session, '() => { location.reload(); return "reloading"; }');
-    state = await waitForText(session, 'Sori preview — Try a local capture');
-    const reloadedPreference = await evalBrowser(session, '() => localStorage.getItem("sori.desktop.deviceView")');
-    if (!reloadedPreference.includes('mobile')) throw new Error(`device viewport preference did not survive reload: ${reloadedPreference}`);
-    console.log('PASS: desktop preference persisted across reload.');
+    // The production shell owns the native window; responsive behavior is exercised by real window resize, not a viewport simulator.
+    assertIncludes(state, 'Minimize window', 'native titlebar controls');
+    assertIncludes(state, 'Maximize window', 'native titlebar controls');
+    assertIncludes(state, 'Close window', 'native titlebar controls');
+    assertNotIncludes(state, 'Mobile preview', 'native desktop shell');
+    assertNotIncludes(state, 'Tablet preview', 'native desktop shell');
+    console.log('PASS: native titlebar controls and no production viewport simulator.');
 
     // Keep one browser page and one daemon alive while traversing every primary route.
     for (const flow of PRODUCT_NAVIGATION) {

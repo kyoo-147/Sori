@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run desktop:dev -- -- --port 1420",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build:bundle",
+    "beforeBuildCommand": "npm --prefix apps/desktop run build:bundle",
     "frontendDist": "../dist"
   },
   "app": {
@@ -16,6 +16,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi"],
-    "resources": ["../../target/debug/sorid.exe"]
+    "icon": ["icons/icon.ico"],
+    "resources": ["../../../target/debug/sorid.exe"]
   }
 }

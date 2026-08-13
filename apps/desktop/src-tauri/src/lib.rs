@@ -297,11 +297,12 @@ pub fn run() {
             commands::window_close,
             commands::window_start_dragging
         ])
-        .run(tauri::generate_context!(), |app, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
-                app.state::<DaemonSupervisor>().stop();
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                window.app_handle().state::<DaemonSupervisor>().stop();
             }
         })
+        .run(tauri::generate_context!())
         .expect("error while running Sori desktop");
 }
 

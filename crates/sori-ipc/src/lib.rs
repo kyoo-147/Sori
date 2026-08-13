@@ -428,7 +428,10 @@ where
     }
     let request: Request = serde_json::from_slice(&bytes[body_start..body_start + length])
         .map_err(|e| IpcError::Protocol(e.to_string()))?;
-    let response = match handler(request) {
+    // Runtime handlers may stop audio, run Whisper, inject text, or touch
+    // SQLite. Keep that blocking work off Tokio's I/O workers so a stalled
+    // operation cannot delay Status, Doctor, or RecentEvents connections.
+    let response = tokio::task::spawn_blocking(move || match handler(request) {
         Ok(response) => response,
         Err(error) => Response::Error(IpcErrorResponse {
             code: match &error {
@@ -440,7 +443,9 @@ where
             .into(),
             detail: error.to_string(),
         }),
-    };
+    })
+    .await
+    .map_err(|error| IpcError::Transport(format!("IPC handler task failed: {error}")))?;
     let body = serde_json::to_vec(&response).map_err(|e| IpcError::Protocol(e.to_string()))?;
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -695,6 +700,69 @@ mod tests {
         assert!(response.is_err());
         assert!(started.elapsed() < IPC_IO_TIMEOUT + std::time::Duration::from_millis(500));
         task.await.unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stalled_handler_does_not_block_status() {
+        let server = LocalIpcServer::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let endpoint = server.local_addr().unwrap();
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let handler_gate = Arc::clone(&gate);
+        let task = tokio::spawn(server.serve(move |request| match request {
+            Request::DictationStop => {
+                handler_gate.wait();
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                Ok(Response::Control(ControlResponse {
+                    accepted: true,
+                    detail: "stalled operation completed".into(),
+                }))
+            }
+            Request::Status => Ok(Response::Status(StatusResponse {
+                protocol_version: PROTOCOL_VERSION,
+                daemon_version: "test".into(),
+                running: true,
+                activity: RuntimeActivity::Idle,
+                paused: false,
+                hotkey: "Alt+Space".into(),
+                route: RouteSummary {
+                    prefer_local: true,
+                    allow_cloud: true,
+                    prefer_warm_runtime: false,
+                    optimize_battery: false,
+                },
+                profile: ProfileMode::Basic,
+                privacy: PrivacyMode::LocalOnly,
+            })),
+            _ => Err(IpcError::UnexpectedResponse {
+                request: Box::new(request),
+            }),
+        }));
+
+        let stop = tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(Request::DictationStop)
+                .unwrap()
+        });
+        tokio::task::spawn_blocking(move || gate.wait())
+            .await
+            .unwrap();
+        let started = std::time::Instant::now();
+        let status = tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(Request::Status)
+                .unwrap()
+        })
+        .await
+        .unwrap();
+
+        assert!(matches!(status, Response::Status(status) if status.running));
+        assert!(started.elapsed() < std::time::Duration::from_millis(150));
+        assert!(matches!(stop.await.unwrap(), Response::Control(control) if control.accepted));
+        task.abort();
     }
 
     #[tokio::test]

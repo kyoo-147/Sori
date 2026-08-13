@@ -78,7 +78,7 @@
   flex-direction: column;
   overflow: hidden;
   isolation: isolate;
-  background: var(--sori-bg-app);
+  background: var(--sori-bg-sidebar);
   color: var(--sori-text-primary);
 }
 
@@ -89,7 +89,7 @@
   min-height: var(--sori-titlebar-height);
   flex: 0 0 var(--sori-titlebar-height);
   border-bottom: 0;
-  background: linear-gradient(to right, var(--sori-bg-sidebar) 0, var(--sori-bg-sidebar) var(--sori-sidebar-width), var(--sori-bg-app) var(--sori-sidebar-width), var(--sori-bg-app) 100%);
+  background: transparent;
 }
 
 .sori-shell__titlebar {
@@ -151,8 +151,8 @@
   scrollbar-gutter: stable;
   position: relative;
   z-index: 1;
-  margin-top: -1px;
-  margin-left: -1px;
+  margin-top: 0;
+  margin-left: 0;
   border-top: 1px solid var(--sori-window-line);
   border-left: 1px solid var(--sori-window-line);
   border-top-left-radius: 16px;
@@ -502,4 +502,147 @@
 /* The content pane owns the only shell seam; keep it quiet and local. */
 .sori-shell__workspace {
   border-color: rgba(70, 62, 55, 0.12);
+}
+
+/* Refined native shell: one quiet material, one deliberate seam. */
+.sori-shell__titlebar { background: transparent; }
+
+.sori-titlebar {
+  padding-inline: 16px 0;
+}
+
+.sori-shell__workspace {
+  margin-top: 0;
+  margin-left: 0;
+  border-top: 1px solid rgba(70, 62, 55, 0.075);
+  border-left: 1px solid rgba(70, 62, 55, 0.075);
+  border-top-left-radius: 18px;
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.34);
+}
+
+.sori-shell__sidebar-nav {
+  padding: 14px 12px 16px;
+}
+
+.sori-sidebar-search {
+  background: rgba(255, 255, 255, 0.42) !important;
+  border-color: rgba(70, 62, 55, 0.08) !important;
+  box-shadow: none !important;
+}
+
+.sori-sidebar-search:focus {
+  background: rgba(255, 255, 255, 0.68) !important;
+  border-color: rgba(70, 62, 55, 0.16) !important;
+}
+
+.sori-sidebar-section {
+  padding-top: 14px !important;
+  border-top-color: rgba(70, 62, 55, 0.055) !important;
+}
+
+.sori-sidebar-section-label {
+  color: var(--sori-text-tertiary) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.08em !important;
+}
+
+.sori-sidebar-item {
+  min-height: 32px;
+  border: 1px solid transparent;
+  border-radius: 8px !important;
+  color: var(--sori-text-secondary);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.sori-sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.34) !important;
+  color: var(--sori-text-primary) !important;
+}
+
+.sori-sidebar-item[aria-current='page'] {
+  background: rgba(214, 209, 201, 0.30) !important;
+  border-color: rgba(70, 62, 55, 0.07) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32) !important;
+}
+
+.sori-shell__sidebar-footer {
+  padding: 12px !important;
+  border-top: 1px solid rgba(70, 62, 55, 0.055);
+}
+
+.sori-sidebar-account {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  padding-inline: 8px !important;
+}
+
+.sori-window-controls {
+  margin-left: 12px;
+}
+
+.sori-window-control {
+  width: 44px;
+  color: rgba(70, 62, 55, 0.72);
+  transition: background-color 100ms ease, color 100ms ease;
+}
+
+.sori-window-control:hover {
+  background: rgba(70, 62, 55, 0.065);
+}
+
+.sori-window-control:active {
+  background: rgba(70, 62, 55, 0.11);
+}
+
+.sori-window-control-close:hover {
+  background: #c94f4f;
+}
+
+/* Native shell interaction: the rail is a quiet, reversible boundary. */
+.sori-shell__body {
+  grid-template-columns: minmax(0, var(--sori-sidebar-width)) minmax(0, 1fr);
+  transition: grid-template-columns 180ms ease;
+}
+
+.sori-shell[data-sidebar-collapsed='true'] {
+  --sori-sidebar-width: 0px;
+}
+
+.sori-sidebar-toggle {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: calc(var(--sori-sidebar-width) - 9px);
+  display: flex;
+  width: 18px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(70, 62, 55, 0.10);
+  border-radius: 999px;
+  background: rgba(246, 246, 244, 0.92);
+  color: var(--sori-text-tertiary);
+  font-size: 16px;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(26, 31, 36, 0.06);
+  transform: translateY(-50%);
+  transition: left 180ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.sori-sidebar-toggle:hover {
+  background: var(--sori-bg-panel);
+  color: var(--sori-text-primary);
+}
+
+.sori-sidebar-toggle:active {
+  transform: translateY(-50%) scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sori-shell__body,
+  .sori-sidebar-toggle {
+    transition: none;
+  }
 }

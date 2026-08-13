@@ -33,7 +33,8 @@ describe('desktop window controls', () => {
     expect(titlebarSource).toContain('aria-label="Close window"');
     expect(titlebarSource).toContain('data-tauri-drag-region="false"');
     expect(titlebarSource).toContain('onDoubleClick={handleTitlebarDoubleClick}');
-    expect(titlebarSource).toContain("runWindowAction('drag')");
+    expect(titlebarSource).toContain('data-tauri-drag-region');
+    expect(readFileSync('apps/desktop/src/window-controls.ts', 'utf8')).toContain('startDragging');
   });
 
   it('registers the native command boundary for every window action', () => {

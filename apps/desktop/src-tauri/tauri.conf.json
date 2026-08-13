@@ -4,13 +4,13 @@
   "version": "0.1.0",
   "identifier": "com.sori.desktop",
   "build": {
-    "beforeDevCommand": "npm run desktop:dev -- --port 1420",
+    "beforeDevCommand": "npm run desktop:dev -- -- --port 1420",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run desktop:build",
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "Sori", "decorations": false, "alwaysOnTop": false, "resizable": true, "width": 1462, "height": 880, "minWidth": 720, "minHeight": 480 }],
+    "windows": [{ "title": "Sori", "decorations": false, "alwaysOnTop": false, "resizable": true, "width": 1462, "height": 880, "minWidth": 720, "minHeight": 480, "center": true }],
     "security": { "csp": null }
   },
   "bundle": { "active": false }

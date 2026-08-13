@@ -99,7 +99,7 @@
   --sori-type-meta-leading: 18px;
 
   /* Shell and layout defaults; override per window or pane when needed. */
-  --sori-titlebar-height: 48px;
+  --sori-titlebar-height: 40px;
   --sori-sidebar-width: 248px;
   --sori-rail-width: 248px;
   --sori-inspector-width: 320px;

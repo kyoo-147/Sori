@@ -1,15 +1,15 @@
-import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { WindowControlsApi } from './window-actions';
 
 export type { WindowAction, WindowControlsApi } from './window-actions';
 export { performWindowAction } from './window-actions';
 
-/** The Rust command names are the authoritative native window boundary. */
+/** Use Tauri's native window API directly for low-latency shell controls. */
 export const tauriWindowControls: WindowControlsApi = {
-  minimize: () => invoke<void>('window_minimize'),
-  maximize: () => invoke<void>('window_maximize'),
-  restore: () => invoke<void>('window_restore'),
-  toggleMaximize: () => invoke<void>('window_toggle_maximize'),
-  close: () => invoke<void>('window_close'),
-  startDragging: () => invoke<void>('window_start_dragging'),
+  minimize: () => getCurrentWindow().minimize(),
+  maximize: () => getCurrentWindow().maximize(),
+  restore: () => getCurrentWindow().unmaximize(),
+  toggleMaximize: () => getCurrentWindow().toggleMaximize(),
+  close: () => getCurrentWindow().close(),
+  startDragging: () => getCurrentWindow().startDragging(),
 };

@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const MIN_WIDTH = 720;
 const MIN_HEIGHT = 480;
-const TITLEBAR_HEIGHT = 24;
+const TITLEBAR_HEIGHT = 20;
 const CONTROL_WIDTH = 46;
 const ARTIFACT_DIR = resolve('.tmp', 'e2e-native-shell');
 

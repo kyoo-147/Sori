@@ -23,6 +23,7 @@ interface DesktopSidebarProps {
   openSettingsModal: () => void;
   isOpen?: boolean;
   onClose?: () => void;
+  collapsed?: boolean;
 }
 
 export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
@@ -31,6 +32,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   openSettingsModal,
   isOpen = true,
   onClose,
+  collapsed = false,
 }) => {
   const navigate = (screen: ActiveScreen) => {
     setActiveScreen(screen);
@@ -59,7 +61,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   ];
 
   return (
-    <aside className={`${isOpen ? 'flex' : 'hidden'} sori-shell__sidebar md:flex max-md:fixed max-md:top-12 max-md:inset-y-0 max-md:left-0 max-md:z-40 flex-col justify-between select-none`} data-open={isOpen}>
+    <aside className={`${isOpen && !collapsed ? 'flex' : 'hidden'} sori-shell__sidebar md:flex max-md:fixed max-md:top-10 max-md:inset-y-0 max-md:left-0 max-md:z-40 flex-col justify-between select-none`} data-open={isOpen && !collapsed} data-collapsed={collapsed}>
       <button type="button" aria-label="Close navigation" onClick={onClose} className="md:hidden absolute top-3 right-3 text-[#68635D] p-2 rounded-md hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#6E7A80]">×</button>
       {/* Top Search & Nav */}
       <div className="sori-shell__sidebar-nav p-3 space-y-3.5 custom-scrollbar" role="navigation" aria-label="Primary Sori navigation">
@@ -70,7 +72,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             type="text"
             aria-label="Search Sori"
             placeholder="Search Sori..."
-            className="w-full bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] rounded-[10px] pl-8 pr-12 py-1.5 text-[12.5px] text-[#1C1B19] placeholder-[#B2AEA8] focus:outline-none focus:bg-white focus:border-[rgba(92,84,75,0.25)] transition-all shadow-2xs"
+            className="sori-sidebar-search w-full bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] rounded-[10px] pl-8 pr-12 py-1.5 text-[12.5px] text-[#1C1B19] placeholder-[#B2AEA8] focus:outline-none focus:bg-white focus:border-[rgba(92,84,75,0.25)] transition-all shadow-2xs"
           />
           <span className="absolute right-2.5 top-2 text-[10px] text-[#98928A] font-mono bg-white/70 px-1 rounded border border-[rgba(92,84,75,0.12)]">
             Ctrl+K
@@ -87,7 +89,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 onClick={() => setActiveScreen(item.id)}
                 aria-label={item.label}
                 aria-current={isActive ? 'page' : undefined}
-                className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
+                className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
                   isActive
                     ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
                     : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
@@ -101,8 +103,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         </div>
 
         {/* Engine Section */}
-        <div className="pt-2 border-t border-[rgba(92,84,75,0.06)]">
-          <div className="px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
+        <div className="sori-sidebar-section pt-2 border-t border-[rgba(92,84,75,0.06)]">
+          <div className="sori-sidebar-section-label px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
             Engine
           </div>
           <div className="space-y-0.5">
@@ -114,7 +116,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                   onClick={() => setActiveScreen(item.id)}
                   aria-label={item.label}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
+                  className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
                     isActive
                       ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
                       : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
@@ -129,8 +131,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         </div>
 
         {/* Programmable Section */}
-        <div className="pt-2 border-t border-[rgba(92,84,75,0.06)]">
-          <div className="px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
+        <div className="sori-sidebar-section pt-2 border-t border-[rgba(92,84,75,0.06)]">
+          <div className="sori-sidebar-section-label px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
             Programmable
           </div>
           <div className="space-y-0.5">
@@ -142,7 +144,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                   onClick={() => setActiveScreen(item.id)}
                   aria-label={item.label}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
+                  className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
                     isActive
                       ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
                       : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
@@ -157,8 +159,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         </div>
 
         {/* System Section */}
-        <div className="pt-2 border-t border-[rgba(92,84,75,0.06)]">
-          <div className="px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
+        <div className="sori-sidebar-section pt-2 border-t border-[rgba(92,84,75,0.06)]">
+          <div className="sori-sidebar-section-label px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
             System
           </div>
           <div className="space-y-0.5">
@@ -170,7 +172,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                   onClick={() => setActiveScreen(item.id)}
                   aria-label={item.label}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
+                  className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
                     isActive
                       ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
                       : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
@@ -185,14 +187,14 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         </div>
 
         {/* Prototype Flows Section */}
-        <div className="pt-2 border-t border-[rgba(92,84,75,0.06)]">
-          <div className="px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
+        <div className="sori-sidebar-section pt-2 border-t border-[rgba(92,84,75,0.06)]">
+          <div className="sori-sidebar-section-label px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
             Setup
           </div>
           <button
             onClick={() => navigate('onboarding')}
             aria-current={activeScreen === 'onboarding' ? 'page' : undefined}
-            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
+            className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
               activeScreen === 'onboarding'
                 ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
                 : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
@@ -212,7 +214,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             openSettingsModal();
           }}
           aria-current={activeScreen === 'settings' ? 'page' : undefined}
-          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-[13px] font-medium transition-all ${
+          className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-[13px] font-medium transition-all ${
             activeScreen === 'settings'
               ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
               : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
@@ -223,7 +225,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         </button>
 
         {/* User Account Tile */}
-        <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-[12px] bg-[rgba(255,253,249,0.7)] border border-[rgba(92,84,75,0.1)] shadow-2xs">
+        <div className="sori-sidebar-account flex items-center gap-2.5 px-2.5 py-2 rounded-[12px] bg-[rgba(255,253,249,0.7)] border border-[rgba(92,84,75,0.1)] shadow-2xs">
           <div className="w-7 h-7 rounded-full bg-[#68635D] text-white font-semibold flex items-center justify-center text-xs shadow-2xs">
             A
           </div>

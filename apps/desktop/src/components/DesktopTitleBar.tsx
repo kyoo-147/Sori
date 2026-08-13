@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AppSettings } from '../types';
+import { AppSettings, ActiveScreen } from '../types';
 import type { DaemonStatus, RuntimeSource } from '../runtime-client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Mic, Flame, Command, CircleDot, Menu, X, Minus, Square, Copy } from 'lucide-react';
@@ -19,6 +19,7 @@ interface DesktopTitleBarProps {
   onTogglePaused: () => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  onNavigate: (screen: ActiveScreen) => void;
 }
 
 export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
@@ -33,6 +34,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   onTogglePaused,
   sidebarOpen,
   onToggleSidebar,
+  onNavigate,
 }) => {
   const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
   const [isMaximized, setIsMaximized] = useState(false);
@@ -41,6 +43,12 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   const refreshMaximized = () => {
     if (!isTauri) return;
     void getCurrentWindow().isMaximized().then(setIsMaximized).catch(() => undefined);
+  };
+
+  const refreshMaximizedAfterNativeAction = () => {
+    refreshMaximized();
+    window.setTimeout(refreshMaximized, 80);
+    window.setTimeout(refreshMaximized, 240);
   };
 
   useEffect(() => {
@@ -69,7 +77,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
     try {
       await performWindowAction(tauriWindowControls, action);
       if (action === 'maximize' || action === 'restore' || action === 'toggle-maximize') {
-        refreshMaximized();
+        refreshMaximizedAfterNativeAction();
       }
     } catch (error) {
       console.warn(`Window action ${action} failed:`, error);
@@ -79,18 +87,12 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   const isInteractiveTarget = (target: EventTarget | null) =>
     target instanceof HTMLElement && Boolean(target.closest('button, a, input, select, textarea'));
 
-  const handleTitlebarMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button === 0 && !isInteractiveTarget(event.target)) {
-      void runWindowAction('drag');
-    }
-  };
-
   const handleTitlebarDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!isInteractiveTarget(event.target)) void runWindowAction('toggle-maximize');
   };
 
   return (
-    <div data-tauri-drag-region role="toolbar" aria-label="Sori window title bar" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
+    <div data-tauri-drag-region role="toolbar" aria-label="Sori window title bar" onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
       <button
         type="button"
         onClick={onToggleSidebar}
@@ -128,17 +130,17 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
               : 'sori-tactile-btn'
           }`}
         >
-          <Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce text-white' : 'text-[#68635D]'}`} />
+          <Mic className={`w-3.5 h-3.5 ${isListening ? 'text-white' : 'text-[#68635D]'}`} />
           <span className="hidden sm:inline">{isListening ? 'Preview listening…' : 'Preview capture'}</span>
         </button>
 
         <button onClick={onTogglePaused} aria-label={runtimeStatus.paused ? 'Resume Sori daemon' : 'Pause Sori daemon'} disabled={!runtimeConnected} title={runtimeSource === 'mock' ? 'Daemon controls are unavailable in preview mode' : undefined} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs disabled:opacity-50">
           {runtimeStatus.paused ? 'Resume daemon' : 'Pause daemon'}
         </button>
-        <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs">
+        <button type="button" onClick={() => onNavigate('models')} aria-label="Open model routing" className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-[11px] text-[#68635D] font-mono">
           <Flame className="w-3.5 h-3.5 text-[#98928A]" />
           <span>Route: Local · Whisper Q5</span>
-        </div>
+        </button>
       </div>
 
       {/* Right: Quick Tools and native window controls */}
@@ -165,7 +167,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           <button type="button" aria-label="Minimize window" title="Minimize" onClick={() => void runWindowAction('minimize')} className="sori-window-control" data-tauri-drag-region="false">
             <Minus className="h-4 w-4" aria-hidden="true" />
           </button>
-          <button type="button" aria-label={isMaximized ? 'Restore window' : 'Maximize window'} aria-pressed={isMaximized} title={isMaximized ? 'Restore' : 'Maximize'} onClick={() => void runWindowAction(isMaximized ? 'restore' : 'maximize')} className="sori-window-control" data-tauri-drag-region="false">
+          <button type="button" aria-label={isMaximized ? 'Restore window' : 'Maximize window'} aria-pressed={isMaximized} title={isMaximized ? 'Restore' : 'Maximize'} onClick={() => void runWindowAction('toggle-maximize')} className="sori-window-control" data-tauri-drag-region="false">
             {isMaximized ? <Copy className="h-3.5 w-3.5" aria-hidden="true" /> : <Square className="h-3.5 w-3.5" aria-hidden="true" />}
           </button>
           <button type="button" aria-label="Close window" title="Close" onClick={() => void runWindowAction('close')} className="sori-window-control sori-window-control-close" data-tauri-drag-region="false">

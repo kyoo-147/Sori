@@ -62,6 +62,7 @@ export default function App() {
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [trayOpen, setTrayOpen] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => window.localStorage.getItem('sori.sidebar.collapsed') === 'true');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly', version: null });
@@ -113,6 +114,10 @@ export default function App() {
   }, [dictionary, runtimeClient]);
 
   useEffect(() => {
+    window.localStorage.setItem('sori.sidebar.collapsed', String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
     writePreference('extensions', extensions);
   }, [extensions]);
 
@@ -161,7 +166,7 @@ export default function App() {
   };
 
   return (
-    <div className="sori-shell select-none sori-app-shell h-full min-h-0 bg-[#FAF8F5] text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell">
+    <div className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sidebar-collapsed={sidebarCollapsed}>
       {/* Top Window Titlebar (Chrome Window Header) */}
       <div className="sori-shell__titlebar">
       <DesktopTitleBar
@@ -178,6 +183,7 @@ export default function App() {
           onTogglePaused={() => setPaused(!runtimeStatus.paused)}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
+          onNavigate={(screen) => setActiveScreen(screen)}
       />
       </div>
 
@@ -192,7 +198,10 @@ export default function App() {
             openSettingsModal={() => setIsSettingsModalOpen(true)}
             isOpen={sidebarOpen}
             onClose={() => setSidebarOpen(false)}
+            collapsed={sidebarCollapsed}
           />
+
+          <button type="button" className="sori-sidebar-toggle" aria-label={sidebarCollapsed ? '>' : '<'} aria-pressed={sidebarCollapsed} onClick={() => setSidebarCollapsed((value) => !value)}>{sidebarCollapsed ? '›' : '‹'}</button>
 
           {sidebarOpen && (
             <button
@@ -232,7 +241,7 @@ export default function App() {
           />
 
           {/* Main Content View Container */}
-          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="sori-shell__workspace sori-main-content min-w-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#FBFBFA] p-3 sm:p-4 md:p-6 custom-scrollbar" data-sori-pane="workspace">
+          <main id="sori-main-content" role="main" aria-label="Sori desktop workspace" className="sori-shell__workspace sori-main-content min-w-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6 custom-scrollbar" data-sori-pane="workspace">
             {(activeScreen === 'playground' || activeScreen === 'home') && (
               <OverviewScreen
                 settings={settings}

@@ -58,8 +58,9 @@ describe('desktop visual architecture contracts', () => {
     expect(app).toContain('className="sori-shell select-none');
     expect(app).toContain('className="sori-shell__body flex-1');
     expect(app).toContain('className="sori-shell__workspace');
-    expect(sidebar).toContain('className={`${isOpen ? \'flex\' : \'hidden\'} sori-shell__sidebar');
-    expect(sidebar).toContain('data-open={isOpen}');
+    expect(sidebar).toContain('className={`${isOpen && !collapsed ? \'flex\' : \'hidden\'} sori-shell__sidebar');
+    expect(sidebar).toContain('data-open={isOpen && !collapsed}');
+    expect(sidebar).toContain('data-collapsed={collapsed}');
     expect(sidebar).toContain('sori-shell__sidebar-nav');
     expect(sidebar).toContain('sori-shell__sidebar-footer');
     expect(css).toContain('.sori-shell__sidebar-nav');

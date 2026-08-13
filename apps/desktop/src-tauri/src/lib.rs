@@ -149,6 +149,14 @@ mod titlebar_tests {
     }
 
     #[test]
+    fn launch_window_is_centered_without_starting_maximized() {
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let window = &config["app"]["windows"][0];
+        assert_eq!(window["center"], true);
+        assert_eq!(window["maximized"], Value::Null);
+    }
+
+    #[test]
     fn minimum_window_size_is_kept_in_logical_pixels_for_dpi_scaling() {
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let window = &config["app"]["windows"][0];

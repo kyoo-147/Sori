@@ -20,7 +20,7 @@ describe('desktop shell and truthful preview contracts', () => {
     expect(titleBar).not.toContain('setDeviceView');
     expect(titleBar).not.toContain('Tablet preview');
     expect(titleBar).not.toContain('Mobile preview');
-    expect(sidebar).toContain('max-md:top-12');
+    expect(sidebar).toContain('max-md:top-10');
   });
 
   it('keeps the primary navigation labels explicit and stable', () => {

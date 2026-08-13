@@ -1,21 +1,37 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Check, Download, Play } from 'lucide-react';
 import type { BenchmarkResult } from '../../types';
+import { readBenchmarkFixture, type BenchmarkFixture } from '../../benchmark-fixture';
 
 interface Props {
   benchmarkResults: BenchmarkResult[];
   onApplyPolicy: () => Promise<void>;
-  onRun: () => Promise<string>;
+  modelId: string | null;
+  onRun: (fixture: BenchmarkFixture) => Promise<string>;
 }
 
-export const BenchmarkScreen: React.FC<Props> = ({ benchmarkResults, onApplyPolicy, onRun }) => {
+export const BenchmarkScreen: React.FC<Props> = ({ benchmarkResults, onApplyPolicy, modelId, onRun }) => {
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState('No benchmark run in this session.');
+  const [fixture, setFixture] = useState<BenchmarkFixture | null>(null);
+  const [reference, setReference] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
+  const chooseFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const parsed = await readBenchmarkFixture(file, reference);
+      setFixture(parsed);
+      setMessage(`Ready: ${parsed.fileName}${parsed.reference ? ' with reference text.' : '.'}`);
+    } catch (error) {
+      setFixture(null);
+      setMessage(`Fixture unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   const run = async () => {
-    if (running) return;
+    if (running || !fixture || !modelId) return;
     setRunning(true);
     setMessage('Calling the canonical provider benchmark over IPC…');
-    try { setMessage(await onRun()); } catch (error) { setMessage(`Benchmark failed: ${error instanceof Error ? error.message : String(error)}`); }
+    try { setMessage(await onRun({ ...fixture, reference: reference.trim() || null })); } catch (error) { setMessage(`Benchmark failed: ${error instanceof Error ? error.message : String(error)}`); }
     finally { setRunning(false); }
   };
   const exportResults = () => {
@@ -28,8 +44,13 @@ export const BenchmarkScreen: React.FC<Props> = ({ benchmarkResults, onApplyPoli
       <section className="sori-pane space-y-5 p-5">
         <div className="flex items-center justify-between border-b border-[#E5E0D9] pb-3"><h2 className="sori-section-heading">Benchmark execution</h2><span className="rounded-full bg-[#F2EEE8] px-2.5 py-1 text-xs">{running ? 'Running' : 'Idle'}</span></div>
         <p className="text-sm text-[#68635D]">{message}</p>
-        <button className="sori-tactile-btn w-full rounded-xl py-2.5 text-sm disabled:opacity-50" disabled={running} onClick={run}><Play className="mr-1 inline h-4 w-4" />{running ? 'Running…' : 'Run provider benchmark'}</button>
-        <p className="text-xs text-[#98928A]">The desktop run requires a selected WAV/reference fixture. Use <code>sori benchmark --audio …</code> for real local evidence; missing provider/audio stays unavailable.</p>
+        <input ref={fileInput} className="hidden" type="file" accept=".wav,audio/wav" onChange={(event) => void chooseFile(event.target.files?.[0])} />
+        <button className="sori-tactile-btn w-full rounded-xl py-2.5 text-sm" onClick={() => fileInput.current?.click()}>Select real WAV fixture</button>
+        <label className="block text-xs text-[#68635D]">Reference transcript (optional)
+          <textarea className="mt-1 w-full rounded-lg border border-[#E5E0D9] bg-white p-2" rows={3} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Expected transcript for WER/CER" />
+        </label>
+        <button className="sori-tactile-btn w-full rounded-xl py-2.5 text-sm disabled:opacity-50" disabled={running || !fixture || !modelId} onClick={() => void run}><Play className="mr-1 inline h-4 w-4" />{running ? 'Running…' : fixture ? 'Run provider benchmark' : 'Run unavailable — select a WAV fixture'}</button>
+        <p className="text-xs text-[#98928A]">Only the selected mono PCM16 WAV and optional reference are sent to the canonical RuntimeClient. No fixture means unavailable, never fake success.</p>
       </section>
       <section className="sori-pane space-y-4 p-5">
         <div className="flex items-center justify-between border-b border-[#E5E0D9] pb-3"><div><h2 className="sori-section-heading">Persisted results</h2><p className="sori-meta-text">SQLite-backed provider results</p></div><button className="sori-tactile-btn rounded-lg px-3 py-2 text-xs" onClick={exportResults}><Download className="mr-1 inline h-4 w-4" />Export</button></div>

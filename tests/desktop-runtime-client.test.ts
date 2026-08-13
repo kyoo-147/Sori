@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DesktopIpcTransport, NativeIpcTransport, RuntimeClient, mapHistory, mapStatus, requestShape } from '../apps/desktop/src/runtime-client.js';
 import { responsePayload, type IpcResponse } from '../apps/desktop/src/ipc-contract.js';
+import { readBenchmarkFixture } from '../apps/desktop/src/benchmark-fixture.js';
 
 describe('desktop runtime IPC boundary', () => {
   it('creates every canonical serde externally tagged request', () => {
@@ -83,3 +84,27 @@ describe('desktop runtime IPC boundary', () => {
       { operation: 'set_config', params: { key: 'route.policy', value: 'NeverCloud' } },
     ]);
   });
+
+describe('desktop benchmark input contract', () => {
+  it('accepts only a real mono PCM16 WAV and preserves its samples', async () => {
+    const bytes = new Uint8Array(48);
+    const view = new DataView(bytes.buffer);
+    bytes.set([...Buffer.from('RIFF'), 40, 0, 0, 0, ...Buffer.from('WAVE')]);
+    bytes.set([...Buffer.from('fmt '), 16, 0, 0, 0], 12);
+    view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, 16_000, true); view.setUint16(34, 16, true);
+    bytes.set([...Buffer.from('data'), 4, 0, 0, 0], 36); view.setInt16(44, 16_384, true); view.setInt16(46, -16_384, true);
+    const fixture = await readBenchmarkFixture({ name: 'sample.wav', arrayBuffer: async () => bytes.buffer }, 'hello');
+    expect(fixture.audio[0].format).toMatchObject({ sample_rate_hz: 16_000, channels: 1, sample_format: 'F32' });
+    expect(fixture.audio[0].samples).toEqual([16_384 / 32_767, -16_384 / 32_767]);
+    expect(fixture.reference).toBe('hello');
+  });
+
+  it('routes a real fixture and reference through canonical benchmark IPC', async () => {
+    const requests: Array<{ operation: string; params?: Record<string, unknown> }> = [];
+    const transport = { source: 'backend' as const, request: async (operation: string, params?: Record<string, unknown>) => { requests.push({ operation, params }); return { Benchmark: { model: 'local-whisper' } }; } };
+    const client = new RuntimeClient(transport);
+    await client.runBenchmark('local-whisper', [{ captured_at: 'now', format: { sample_rate_hz: 16_000, channels: 1, sample_format: 'F32' }, samples: [0, 0.5] }], 'hello', 3);
+    expect(requests).toEqual([{ operation: 'run_benchmark', params: { model: 'local-whisper', audio: [{ captured_at: 'now', format: { sample_rate_hz: 16_000, channels: 1, sample_format: 'F32' }, samples: [0, 0.5] }], reference: 'hello', iterations: 3 } }]);
+    expect(JSON.stringify(requestShape('run_benchmark', requests[0].params))).toContain('"RunBenchmark"');
+  });
+});

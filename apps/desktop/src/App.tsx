@@ -46,6 +46,7 @@ export const applySidebarLiveWidth = (shell: Pick<HTMLElement, 'style'>, width: 
   shell.style.setProperty('--sori-sidebar-width-live', `${width}px`);
 };
 import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
+import type { BenchmarkFixture } from './benchmark-fixture';
 import { readPreference, readSettings, writePreference } from './preferences';
 
 export default function App() {
@@ -102,12 +103,14 @@ export default function App() {
   useEffect(() => {
     refreshRuntime().catch(() => undefined);
   }, [refreshRuntime]);
-  useEffect(() => {
-    runtimeClient.recentBenchmarks(20).then((result) => {
-      if (result.error || !Array.isArray(result.data)) return;
-      setBenchmarkResults(result.data.map((item) => { const value = item as { model?: string; startup?: { cold_ms: number }; latency?: { p50_ms: number }; memory?: { ram_bytes?: number | null }; accuracy?: { wer?: number | null }; real_time_factor?: number }; return { modelId: value.model ?? 'unknown', modelName: value.model ?? 'Unknown model', coldStartMs: value.startup?.cold_ms ?? null, warmLatencyMs: value.latency?.p50_ms ?? null, ramMb: value.memory?.ram_bytes == null ? null : value.memory.ram_bytes / 1_000_000, werPercent: value.accuracy?.wer == null ? null : value.accuracy.wer * 100, rtf: value.real_time_factor ?? null, insertionMs: null, passed: true }; }));
-    }).catch(() => undefined);
+  const refreshBenchmarks = useCallback(async () => {
+    const result = await runtimeClient.recentBenchmarks(20);
+    if (result.error || !Array.isArray(result.data)) return result.error;
+    setBenchmarkResults(result.data.map((item) => { const value = item as { model?: string; startup?: { cold_ms: number }; latency?: { p50_ms: number }; memory?: { ram_bytes?: number | null }; accuracy?: { wer?: number | null }; real_time_factor?: number }; return { modelId: value.model ?? 'unknown', modelName: value.model ?? 'Unknown model', coldStartMs: value.startup?.cold_ms ?? null, warmLatencyMs: value.latency?.p50_ms ?? null, ramMb: value.memory?.ram_bytes == null ? null : value.memory.ram_bytes / 1_000_000, werPercent: value.accuracy?.wer == null ? null : value.accuracy.wer * 100, rtf: value.real_time_factor ?? null, insertionMs: null, passed: true }; }));
+    return null;
   }, [runtimeClient]);
+
+  useEffect(() => { void refreshBenchmarks(); }, [refreshBenchmarks]);
 
   useEffect(() => {
     writePreference('settings', settings);
@@ -217,7 +220,15 @@ export default function App() {
     const result = await runtimeClient.applyBenchmarkRecommendation(model);
     setRuntimeError(result.error ?? (result.data.accepted ? null : result.data.detail));
   };
-  const runBenchmark = async () => 'Needs Wiring: select a real WAV/reference fixture in the desktop runner. No metrics were fabricated.';
+  const runBenchmark = async (fixture: BenchmarkFixture) => {
+    if (!activeWarmModel) return 'Benchmark unavailable: no active model is configured.';
+    const result = await runtimeClient.runBenchmark(activeWarmModel.id, fixture.audio, fixture.reference, 5);
+    setRuntimeSource(result.source);
+    if (result.error) { setRuntimeError(result.error); return `Benchmark unavailable: ${result.error}`; }
+    const refreshError = await refreshBenchmarks();
+    if (refreshError) { setRuntimeError(refreshError); return `Benchmark completed, but persisted results could not refresh: ${refreshError}`; }
+    return 'Benchmark completed and persisted results refreshed.';
+  };
 
   return (
     <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
@@ -338,6 +349,7 @@ export default function App() {
             {(activeScreen === 'benchmark' || activeScreen === 'benchmarks') && (
               <BenchmarkScreen
                 benchmarkResults={benchmarkResults}
+                modelId={activeWarmModel?.id ?? null}
                 onApplyPolicy={handleApplyRecommendedPolicy}
                 onRun={runBenchmark}
               />

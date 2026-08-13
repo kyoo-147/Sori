@@ -294,6 +294,15 @@ async fn main() -> Result<()> {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(20) as usize;
                 let chunks = runtime.stop_audio(false).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                let (sample_count, sample_rate, peak, rms) = runtime.captured_audio_stats();
+                info!(chunks, sample_count, sample_rate, peak, rms, "captured audio diagnostics");
+                if let Some(path) = std::env::var_os("SORI_CAPTURE_DEBUG_WAV") {
+                    let wav = sori_provider_whisper::encode_wav(runtime.captured_audio())
+                        .map_err(|error| sori_ipc::IpcError::Transport(format!("capture diagnostics WAV encoding failed: {error}")))?;
+                    std::fs::write(&path, wav)
+                        .map_err(|error| sori_ipc::IpcError::Transport(format!("capture diagnostics WAV write failed ({}): {error}", path.to_string_lossy())))?;
+                    info!(path = %path.to_string_lossy(), "wrote captured audio diagnostics WAV");
+                }
                 let route_config = handler_store.setting("resource.route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.unwrap_or_else(|| default_resource("route"));
                 let selected_model = route_config.get("activeModelId").and_then(|id| id.as_str()).unwrap_or(whisper_model.as_str());
                 let selected_model = selected_model.strip_prefix("whisper.cpp/").unwrap_or(selected_model);

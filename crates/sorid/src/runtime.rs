@@ -187,6 +187,36 @@ impl<B: EventBus> DaemonRuntime<B> {
 
     /// Transcribe captured chunks through the configured provider boundary.
     /// Return the most recently stopped capture exactly once.
+    pub fn captured_audio_stats(&self) -> (usize, u32, f32, f32) {
+        let samples = self
+            .captured_audio
+            .iter()
+            .flat_map(|chunk| chunk.samples.iter());
+        let mut count = 0usize;
+        let mut peak = 0.0f32;
+        let mut energy = 0.0f32;
+        for sample in samples {
+            count += 1;
+            peak = peak.max(sample.abs());
+            energy += sample * sample;
+        }
+        let rms = if count == 0 {
+            0.0
+        } else {
+            (energy / count as f32).sqrt()
+        };
+        let sample_rate = self
+            .captured_audio
+            .first()
+            .map(|chunk| chunk.format.sample_rate_hz)
+            .unwrap_or(0);
+        (count, sample_rate, peak, rms)
+    }
+
+    pub fn captured_audio(&self) -> &[AudioChunk] {
+        &self.captured_audio
+    }
+
     pub fn take_captured_audio(&mut self) -> Vec<AudioChunk> {
         std::mem::take(&mut self.captured_audio)
     }
@@ -486,6 +516,10 @@ mod tests {
         }));
         runtime.start_audio().unwrap();
         assert_eq!(runtime.stop_audio(false).unwrap(), 2);
+        let (samples, sample_rate, peak, rms) = runtime.captured_audio_stats();
+        assert_eq!((samples, sample_rate), (2, 16_000));
+        assert!(peak > 0.0);
+        assert!(rms > 0.0);
         assert_eq!(runtime.take_captured_audio().len(), 2);
         assert!(runtime.take_captured_audio().is_empty());
         let kinds = events

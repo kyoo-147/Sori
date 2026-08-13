@@ -141,12 +141,13 @@ async function main(): Promise<void> {
     record({ name: 'memory growth observation', status: memoryBefore !== undefined && memoryAfter !== undefined ? 'PASS' : 'UNVERIFIED', detail: memoryBefore !== undefined && memoryAfter !== undefined ? `working set ${memoryBefore}KB -> ${memoryAfter}KB after five cycles` : 'Windows working-set sampling unavailable on this host', evidence: { memoryBefore, memoryAfter } });
 
     const start = await request('DictationStart');
-    await delay(100);
+    const captureWaitMs = Number(process.env.SORI_E2E_CAPTURE_MS ?? 100);
+    await delay(captureWaitMs);
     const stopPromise = request('DictationStop', 5_000);
     const concurrentStatuses = await Promise.all(Array.from({ length: 5 }, () => request('Status', 1_500)));
     const stopped = await stopPromise;
     const maxStatusMs = Math.max(...concurrentStatuses.map((result) => result.durationMs));
-    record({ name: 'responsive status during recording/stop', status: concurrentStatuses.every((result) => result.ok) && maxStatusMs < 1_500 ? 'PASS' : 'FAIL', detail: `5 statuses max=${maxStatusMs}ms, stop=${stopped.durationMs}ms; start=${start.ok ? 'accepted' : 'unavailable'}`, evidence: { start, concurrentStatuses, stopped } });
+    record({ name: 'responsive status during recording/stop', status: concurrentStatuses.every((result) => result.ok) && maxStatusMs < 1_500 ? 'PASS' : 'FAIL', detail: `captureWait=${captureWaitMs}ms, 5 statuses max=${maxStatusMs}ms, stop=${stopped.durationMs}ms; start=${start.ok ? 'accepted' : 'unavailable'}`, evidence: { start, captureWaitMs, concurrentStatuses, stopped } });
 
     await stop(daemon);
     daemon = await launch(db);

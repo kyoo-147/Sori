@@ -19,9 +19,9 @@ pub mod text_injection;
 pub mod transcript;
 
 pub use audio::{
-    AudioCaptureEngine, AudioChunk, AudioDeviceInfo, AudioDeviceProvider, AudioEngine, AudioError,
-    AudioFormat, CaptureConfig, DspPipelineConfig, EnergyVadStub, SampleFormat, VoiceActivity,
-    VoiceActivityDetector,
+    AudioCaptureEngine, AudioChunk, AudioDeviceInfo, AudioDeviceProvider, AudioDsp, AudioEngine,
+    AudioError, AudioFormat, CaptureConfig, DspPipelineConfig, EnergyVad, EnergyVadStub,
+    SampleFormat, VoiceActivity, VoiceActivityDetector,
 };
 pub use benchmark::{
     AccuracyMetrics, BenchmarkResult, LatencyMetrics, MemoryMetrics, ReliabilityMetrics,

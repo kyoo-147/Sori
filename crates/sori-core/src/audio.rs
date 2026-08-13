@@ -109,6 +109,79 @@ impl Default for DspPipelineConfig {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AudioDsp {
+    config: DspPipelineConfig,
+    carry: Vec<f32>,
+}
+
+impl AudioDsp {
+    pub fn new(config: DspPipelineConfig) -> Result<Self, AudioError> {
+        config.validate()?;
+        Ok(Self {
+            config,
+            carry: Vec::new(),
+        })
+    }
+
+    pub fn process(&mut self, chunk: &AudioChunk) -> Result<AudioChunk, AudioError> {
+        let input_rate = chunk.format.sample_rate_hz;
+        if input_rate == 0 || chunk.format.channels == 0 {
+            return Err(AudioError::InvalidConfiguration(
+                "input audio format is invalid".into(),
+            ));
+        }
+        let mono = if chunk.format.channels == 1 {
+            chunk.samples.clone()
+        } else {
+            chunk
+                .samples
+                .chunks(chunk.format.channels as usize)
+                .map(|frame| frame.iter().copied().sum::<f32>() / frame.len() as f32)
+                .collect()
+        };
+        let samples = if input_rate == self.config.target_sample_rate_hz {
+            mono
+        } else {
+            linear_resample(
+                &mono,
+                input_rate,
+                self.config.target_sample_rate_hz,
+                &mut self.carry,
+            )
+        };
+        Ok(AudioChunk {
+            captured_at: chunk.captured_at,
+            format: AudioFormat {
+                sample_rate_hz: self.config.target_sample_rate_hz,
+                channels: 1,
+                sample_format: SampleFormat::F32,
+            },
+            samples,
+        })
+    }
+}
+
+fn linear_resample(input: &[f32], from: u32, to: u32, carry: &mut Vec<f32>) -> Vec<f32> {
+    if input.is_empty() {
+        return Vec::new();
+    }
+    let mut source = std::mem::take(carry);
+    source.extend_from_slice(input);
+    let step = from as f64 / to as f64;
+    let output_len = ((source.len().saturating_sub(1)) as f64 / step).floor() as usize;
+    let mut output = Vec::with_capacity(output_len);
+    for index in 0..output_len {
+        let position = index as f64 * step;
+        let left = position.floor() as usize;
+        let fraction = (position - left as f64) as f32;
+        output.push(source[left] * (1.0 - fraction) + source[left + 1] * fraction);
+    }
+    let consumed = (output_len as f64 * step).floor() as usize;
+    *carry = source[consumed.min(source.len())..].to_vec();
+    output
+}
+
 impl DspPipelineConfig {
     pub fn validate(&self) -> Result<(), AudioError> {
         if self.target_sample_rate_hz == 0 || self.target_channels == 0 {
@@ -130,6 +203,59 @@ pub trait VoiceActivityDetector: Send {
 /// Deterministic energy-based stub for tests and development. It is not suitable
 /// for production speech detection.
 #[derive(Debug, Clone)]
+pub struct EnergyVad {
+    threshold: f32,
+    end_hangover: u32,
+    silent_chunks: u32,
+    speaking: bool,
+}
+
+impl EnergyVad {
+    pub fn new(threshold: f32, end_hangover: u32) -> Self {
+        Self {
+            threshold: threshold.max(0.0),
+            end_hangover: end_hangover.max(1),
+            silent_chunks: 0,
+            speaking: false,
+        }
+    }
+}
+
+impl VoiceActivityDetector for EnergyVad {
+    fn process(&mut self, samples: &[f32]) -> VoiceActivity {
+        let rms = if samples.is_empty() {
+            0.0
+        } else {
+            (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt()
+        };
+        if rms >= self.threshold {
+            let activity = if self.speaking {
+                VoiceActivity::SpeechContinues
+            } else {
+                VoiceActivity::SpeechStarted
+            };
+            self.speaking = true;
+            self.silent_chunks = 0;
+            activity
+        } else if self.speaking {
+            self.silent_chunks += 1;
+            if self.silent_chunks >= self.end_hangover {
+                self.speaking = false;
+                self.silent_chunks = 0;
+                VoiceActivity::SpeechEnded
+            } else {
+                VoiceActivity::SpeechContinues
+            }
+        } else {
+            VoiceActivity::Silence
+        }
+    }
+    fn reset(&mut self) {
+        self.speaking = false;
+        self.silent_chunks = 0;
+    }
+}
+
 pub struct EnergyVadStub {
     threshold: f32,
     speaking: bool,
@@ -244,5 +370,46 @@ mod tests {
         assert_eq!(vad.process(&[0.0]), VoiceActivity::SpeechEnded);
         vad.reset();
         assert_eq!(vad.process(&[0.0]), VoiceActivity::Silence);
+    }
+}
+
+#[cfg(test)]
+mod production_audio_tests {
+    use super::*;
+
+    fn chunk(rate: u32, channels: u16, samples: Vec<f32>) -> AudioChunk {
+        AudioChunk {
+            captured_at: OffsetDateTime::UNIX_EPOCH,
+            format: AudioFormat {
+                sample_rate_hz: rate,
+                channels,
+                sample_format: SampleFormat::F32,
+            },
+            samples,
+        }
+    }
+
+    #[test]
+    fn dsp_mixes_stereo_and_resamples_to_16khz() {
+        let mut dsp = AudioDsp::new(DspPipelineConfig::default()).unwrap();
+        let output = dsp
+            .process(&chunk(
+                48_000,
+                2,
+                vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0],
+            ))
+            .unwrap();
+        assert_eq!(output.format.sample_rate_hz, 16_000);
+        assert_eq!(output.format.channels, 1);
+        assert_eq!(output.samples.len(), 1);
+        assert!((output.samples[0] - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn vad_requires_hangover_before_ending_speech() {
+        let mut vad = EnergyVad::new(0.1, 2);
+        assert_eq!(vad.process(&[0.2, -0.2]), VoiceActivity::SpeechStarted);
+        assert_eq!(vad.process(&[0.0]), VoiceActivity::SpeechContinues);
+        assert_eq!(vad.process(&[0.0]), VoiceActivity::SpeechEnded);
     }
 }

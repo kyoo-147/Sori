@@ -1,9 +1,9 @@
 //! Non-blocking daemon lifecycle state machine.
 
 use sori_core::{
-    AudioCaptureEngine, AudioChunk, AudioError, EnergyVadStub, EventBus, EventKind,
-    HistoryRepository, ModelError, ModelId, ModelProvider, ModelRoute, TextInjector, TextTarget,
-    Transcript, VoiceActivity, VoiceActivityDetector, complete_dictation,
+    AudioCaptureEngine, AudioChunk, AudioDsp, AudioError, DspPipelineConfig, EnergyVad, EventBus,
+    EventKind, HistoryRepository, ModelError, ModelId, ModelProvider, ModelRoute, TextInjector,
+    TextTarget, Transcript, VoiceActivity, VoiceActivityDetector, complete_dictation,
     event::serde_json_like::Value,
 };
 use std::sync::Arc;
@@ -36,7 +36,8 @@ pub struct DaemonRuntime<B> {
 }
 
 struct AudioSession {
-    vad: EnergyVadStub,
+    dsp: AudioDsp,
+    vad: EnergyVad,
     chunks: usize,
 }
 
@@ -121,7 +122,9 @@ impl<B: EventBus> DaemonRuntime<B> {
             }
         };
         self.audio_session = Some(AudioSession {
-            vad: EnergyVadStub::new(0.02),
+            dsp: AudioDsp::new(DspPipelineConfig::default())
+                .expect("default DSP configuration is valid"),
+            vad: EnergyVad::new(0.02, 1),
             chunks: 0,
         });
         self.publish(EventKind::AudioStarted, Value::String(device.name));
@@ -136,7 +139,13 @@ impl<B: EventBus> DaemonRuntime<B> {
             .ok_or_else(|| AudioError::Pipeline("no dictation session is running".into()))?;
         let mut captured = Vec::new();
         let result: Result<usize, AudioError> = (|| {
-            for _ in 0..64 {
+            self.audio
+                .as_mut()
+                .ok_or_else(|| {
+                    AudioError::BackendUnavailable("microphone capture is unavailable".into())
+                })?
+                .stop_capture();
+            loop {
                 let next = self
                     .audio
                     .as_mut()
@@ -145,6 +154,7 @@ impl<B: EventBus> DaemonRuntime<B> {
                     })?
                     .next_chunk()?;
                 let Some(chunk) = next else { break };
+                let chunk = session.dsp.process(&chunk)?;
                 session.chunks += 1;
                 captured.push(chunk.clone());
                 self.publish(

@@ -128,10 +128,12 @@ pub struct CpalAudioEngine {
     provider: CpalAudioDeviceProvider,
     config: CaptureConfig,
     input_format: AudioFormat,
+    native_format: AudioFormat,
     stream: Option<Stream>,
     packets: Option<Receiver<Packet>>,
     errors: Option<Receiver<AudioError>>,
     pending: VecDeque<f32>,
+    dsp: sori_core::AudioDsp,
 }
 
 impl CpalAudioEngine {
@@ -140,11 +142,14 @@ impl CpalAudioEngine {
         Ok(Self {
             provider: CpalAudioDeviceProvider::new(),
             input_format: config.format.clone(),
+            native_format: config.format.clone(),
             config,
             stream: None,
             packets: None,
             errors: None,
             pending: VecDeque::new(),
+            dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default())
+                .expect("default DSP configuration is valid"),
         })
     }
 
@@ -155,11 +160,14 @@ impl CpalAudioEngine {
         config.validate()?;
         Ok(Self {
             input_format: config.format.clone(),
+            native_format: config.format.clone(),
             config,
             provider,
             stream: None,
             packets: None,
             errors: None,
+            dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default())
+                .expect("default DSP configuration is valid"),
             pending: VecDeque::new(),
         })
     }
@@ -186,13 +194,14 @@ impl CpalAudioEngine {
                 supported.sample_format()
             )));
         }
-        // The adapter currently exposes its post-callback shape: mono f32. The
-        // native rate is retained until a resampler is added.
-        self.input_format = AudioFormat {
+        // Keep native metadata for DSP; public chunks are converted to the
+        // configured target format after callback collection.
+        self.native_format = AudioFormat {
             sample_rate_hz: supported.sample_rate().0,
-            channels: 1,
+            channels: supported.channels(),
             sample_format: SampleFormat::F32,
         };
+        self.input_format = self.config.format.clone();
         let stream_config: StreamConfig = supported.config();
         let (tx, rx) = mpsc::sync_channel(8);
         let (error_tx, error_rx) = mpsc::sync_channel(1);
@@ -252,11 +261,12 @@ impl CpalAudioEngine {
             .pending
             .drain(..self.config.chunk_size_samples as usize)
             .collect();
-        Ok(Some(AudioChunk {
+        let chunk = AudioChunk {
             captured_at: OffsetDateTime::now_utc(),
-            format: self.input_format(),
+            format: self.native_format.clone(),
             samples,
-        }))
+        };
+        self.dsp.process(&chunk).map(Some)
     }
 
     pub fn is_running(&self) -> bool {
@@ -296,11 +306,12 @@ impl AudioEngine for CpalAudioEngine {
             .pending
             .drain(..self.config.chunk_size_samples as usize)
             .collect();
-        Ok(Some(AudioChunk {
+        let chunk = AudioChunk {
             captured_at: OffsetDateTime::now_utc(),
-            format: self.input_format(),
+            format: self.native_format.clone(),
             samples,
-        }))
+        };
+        self.dsp.process(&chunk).map(Some)
     }
 }
 
@@ -384,7 +395,7 @@ impl AudioCaptureEngine for CpalAudioController {
         let config = self.config.clone();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let (command_tx, command_rx) = mpsc::channel();
-        let (chunk_tx, chunk_rx) = mpsc::sync_channel(8);
+        let (chunk_tx, chunk_rx) = mpsc::channel();
         let worker = std::thread::spawn(move || {
             let mut engine = match CpalAudioEngine::new(config) {
                 Ok(engine) => engine,
@@ -456,7 +467,6 @@ impl AudioCaptureEngine for CpalAudioController {
         if let Some(command) = self.commands.take() {
             let _ = command.send(());
         }
-        self.chunks.take();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -637,9 +647,11 @@ mod lifecycle_tests {
         let mut engine = CpalAudioEngine {
             provider: CpalAudioDeviceProvider::new(),
             input_format: config.format.clone(),
+            native_format: config.format.clone(),
             config,
             stream: None,
             packets: Some(packet_rx),
+            dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default()).unwrap(),
             errors: Some(error_rx),
             pending: VecDeque::new(),
         };

@@ -51,16 +51,83 @@ pub struct WhisperCppConfig {
     pub model_dir: Option<PathBuf>,
 }
 
+#[derive(Debug, Default)]
+struct WhisperFileConfig {
+    executable: Option<PathBuf>,
+    model_dir: Option<PathBuf>,
+}
+
+fn default_config_path() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(|root| PathBuf::from(root).join("Sori").join("whisper.json"))
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+            .map(|root| root.join("sori").join("whisper.json"))
+    }
+}
+
+fn load_file_config() -> Result<Option<WhisperFileConfig>, ModelError> {
+    let explicit = std::env::var_os("SORI_WHISPER_CONFIG").is_some();
+    let path = std::env::var_os("SORI_WHISPER_CONFIG")
+        .map(PathBuf::from)
+        .or_else(default_config_path);
+    let Some(path) = path else { return Ok(None) };
+    if !path.exists() {
+        return if explicit {
+            Err(ModelError::Inference(format!(
+                "Sori Whisper config does not exist: {}",
+                path.display()
+            )))
+        } else {
+            Ok(None)
+        };
+    }
+    let text = fs::read_to_string(&path).map_err(|error| {
+        ModelError::Inference(format!(
+            "could not read Sori Whisper config ({}): {error}",
+            path.display()
+        ))
+    })?;
+    let value: Value = serde_json::from_str(&text).map_err(|error| {
+        ModelError::Inference(format!(
+            "invalid Sori Whisper config ({}): {error}",
+            path.display()
+        ))
+    })?;
+    let path_field = |key: &str| -> Result<Option<PathBuf>, ModelError> {
+        match value.get(key) {
+            None => Ok(None),
+            Some(Value::String(value)) if !value.trim().is_empty() => {
+                Ok(Some(PathBuf::from(value)))
+            }
+            Some(_) => Err(ModelError::Inference(format!(
+                "Sori Whisper config field `{key}` must be a non-empty string"
+            ))),
+        }
+    };
+    Ok(Some(WhisperFileConfig {
+        executable: path_field("executable")?,
+        model_dir: path_field("model_dir")?,
+    }))
+}
+
 impl WhisperCppConfig {
-    /// Discover the CLI and optional model directory from explicit values or
-    /// `SORI_WHISPER_CPP_BIN` / `WHISPER_CPP_BIN` and `SORI_WHISPER_MODEL_DIR`.
+    /// Discover environment overrides, then restart-persistent Sori config, then PATH.
     pub fn discover() -> Result<Self, ModelError> {
+        let file_config = load_file_config()?;
         let executable = std::env::var_os("SORI_WHISPER_CPP_BIN")
             .or_else(|| std::env::var_os("WHISPER_CPP_BIN"))
             .map(PathBuf::from)
+            .or_else(|| file_config.as_ref().and_then(|config| config.executable.clone()))
             .or_else(|| find_on_path(if cfg!(windows) { "whisper-cli.exe" } else { "whisper-cli" }))
             .or_else(|| find_on_path(if cfg!(windows) { "main.exe" } else { "main" }))
-            .ok_or_else(|| ModelError::Inference("whisper.cpp executable was not found; set SORI_WHISPER_CPP_BIN or install whisper-cli on PATH".into()))?;
+            .ok_or_else(|| ModelError::Inference("whisper.cpp executable was not found; set SORI_WHISPER_CPP_BIN or configure Sori's whisper.json".into()))?;
         if !executable.is_file() {
             return Err(ModelError::Inference(format!(
                 "whisper.cpp executable does not exist: {}",
@@ -69,7 +136,8 @@ impl WhisperCppConfig {
         }
         let model_dir = std::env::var_os("SORI_WHISPER_MODEL_DIR")
             .or_else(|| std::env::var_os("WHISPER_CPP_MODEL_DIR"))
-            .map(PathBuf::from);
+            .map(PathBuf::from)
+            .or_else(|| file_config.and_then(|config| config.model_dir));
         if let Some(dir) = &model_dir {
             if !dir.is_dir() {
                 return Err(ModelError::Inference(format!(

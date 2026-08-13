@@ -9,6 +9,16 @@ code. The provider encodes `AudioChunk` samples as PCM16 WAV, while the producti
 command runner owns child-process lifetime, cancellation, timeouts, and stderr capture.
 
 This keeps `sori-core` independent of Whisper and makes the provider replaceable. It
+This keeps `sori-core` independent of Whisper and makes the provider replaceable. It
+
+The provider exposes `discover_models()` for file-backed model discovery,
+`verified_model_path()` for canonical, model-directory-contained resolution, and
+`WhisperLifecycle`/`WhisperStatus` (`Unavailable`, `Loading`, `Ready`, `Running`,
+`Failed`) for truthful UI/runtime reporting. Timed runner calls return
+`TranscriptionResult` with measured wall-clock latency. Provider tests use the
+`ProcessRunner` seam, so missing binaries/models, cancellation, non-zero exits,
+malformed output, and cleanup failures remain explicit errors rather than fake
+transcripts.
 also lets packaged releases ship a tested whisper.cpp binary per platform without
 making Rust builds depend on CMake, CUDA, Metal, or platform toolchains.
 

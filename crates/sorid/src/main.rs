@@ -256,6 +256,21 @@ async fn main() -> Result<()> {
                 if history_enabled { handler_store.try_retain_history(history_retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?; }
                 Response::Transcript(result.transcript)
             }
+            Request::VoiceEdit { selection, instruction, approved } => {
+                if !approved {
+                    sori_core::voice_edit::preview(&selection, &instruction)
+                        .map(Response::VoiceEdit)
+                        .map_err(|error| sori_ipc::IpcError::Transport(format!("voice edit preview unavailable: {error}")))?
+                } else {
+                    let (replacement, diff) = sori_core::voice_edit::approve(&selection, &instruction, None)
+                        .map_err(|error| sori_ipc::IpcError::Transport(format!("voice edit replacement unavailable: {error}")))?;
+                    let mut injector = RuntimeInjector::new();
+                    let target = RuntimeTarget;
+                    let result = sori_core::TextInjector::inject(&mut injector, &target, &sori_core::TextInjectionRequest { text: replacement.clone(), dry_run: false })
+                        .map_err(|error| sori_ipc::IpcError::Transport(format!("voice edit injection failed: {error}")))?;
+                    Response::VoiceEdit(sori_core::VoiceEditResponse { accepted: matches!(result.outcome, sori_core::InjectionOutcome::Inserted), transformed_text: Some(replacement), diff: Some(diff), detail: "Replacement applied through canonical text injection.".into() })
+                }
+            }
             Request::DictationCancel => {
                 let chunks = runtime.stop_audio(true).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 let _ = runtime.take_captured_audio();

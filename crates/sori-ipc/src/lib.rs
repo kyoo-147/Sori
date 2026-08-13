@@ -36,6 +36,11 @@ pub enum Request {
         model: ModelId,
         audio: Vec<AudioChunk>,
     },
+    VoiceEdit {
+        selection: sori_core::VoiceEditSelection,
+        instruction: String,
+        approved: bool,
+    },
     Doctor,
     ConfigSummary,
     RecentHistory {
@@ -71,6 +76,7 @@ pub enum Response {
     Error(IpcErrorResponse),
     Control(ControlResponse),
     Transcript(Transcript),
+    VoiceEdit(sori_core::VoiceEditResponse),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -482,6 +488,11 @@ impl Transport for MockTransport {
             | Request::Dictation { .. } => {
                 return Err(IpcError::Transport(
                     "mock transport does not execute dictation".into(),
+                ));
+            }
+            Request::VoiceEdit { .. } => {
+                return Err(IpcError::Transport(
+                    "mock transport does not execute Voice Edit; connect sorid for selection and injection evidence".into(),
                 ));
             }
             Request::Doctor => Response::Doctor(DoctorResponse {

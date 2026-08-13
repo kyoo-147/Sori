@@ -13,6 +13,9 @@ or daemon ownership of the Rust IPC contract.
 - Loopback TCP now has bounded connect (500 ms), read/write (750 ms), and the
   native command has a 2 s overall request deadline.
 - Debug builds emit `[sori_ipc] completed in ...` timing diagnostics without
+- Native forwarding rejects work above four in-flight requests, assigns bounded
+  request IDs, and exposes `sori_ipc_cancel`; cancellation is cooperative and
+  the transport deadline remains the hard stop for a blocking socket worker.
   changing the response contract.
 - A native Tauri runtime no longer retries the same request sequentially over
   HTTP after a daemon error. HTTP is selected directly only when native Tauri is

@@ -101,7 +101,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   };
 
   return (
-    <div role="toolbar" aria-label="Sori window title bar" data-tauri-drag-region="true" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
+    <div role="toolbar" aria-label="Sori window title bar" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
       <button
         type="button"
         onClick={onToggleMobileSidebar}
@@ -175,7 +175,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         </button>
 
 
-        <div className="sori-window-controls flex shrink-0 items-center" data-tauri-drag-region="false" role="group" aria-label="Window controls">
+        <div className="sori-window-controls flex shrink-0 items-center" role="group" aria-label="Window controls">
           <button type="button" aria-label="Minimize window" title="Minimize" onClick={() => void runWindowAction('minimize')} className="sori-window-control">
             <Minus className="h-4 w-4" aria-hidden="true" />
           </button>

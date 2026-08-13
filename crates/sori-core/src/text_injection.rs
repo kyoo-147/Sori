@@ -541,10 +541,10 @@ pub mod windows {
                 },
             };
             let inputs = [
-                key(VK_CONTROL as u16, 0),
-                key(VK_V as u16, 0),
-                key(VK_V as u16, KEYEVENTF_KEYUP),
-                key(VK_CONTROL as u16, KEYEVENTF_KEYUP),
+                key(VK_CONTROL, 0),
+                key(VK_V, 0),
+                key(VK_V, KEYEVENTF_KEYUP),
+                key(VK_CONTROL, KEYEVENTF_KEYUP),
             ];
             let sent = unsafe {
                 SendInput(
@@ -577,10 +577,10 @@ pub mod windows {
                 VK_LMENU, VK_LSHIFT, VK_LWIN,
             };
             let keys = [
-                VK_CONTROL as u16,
-                VK_LSHIFT as u16,
-                VK_LMENU as u16,
-                VK_LWIN as u16,
+                VK_CONTROL,
+                VK_LSHIFT,
+                VK_LMENU,
+                VK_LWIN,
             ];
             let inputs: Vec<INPUT> = keys
                 .into_iter()

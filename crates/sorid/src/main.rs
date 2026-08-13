@@ -27,7 +27,7 @@ impl sori_core::TextTarget for RuntimeTarget {
         sori_core::TextTargetCapabilities {
             accepts_text: true,
             supports_direct_input: cfg!(windows),
-            supports_clipboard_paste: false,
+            supports_clipboard_paste: true,
             supports_undo: false,
             requires_elevation: false,
         }

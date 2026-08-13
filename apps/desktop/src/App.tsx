@@ -128,28 +128,46 @@ export default function App() {
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     if (sidebarCollapsed) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const owner = event.currentTarget;
+    const pointerId = event.pointerId;
+    owner.setPointerCapture(pointerId);
     resizeWidth.current = sidebarWidth;
     const startX = event.clientX;
     const startWidth = sidebarWidth;
+    let finished = false;
+    const applyLiveWidth = () => {
+      document.documentElement.style.setProperty('--sori-sidebar-width-live', `${resizeWidth.current}px`);
+    };
     const move = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId || finished) return;
       const next = Math.max(180, Math.min(360, startWidth + moveEvent.clientX - startX));
       resizeWidth.current = next;
       if (resizeFrame.current === null) {
         resizeFrame.current = window.requestAnimationFrame(() => {
-          document.documentElement.style.setProperty('--sori-sidebar-width-live', `${resizeWidth.current}px`);
+          applyLiveWidth();
           resizeFrame.current = null;
         });
       }
     };
-    const stop = () => {
+    const stop = (stopEvent?: PointerEvent) => {
+      if ((stopEvent && stopEvent.pointerId !== pointerId) || finished) return;
+      finished = true;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      owner.removeEventListener('lostpointercapture', stop);
+      if (resizeFrame.current !== null) {
+        window.cancelAnimationFrame(resizeFrame.current);
+        resizeFrame.current = null;
+      }
       setSidebarWidth(resizeWidth.current);
-      document.documentElement.style.setProperty('--sori-sidebar-width-live', `${resizeWidth.current}px`);
+      applyLiveWidth();
+      if (owner.hasPointerCapture(pointerId)) owner.releasePointerCapture(pointerId);
     };
     window.addEventListener('pointermove', move, { passive: true });
-    window.addEventListener('pointerup', stop, { once: true });
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    owner.addEventListener('lostpointercapture', stop);
   };
 
   const setPaused = async (paused: boolean) => {

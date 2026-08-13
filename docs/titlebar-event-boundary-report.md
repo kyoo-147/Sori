@@ -39,3 +39,15 @@ Native action failures now emit structured `console.error` evidence containing a
 ## Native evidence boundary
 
 No Tauri/Windows native interaction was claimed or demonstrated in this worker run. Browser/source tests prove the event-boundary contract only. Native titlebar click, drag, maximize/restore, minimize, and close behavior still require a real Tauri run with foreground-window/PID evidence.
+
+## Fallback integrator resize follow-up
+
+The sidebar resize ownership fix is included in the follow-up PR update. `App.tsx` now binds the session to the initiating `pointerId`, ignores unrelated pointer moves, and finalizes on `pointerup`, `pointercancel`, or `lostpointercapture`. It cancels a pending animation frame before committing the final live width, preventing a stale frame from rewriting CSS after pointerup.
+
+Additional validation:
+
+- `npx vitest run tests/desktop-window-controls.test.ts tests/desktop-viewport-userflow.test.ts` — PASS (15 tests)
+- `npm run desktop:check` — PASS
+- `npm run e2e:desktop-native` — `SKIP`; the script built the real Tauri executable, then refused to attach because `127.0.0.1:17373` was already owned by an unknown daemon: `loopback IPC 127.0.0.1:17373 is already owned by a daemon; refusing to attach to an unknown process`.
+
+No native controls or resize interaction are claimed verified. The native script's executable build succeeded, but its guarded runtime evidence is SKIP due to endpoint ownership.

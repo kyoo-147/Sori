@@ -23,6 +23,19 @@ describe('desktop shell and truthful preview contracts', () => {
     expect(sidebar).toContain('max-md:top-10');
   });
 
+  it('keeps sidebar resize owned by one pointer through the pre-pointerup commit', () => {
+    const app = desktopSource('App.tsx');
+    expect(app).toContain('const pointerId = event.pointerId;');
+    expect(app).toContain('moveEvent.pointerId !== pointerId || finished');
+    expect(app).toContain("window.addEventListener('pointermove', move");
+    expect(app).toContain("window.addEventListener('pointerup', stop)");
+    expect(app).toContain("window.addEventListener('pointercancel', stop)");
+    expect(app).toContain("owner.addEventListener('lostpointercapture', stop)");
+    expect(app).toContain('window.cancelAnimationFrame(resizeFrame.current)');
+    expect(app).toContain('setSidebarWidth(resizeWidth.current);');
+    expect(app).toContain('applyLiveWidth();');
+  });
+
   it('keeps the primary navigation labels explicit and stable', () => {
     const sidebar = desktopSource('components/DesktopSidebar.tsx');
     expect(sidebar).toContain("label: 'Home'");

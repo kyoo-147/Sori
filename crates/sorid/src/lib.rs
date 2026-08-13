@@ -7,7 +7,7 @@ pub use hotkey::{HotkeyService, HotkeyServiceStatus, start_hotkey_service};
 pub mod config;
 pub mod runtime;
 
-pub use config::{DaemonConfig, HotkeyConfig};
+pub use config::{DaemonConfig, HotkeyConfig, parse_hotkey_binding};
 pub use runtime::{DaemonRuntime, RuntimeState, RuntimeTransitionError};
 
 use sori_core::{Event, EventBus};

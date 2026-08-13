@@ -3,7 +3,7 @@ export type ProfileMode = 'Basic' | 'Coding' | 'Email' | 'Chat' | 'Terminal' | '
 export type PrivacyMode = 'Auto' | 'LocalOnly' | 'CloudAllowed' | 'NeverCloud';
 export type RuntimeActivity = 'Idle' | 'Paused' | 'Error' | 'Stopping';
 export interface RouteSummary { prefer_local: boolean; allow_cloud: boolean; prefer_warm_runtime: boolean; optimize_battery: boolean; }
-export type EventKind = 'AudioStarted' | 'HotkeyPressed' | 'HotkeyReleased' | 'HotkeyCancelled' | 'VadSpeechStarted' | 'AsrSelected' | 'TranscriptPartial' | 'TranscriptFinal' | 'IntentDetected' | 'ActionBefore' | 'ActionAfter' | 'PermissionRequested' | 'ModelFallback' | 'ExtensionInvoked' | 'TtsStarted' | 'TtsFinished' | 'SpeakerVerified' | 'SpeakerRejected' | 'DaemonReady' | 'DaemonPaused' | 'DaemonError' | 'DaemonShuttingDown' | 'CapabilityAvailable' | 'CapabilityUnavailable';
+export type EventKind = 'AudioStarted' | 'AudioChunkCaptured' | 'AudioStopped' | 'AudioError' | 'HotkeyPressed' | 'HotkeyReleased' | 'HotkeyCancelled' | 'VadSpeechStarted' | 'VadSpeechEnded' | 'AsrSelected' | 'TranscriptPartial' | 'TranscriptFinal' | 'IntentDetected' | 'ActionBefore' | 'ActionAfter' | 'PermissionRequested' | 'ModelFallback' | 'DictationCancelled' | 'ExtensionInvoked' | 'TtsStarted' | 'TtsFinished' | 'SpeakerVerified' | 'SpeakerRejected' | 'DaemonReady' | 'DaemonPaused' | 'DaemonError' | 'DaemonShuttingDown' | 'CapabilityAvailable' | 'CapabilityUnavailable';
 export interface IpcEvent { id: string; at: string; kind: EventKind; payload: IpcValue; }
 export type IpcValue = 'Null' | { Bool: boolean } | { Number: number } | { String: string } | { Array: IpcValue[] } | { Object: Record<string, IpcValue> };
 export type IpcRequest =

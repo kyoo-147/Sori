@@ -31,9 +31,9 @@ describe('desktop window controls', () => {
     expect(titlebarSource).toContain('aria-label="Minimize window"');
     expect(titlebarSource).toContain('aria-label={isMaximized ? \'Restore window\' : \'Maximize window\'}');
     expect(titlebarSource).toContain('aria-label="Close window"');
-    expect(titlebarSource).toContain('data-tauri-drag-region="false"');
+    expect(titlebarSource).not.toContain('data-tauri-drag-region="false"');
     expect(titlebarSource).toContain('onDoubleClick={handleTitlebarDoubleClick}');
-    expect(titlebarSource).toContain('data-tauri-drag-region');
+    expect(titlebarSource).toContain("void runWindowAction('drag')");
     expect(readFileSync('apps/desktop/src/window-controls.ts', 'utf8')).toContain('startDragging');
   });
 

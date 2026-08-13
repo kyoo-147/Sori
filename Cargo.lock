@@ -1033,6 +1033,7 @@ dependencies = [
  "cpal",
  "sori-core",
  "time",
+ "tracing",
 ]
 
 [[package]]
@@ -1041,6 +1042,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "serde",
+ "serde_json",
  "sori-core",
  "sori-ipc",
  "time",

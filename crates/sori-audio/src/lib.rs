@@ -128,10 +128,12 @@ pub struct CpalAudioEngine {
     provider: CpalAudioDeviceProvider,
     config: CaptureConfig,
     input_format: AudioFormat,
+    native_format: AudioFormat,
     stream: Option<Stream>,
     packets: Option<Receiver<Packet>>,
     errors: Option<Receiver<AudioError>>,
     pending: VecDeque<f32>,
+    dsp: sori_core::AudioDsp,
 }
 
 impl CpalAudioEngine {
@@ -140,11 +142,14 @@ impl CpalAudioEngine {
         Ok(Self {
             provider: CpalAudioDeviceProvider::new(),
             input_format: config.format.clone(),
+            native_format: config.format.clone(),
             config,
             stream: None,
             packets: None,
             errors: None,
             pending: VecDeque::new(),
+            dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default())
+                .expect("default DSP configuration is valid"),
         })
     }
 
@@ -155,11 +160,14 @@ impl CpalAudioEngine {
         config.validate()?;
         Ok(Self {
             input_format: config.format.clone(),
+            native_format: config.format.clone(),
             config,
             provider,
             stream: None,
             packets: None,
             errors: None,
+            dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default())
+                .expect("default DSP configuration is valid"),
             pending: VecDeque::new(),
         })
     }
@@ -186,14 +194,25 @@ impl CpalAudioEngine {
                 supported.sample_format()
             )));
         }
-        // The adapter currently exposes its post-callback shape: mono f32. The
-        // native rate is retained until a resampler is added.
-        self.input_format = AudioFormat {
+        // Keep native metadata for DSP; public chunks are converted to the
+        // configured target format after callback collection.
+        self.native_format = AudioFormat {
             sample_rate_hz: supported.sample_rate().0,
-            channels: 1,
+            channels: supported.channels(),
             sample_format: SampleFormat::F32,
         };
         let stream_config: StreamConfig = supported.config();
+        tracing::info!(
+            device = %info.name,
+            native_sample_format = ?supported.sample_format(),
+            native_sample_rate = supported.sample_rate().0,
+            native_channels = supported.channels(),
+            configured_sample_rate = self.config.format.sample_rate_hz,
+            configured_channels = self.config.format.channels,
+            configured_sample_format = ?self.config.format.sample_format,
+            chunk_size_samples = self.config.chunk_size_samples,
+            "CPAL input configured"
+        );
         let (tx, rx) = mpsc::sync_channel(8);
         let (error_tx, error_rx) = mpsc::sync_channel(1);
         let channels = stream_config.channels as usize;
@@ -252,11 +271,12 @@ impl CpalAudioEngine {
             .pending
             .drain(..self.config.chunk_size_samples as usize)
             .collect();
-        Ok(Some(AudioChunk {
+        let chunk = AudioChunk {
             captured_at: OffsetDateTime::now_utc(),
-            format: self.input_format(),
+            format: self.native_format.clone(),
             samples,
-        }))
+        };
+        self.dsp.process(&chunk).map(Some)
     }
 
     pub fn is_running(&self) -> bool {
@@ -296,11 +316,12 @@ impl AudioEngine for CpalAudioEngine {
             .pending
             .drain(..self.config.chunk_size_samples as usize)
             .collect();
-        Ok(Some(AudioChunk {
+        let chunk = AudioChunk {
             captured_at: OffsetDateTime::now_utc(),
-            format: self.input_format(),
+            format: self.native_format.clone(),
             samples,
-        }))
+        };
+        self.dsp.process(&chunk).map(Some)
     }
 }
 
@@ -315,6 +336,7 @@ pub struct CpalAudioController {
     state: CaptureState,
     next_generation: u64,
     session: Option<CaptureSession>,
+    stop_requested: bool,
 }
 
 impl CpalAudioController {
@@ -329,6 +351,7 @@ impl CpalAudioController {
             state: CaptureState::Idle,
             next_generation: 0,
             session: None,
+            stop_requested: false,
         })
     }
     pub fn state(&self) -> CaptureState {
@@ -355,11 +378,13 @@ impl AudioEngine for CpalAudioController {
             Some(chunks) => chunks,
             None => return Ok(None),
         };
-        let result = chunks
-            .recv()
-            .map(|chunk| chunk.map(Some))
-            .map_err(|_| AudioError::Pipeline("audio worker stopped".into()));
-        if result.as_ref().is_ok_and(|item| item.is_err()) || result.is_err() {
+        let result = match chunks.recv() {
+            Ok(Ok(chunk)) => Ok(Some(chunk)),
+            Ok(Err(error)) => Err(error),
+            Err(_) if self.stop_requested => Ok(None),
+            Err(_) => Err(AudioError::Pipeline("audio worker stopped".into())),
+        };
+        if result.is_err() {
             self.state = CaptureState::Stopping;
             self.commands.take();
             self.chunks.take();
@@ -369,7 +394,7 @@ impl AudioEngine for CpalAudioController {
             self.session = None;
             self.state = CaptureState::Idle;
         }
-        result?
+        result
     }
 }
 
@@ -379,16 +404,19 @@ impl AudioCaptureEngine for CpalAudioController {
             return Err(AudioError::Pipeline("capture is already running".into()));
         }
         self.state = CaptureState::Starting;
+        self.stop_requested = false;
         self.next_generation = self.next_generation.wrapping_add(1);
         let generation = self.next_generation;
         let config = self.config.clone();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let (command_tx, command_rx) = mpsc::channel();
-        let (chunk_tx, chunk_rx) = mpsc::sync_channel(8);
+        let (chunk_tx, chunk_rx) = mpsc::channel();
         let worker = std::thread::spawn(move || {
+            tracing::debug!(generation, "capture worker started");
             let mut engine = match CpalAudioEngine::new(config) {
                 Ok(engine) => engine,
                 Err(error) => {
+                    tracing::warn!(generation, detail = %error, "capture worker failed to construct engine");
                     let _ = ready_tx.send(Err(error));
                     return;
                 }
@@ -396,30 +424,42 @@ impl AudioCaptureEngine for CpalAudioController {
             let device = match engine.start() {
                 Ok(device) => device,
                 Err(error) => {
+                    tracing::warn!(generation, detail = %error, "capture worker failed to start device");
                     let _ = ready_tx.send(Err(error));
                     return;
                 }
             };
             let format = engine.input_format();
             let _ = ready_tx.send(Ok((device, format)));
+            let mut emitted_chunks = 0usize;
+            let mut emitted_samples = 0usize;
             loop {
                 if command_rx.try_recv().is_ok() {
                     break;
                 }
                 match engine.next_chunk_until_stopped(&command_rx) {
                     Ok(Some(chunk)) => {
+                        emitted_chunks += 1;
+                        emitted_samples += chunk.samples.len();
                         if chunk_tx.send(Ok(chunk)).is_err() {
                             break;
                         }
                     }
                     Ok(None) => break,
                     Err(error) => {
+                        tracing::warn!(generation, detail = %error, "capture worker reported device error");
                         let _ = chunk_tx.send(Err(error));
                         break;
                     }
                 }
             }
             engine.stop();
+            tracing::debug!(
+                generation,
+                emitted_chunks,
+                emitted_samples,
+                "capture worker stopped"
+            );
         });
         let (device, format) = match ready_rx.recv() {
             Ok(Ok(value)) => value,
@@ -453,10 +493,10 @@ impl AudioCaptureEngine for CpalAudioController {
             return;
         }
         self.state = CaptureState::Stopping;
+        self.stop_requested = true;
         if let Some(command) = self.commands.take() {
             let _ = command.send(());
         }
-        self.chunks.take();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -576,7 +616,10 @@ fn send_samples(data: &[f32], tx: &SyncSender<Packet>, channels: usize) {
             .collect()
     };
     let _ = tx.try_send(mono).map_err(|error| match error {
-        TrySendError::Full(_) | TrySendError::Disconnected(_) => {}
+        TrySendError::Full(_) => {
+            tracing::warn!("CPAL callback packet queue is full; dropping input packet")
+        }
+        TrySendError::Disconnected(_) => tracing::debug!("CPAL callback packet queue disconnected"),
     });
 }
 
@@ -637,9 +680,11 @@ mod lifecycle_tests {
         let mut engine = CpalAudioEngine {
             provider: CpalAudioDeviceProvider::new(),
             input_format: config.format.clone(),
+            native_format: config.format.clone(),
             config,
             stream: None,
             packets: Some(packet_rx),
+            dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default()).unwrap(),
             errors: Some(error_rx),
             pending: VecDeque::new(),
         };
@@ -654,5 +699,25 @@ mod lifecycle_tests {
             classify_stream_error("input device disconnected"),
             AudioError::DeviceUnavailable(_)
         ));
+    }
+}
+
+#[cfg(test)]
+mod controller_regression_tests {
+    use super::*;
+
+    #[test]
+    fn missing_device_stop_is_explicit_and_controller_can_retry() {
+        let config = CaptureConfig {
+            device_id: Some("__sori_missing_input_device__".into()),
+            ..CaptureConfig::default()
+        };
+        let mut controller = CpalAudioController::new(config).unwrap();
+        let start_error = controller.start_capture().unwrap_err();
+        assert!(matches!(start_error, AudioError::DeviceUnavailable(_)));
+        controller.stop_capture();
+        assert_eq!(controller.state(), CaptureState::Idle);
+        assert!(controller.start_capture().is_err());
+        assert_eq!(controller.state(), CaptureState::Idle);
     }
 }

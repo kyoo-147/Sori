@@ -17,15 +17,17 @@ pub mod pipeline;
 pub mod routing;
 pub mod text_injection;
 pub mod transcript;
+pub mod vocabulary;
+pub mod voice_edit;
 
 pub use audio::{
-    AudioCaptureEngine, AudioChunk, AudioDeviceInfo, AudioDeviceProvider, AudioEngine, AudioError,
-    AudioFormat, CaptureConfig, DspPipelineConfig, EnergyVadStub, SampleFormat, VoiceActivity,
-    VoiceActivityDetector,
+    AudioCaptureEngine, AudioChunk, AudioDeviceInfo, AudioDeviceProvider, AudioDsp, AudioEngine,
+    AudioError, AudioFormat, CaptureConfig, DspPipelineConfig, EnergyVad, EnergyVadStub,
+    SampleFormat, VoiceActivity, VoiceActivityDetector,
 };
 pub use benchmark::{
-    AccuracyMetrics, BenchmarkResult, LatencyMetrics, MemoryMetrics, ReliabilityMetrics,
-    StartupMetrics,
+    AccuracyMetrics, BenchmarkInput, BenchmarkResult, LatencyMetrics, MemoryMetrics,
+    ReliabilityMetrics, StartupMetrics, run_benchmark,
 };
 pub use context::{ContextSnapshot, PrivacyMode, ProfileMode};
 pub use event::{Event, EventBus, EventKind, InMemoryEventBus};
@@ -40,11 +42,12 @@ pub use hotkey::{WindowsHotkeyBackend, WindowsHotkeyRegistration};
 pub use intent::{FastIntent, IntentRouter};
 pub use model::{
     ExternalProcessProvider, ExternalProcessSpec, ModelError, ModelId, ModelLicense, ModelManifest,
-    ModelProvider, ModelRoute, ModelRuntime, RuntimeStatus,
+    ModelProvider, ModelProviderRegistry, ModelRoute, ModelRuntime, RuntimeStatus,
 };
 pub use permission::{ActionRisk, PermissionDecision, PermissionRequest};
 pub use pipeline::{
-    DictationResult, PipelineError, PipelinePlan, PipelineStage, complete_dictation, run_dictation,
+    DictationResult, PipelineError, PipelinePlan, PipelineStage, complete_dictation,
+    complete_dictation_with_vocabulary, run_dictation,
 };
 pub use routing::{
     RouteExplanation, RoutePolicy, RoutePreset, RouteSimulatorInput, RouteTarget, explain_route,
@@ -59,3 +62,5 @@ pub use text_injection::{
     UndoRestoreStatus, select_strategy,
 };
 pub use transcript::{Transcript, TranscriptSegment};
+pub use vocabulary::{Vocabulary, VocabularyTerm, normalize_transcript};
+pub use voice_edit::{VoiceEditError, VoiceEditResponse, VoiceEditSelection};

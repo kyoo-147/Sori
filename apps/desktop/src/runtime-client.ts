@@ -1,4 +1,4 @@
-import { requestShape, responsePayload, type ConfigSummaryResponse, type ControlResponse, type DoctorCheck, type HistoryEntry, type IpcOperation, type IpcResponseMap, type RouteSummary, type TranscriptResponse } from './ipc-contract.js';
+import { requestShape, responsePayload, type ConfigSummaryResponse, type ControlResponse, type DoctorCheck, type ExtensionManifest, type ExtensionRecord, type HistoryEntry, type IpcOperation, type IpcResponseMap, type RouteSummary, type TranscriptResponse, type VoiceEditResponse, type VoiceEditSelection } from './ipc-contract.js';
 export type { DoctorCheck, IpcOperation, IpcRequest } from './ipc-contract.js';
 export interface DaemonStatus { daemon: 'starting' | 'running' | 'stopping' | 'unavailable'; activity: 'idle' | 'paused' | 'error'; paused: boolean; hotkey: string; route: RouteSummary; profile: string; privacy: string; version: string | null; }
 export type RuntimeSource = 'native' | 'backend' | 'mock' | 'unavailable';
@@ -33,10 +33,23 @@ export class RuntimeClient {
   async dictationStart() { return this.control('dictation_start'); }
   async dictationStop() { return this.call('dictation_stop', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null); }
   async dictationCancel() { return this.control('dictation_cancel'); }
+  async voiceEdit(selection: VoiceEditSelection, instruction: string, approved = false) { return this.call('voice_edit', (value) => (responsePayload(value, 'VoiceEdit') ?? null) as VoiceEditResponse | null, null, { selection, instruction, approved }); }
+  async runBenchmark(model: string, audio: unknown[], reference: string | null, iterations = 5) { return this.call('run_benchmark', (v) => responsePayload(v, 'Benchmark') ?? null, null, { model, audio, reference, iterations }); }
+  async recentBenchmarks(limit = 20) { return this.call('recent_benchmarks', (v) => (responsePayload(v, 'Resource') as { value: unknown[] } | undefined)?.value ?? [], [], { limit }); }
+  async applyBenchmarkRecommendation(model: string) { return this.control('apply_benchmark_recommendation', { model }); }
   resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }
-  async setResource<T>(name: string, value: T) { return this.call('resource_set', (response) => (responsePayload(response, 'Resource') as { value: T }).value, value, { resource: name }); }
+  models<T = unknown>() { return this.resource<T>('models'); }
+  route<T = unknown>() { return this.resource<T>('route'); }
+  setActiveModel(modelId: string) { return this.setResource('route', { activeModelId: modelId }); }
+  setRoutePolicy(policy: 'Performance' | 'Balanced' | 'Battery' | 'Privacy' | 'LocalFirst' | 'CloudAllowed' | 'NeverCloud') { return this.setConfig('route.policy', policy); }
+  async setResource<T>(name: string, value: T) { return this.call('resource_set', (response) => (responsePayload(response, 'Resource') as { value: T }).value, value, { resource: name, value }); }
   async pause() { const result = await this.control('pause'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }
   async resume() { const result = await this.control('resume'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }
+  extensions() { return this.call('extensions_list', (v) => (responsePayload(v, 'Extensions') as { extensions: ExtensionRecord[] }).extensions, []); }
+  extensionEnable(id: string) { return this.control('extension_enable', { id }); }
+  extensionDisable(id: string) { return this.control('extension_disable', { id }); }
+  extensionUninstall(id: string) { return this.control('extension_uninstall', { id }); }
+  extensionInstall(manifest: ExtensionManifest) { return this.control('extension_install', { manifest }); }
   private async control(operation: IpcOperation, params?: Record<string, unknown>): Promise<RuntimeResult<ControlResponse>> { try { const value = await this.transport.request(operation, params); return { data: (responsePayload(value, 'Control') ?? { accepted: false, detail: 'IPC returned no control response' }) as ControlResponse, source: this.transport.source ?? 'backend', error: null }; } catch (error) { return { data: { accepted: false, detail: errorText(error) }, source: 'unavailable', error: errorText(error) }; } }
   private async call<T>(operation: IpcOperation, mapper: (value: unknown) => T, fallback: T, params?: Record<string, unknown>): Promise<RuntimeResult<T>> { try { return { data: mapper(await this.transport.request(operation, params)), source: this.transport.source ?? 'backend', error: null }; } catch (error) { return { data: fallback, source: 'unavailable', error: errorText(error) }; } }
 }

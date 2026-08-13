@@ -36,3 +36,20 @@ CREATE TABLE IF NOT EXISTS model_routes (
     route_json TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS extensions (
+    id TEXT PRIMARY KEY NOT NULL,
+    manifest_json TEXT NOT NULL,
+    state TEXT NOT NULL,
+    installed_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS extensions_state_idx ON extensions(state);
+
+CREATE TABLE IF NOT EXISTS benchmark_runs (
+    id TEXT PRIMARY KEY NOT NULL,
+    at INTEGER NOT NULL,
+    result_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS benchmark_runs_at_idx ON benchmark_runs(at DESC);

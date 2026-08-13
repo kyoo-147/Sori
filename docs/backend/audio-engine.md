@@ -1,4 +1,4 @@
-# Audio engine scaffold
+# Audio capture, DSP, and VAD
 
 The audio engine boundary lives in `sori-core::audio`. It deliberately does not
 expose CPAL types: device discovery and capture are represented by
@@ -9,8 +9,10 @@ requested format and chunk size.
 
 - `AudioDeviceInfo` and `AudioDeviceProvider` describe input-device listing.
 - `CaptureConfig` defaults to mono 16 kHz `f32` audio in 20 ms chunks.
-- `DspPipelineConfig` reserves stages for resampling, channel mixing, and noise
-  suppression. It is configuration only for now.
+- `AudioDsp` mixes native interleaved input to mono and linearly resamples each
+  stream to the configured 16 kHz target while retaining boundary samples.
+- `EnergyVad` uses RMS energy with a configurable end hangover; the legacy
+  `EnergyVadStub` remains available only for compatibility tests.
 - `VoiceActivityDetector` is the VAD boundary. `EnergyVadStub` is deterministic
   test scaffolding, not a production detector.
 
@@ -25,10 +27,12 @@ idempotent. The callback uses `try_send`, so a slow consumer drops packets
 rather than blocking the audio thread. Native stream disconnects are surfaced
 as `DeviceUnavailable` rather than a fabricated success.
 
-`next_chunk` drains the channel into the VAD-ready `f32` chunk shape; native
-channel layouts are mixed to mono for now. Resampling and production DSP remain
-future work. The core contracts and adapter conversion tests are
-hardware-independent. No microphone is opened during `cargo test`.
+`next_chunk` drains the channel into a mono 16 kHz VAD-ready `f32` shape.
+The controller uses an unbounded per-session handoff queue and drains it after
+stop, removing the old 64-chunk truncation and small-queue loss during long
+recordings without blocking the CPAL callback. The core contracts and adapter
+conversion tests are hardware-independent. No microphone is opened during
+`cargo test`.
 
 Physical microphone, permission, hot-plug, and Windows CPAL readiness remain
 **UNVERIFIED** in automated validation; the manual checks below require a real
@@ -48,7 +52,18 @@ machine and microphone.
 5. Test a non-default input device and unplug it during capture; report a clear
    `DeviceUnavailable` error and ensure the daemon remains usable.
 6. Repeat on Windows and Linux with Bluetooth and USB microphones, including a
-   device whose native rate differs from 16 kHz. The current scaffold reports
-   the native rate; resampling is not implemented yet.
+   device whose native rate differs from 16 kHz. Confirm delivered chunks are
+   mono 16 kHz output.
 7. Confirm that raw audio is not persisted by default and that stopping capture
    releases the device.
+
+## Open-source references and licenses
+
+- CPAL device and stream lifecycle patterns are adapted from
+  [RustAudio/cpal](https://github.com/RustAudio/cpal), Apache-2.0 licensed.
+  Its documentation explicitly treats input/output as low-level I/O and
+  recommends application-level processing above the stream boundary.
+- The need to resample native microphone rates before Whisper follows the
+  discussion in [CPAL issue #753](https://github.com/RustAudio/cpal/issues/753);
+  Sori uses its own small linear stage rather than introducing a competing
+  capture pipeline or copying third-party code.

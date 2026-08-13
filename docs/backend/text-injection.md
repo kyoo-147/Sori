@@ -17,14 +17,14 @@ On Windows, `WindowsTextInjector::native()` provides UTF-16 `SendInput` first,
 modifier-release protection, a Unicode clipboard/paste fallback, and conditional
 restore only when the clipboard still contains the Sori payload. A failed paste
 is reported as `CopiedFallback`; a changed foreground identity is rejected.
-Focused-target insertion remains `UNVERIFIED` until observed in a real target.
+Focused-target insertion remains `UNVERIFIED` until observed in a real target. The Windows adapter reads the foreground HWND and owning PID immediately before input; a caller-provided `pid:...` identity mismatch is rejected. It does not claim that `SendInput` was accepted by the target.
 Adapters should refuse or clearly report elevated integrity-level mismatches.
 
 ## Manual application matrix
 
 | Target | Expected first strategy | Fallback | Checks |
 | --- | --- | --- | --- |
-| Notepad | `SendInput`/direct input | Clipboard + paste | Plain text, multiline and non-ASCII text; clipboard is restored |
+| Notepad | `SendInput`/direct input | Clipboard + paste | Plain text, multiline and non-ASCII text; the CF_UNICODETEXT clipboard snapshot is restored |
 | VS Code editor | Direct input | Clipboard + paste | Undo removes the complete insertion; selections and tabs are preserved |
 | Browser text field | `SendInput`/direct input | Clipboard + paste | Focus survives insertion; multiline and non-ASCII text; clipboard is restored |
 | Chat app | Direct input | Clipboard + paste | No accidental send until explicit Enter; emoji/non-ASCII; clipboard restored |

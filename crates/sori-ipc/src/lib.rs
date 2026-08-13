@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use sori_core::{
-    AudioChunk, Event, EventKind, ModelId, PrivacyMode, ProfileMode, Transcript,
+    AudioChunk, BenchmarkResult, Event, EventKind, ModelId, PrivacyMode, ProfileMode, Transcript,
     event::serde_json_like,
 };
 use std::io::{Read, Write};
@@ -36,6 +36,23 @@ pub enum Request {
         model: ModelId,
         audio: Vec<AudioChunk>,
     },
+    VoiceEdit {
+        selection: sori_core::VoiceEditSelection,
+        instruction: String,
+        approved: bool,
+    },
+    RunBenchmark {
+        model: ModelId,
+        audio: Vec<AudioChunk>,
+        reference: Option<String>,
+        iterations: u16,
+    },
+    RecentBenchmarks {
+        limit: u16,
+    },
+    ApplyBenchmarkRecommendation {
+        model: ModelId,
+    },
     Doctor,
     ConfigSummary,
     RecentHistory {
@@ -58,6 +75,24 @@ pub enum Request {
     },
     Pause,
     Resume,
+    ExtensionsList,
+    ExtensionInstall {
+        manifest: ExtensionManifest,
+    },
+    ExtensionEnable {
+        id: String,
+    },
+    ExtensionDisable {
+        id: String,
+    },
+    ExtensionUninstall {
+        id: String,
+    },
+    ExtensionInvoke {
+        id: String,
+        command: String,
+        input: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -71,6 +106,9 @@ pub enum Response {
     Error(IpcErrorResponse),
     Control(ControlResponse),
     Transcript(Transcript),
+    VoiceEdit(sori_core::VoiceEditResponse),
+    Extensions(ExtensionsResponse),
+    Benchmark(BenchmarkResult),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,6 +191,33 @@ pub struct ControlResponse {
     pub detail: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionManifest {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub entrypoint: String,
+    pub permissions: Vec<String>,
+    pub license: String,
+    pub license_url: Option<String>,
+    pub package_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionRecord {
+    pub manifest: ExtensionManifest,
+    pub state: String,
+    pub installed_at: i64,
+    pub updated_at: i64,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionsResponse {
+    pub extensions: Vec<ExtensionRecord>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IpcEvent {
     pub id: Uuid,
@@ -179,7 +244,7 @@ pub enum IpcError {
     #[error("transport error: {0}")]
     Transport(String),
     #[error("unexpected response for {request:?}")]
-    UnexpectedResponse { request: Request },
+    UnexpectedResponse { request: Box<Request> },
     #[error("invalid IPC message: {0}")]
     Protocol(String),
 }
@@ -479,9 +544,23 @@ impl Transport for MockTransport {
             Request::DictationStart
             | Request::DictationStop
             | Request::DictationCancel
-            | Request::Dictation { .. } => {
+            | Request::Dictation { .. }
+            | Request::RunBenchmark { .. }
+            | Request::RecentBenchmarks { .. }
+            | Request::ApplyBenchmarkRecommendation { .. } => {
                 return Err(IpcError::Transport(
                     "mock transport does not execute dictation".into(),
+                ));
+            }
+            Request::VoiceEdit { .. }
+            | Request::ExtensionsList
+            | Request::ExtensionInstall { .. }
+            | Request::ExtensionEnable { .. }
+            | Request::ExtensionDisable { .. }
+            | Request::ExtensionUninstall { .. }
+            | Request::ExtensionInvoke { .. } => {
+                return Err(IpcError::Transport(
+                    "mock transport does not execute Voice Edit or manage extensions; connect sorid for canonical evidence".into(),
                 ));
             }
             Request::Doctor => Response::Doctor(DoctorResponse {
@@ -587,7 +666,9 @@ mod tests {
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
             })),
-            _ => Err(IpcError::UnexpectedResponse { request }),
+            _ => Err(IpcError::UnexpectedResponse {
+                request: Box::new(request),
+            }),
         }));
         let client = LocalIpcClient::connect_to(endpoint).unwrap();
         let response =
@@ -639,7 +720,9 @@ mod tests {
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
             })),
-            _ => Err(IpcError::UnexpectedResponse { request }),
+            _ => Err(IpcError::UnexpectedResponse {
+                request: Box::new(request),
+            }),
         }));
         for _ in 0..20 {
             let client = LocalIpcClient::connect_to(endpoint).unwrap();

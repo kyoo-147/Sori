@@ -71,7 +71,7 @@ describe('desktop shell and truthful preview contracts', () => {
   it('writes the live width to the shell ref before pointerup commits React state', () => {
     const values = new Map<string, string>();
     const sequence: string[] = [];
-    const shell = { style: { setProperty: (name: string, value: string) => { values.set(name, value); sequence.push('shell-style'); } } };
+    const shell = { style: { setProperty: (name: string, value: string) => { values.set(name, value); sequence.push('shell-style'); } } } as unknown as Pick<HTMLElement, 'style'>;
     applySidebarLiveWidth(shell, 312);
     sequence.push('pointerup');
     expect(values.get('--sori-sidebar-width-live')).toBe('312px');

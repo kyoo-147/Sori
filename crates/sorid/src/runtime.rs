@@ -1,12 +1,12 @@
 //! Non-blocking daemon lifecycle state machine.
 
 use sori_core::{
-    AudioCaptureEngine, AudioChunk, AudioError, EnergyVadStub, EventBus, EventKind,
-    HistoryRepository, ModelError, ModelId, ModelProvider, ModelRoute, TextInjector, TextTarget,
-    Transcript, VoiceActivity, VoiceActivityDetector, complete_dictation,
-    event::serde_json_like::Value,
+    AudioCaptureEngine, AudioChunk, AudioError, EnergyVad, EventBus, EventKind, HistoryRepository,
+    ModelError, ModelId, ModelProvider, ModelRoute, TextInjector, TextTarget, Transcript,
+    Vocabulary, VoiceActivity, VoiceActivityDetector, complete_dictation,
+    complete_dictation_with_vocabulary, event::serde_json_like::Value,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,13 +30,14 @@ pub struct DaemonRuntime<B> {
     state: RuntimeState,
     events: B,
     provider: Option<Arc<dyn ModelProvider>>,
-    audio: Option<Box<dyn AudioCaptureEngine>>,
+    audio: Option<Arc<Mutex<Box<dyn AudioCaptureEngine>>>>,
     audio_session: Option<AudioSession>,
     captured_audio: Vec<AudioChunk>,
+    // Capture hardware is independently locked so status snapshots never wait on CPAL.
 }
 
 struct AudioSession {
-    vad: EnergyVadStub,
+    vad: EnergyVad,
     chunks: usize,
 }
 
@@ -68,7 +69,7 @@ impl<B: EventBus> DaemonRuntime<B> {
     }
 
     pub fn set_audio_engine(&mut self, engine: Box<dyn AudioCaptureEngine>) {
-        self.audio = Some(engine);
+        self.audio = Some(Arc::new(Mutex::new(engine)));
         self.publish_capability(
             "audio",
             true,
@@ -92,11 +93,12 @@ impl<B: EventBus> DaemonRuntime<B> {
     }
 
     pub fn audio_readiness(&self) -> Result<(), AudioError> {
-        self.audio
-            .as_ref()
-            .ok_or_else(|| {
-                AudioError::BackendUnavailable("microphone capture is unavailable".into())
-            })?
+        let audio = self.audio.as_ref().ok_or_else(|| {
+            AudioError::BackendUnavailable("microphone capture is unavailable".into())
+        })?;
+        audio
+            .lock()
+            .map_err(|_| AudioError::Pipeline("audio lock poisoned".into()))?
             .readiness()
     }
 
@@ -112,7 +114,10 @@ impl<B: EventBus> DaemonRuntime<B> {
             self.publish_capability("audio", false, error.to_string());
             return Err(error);
         }
-        let engine = self.audio.as_mut().expect("audio presence checked");
+        let audio = Arc::clone(self.audio.as_ref().expect("audio presence checked"));
+        let mut engine = audio
+            .lock()
+            .map_err(|_| AudioError::Pipeline("audio lock poisoned".into()))?;
         let device = match engine.start_capture() {
             Ok(device) => device,
             Err(error) => {
@@ -121,30 +126,29 @@ impl<B: EventBus> DaemonRuntime<B> {
             }
         };
         self.audio_session = Some(AudioSession {
-            vad: EnergyVadStub::new(0.02),
+            vad: EnergyVad::new(0.02, 1),
             chunks: 0,
         });
         self.publish(EventKind::AudioStarted, Value::String(device.name));
         Ok(())
     }
 
-    /// Consume at most 64 chunks; ASR and insertion intentionally remain separate.
+    /// Drain the completed capture; ASR and insertion intentionally remain separate.
     pub fn stop_audio(&mut self, cancelled: bool) -> Result<usize, AudioError> {
         let mut session = self
             .audio_session
             .take()
             .ok_or_else(|| AudioError::Pipeline("no dictation session is running".into()))?;
+        let audio = self.audio.as_ref().map(Arc::clone).ok_or_else(|| {
+            AudioError::BackendUnavailable("microphone capture is unavailable".into())
+        })?;
+        let mut engine = audio
+            .lock()
+            .map_err(|_| AudioError::Pipeline("audio lock poisoned".into()))?;
         let mut captured = Vec::new();
         let result: Result<usize, AudioError> = (|| {
-            for _ in 0..64 {
-                let next = self
-                    .audio
-                    .as_mut()
-                    .ok_or_else(|| {
-                        AudioError::BackendUnavailable("microphone capture is unavailable".into())
-                    })?
-                    .next_chunk()?;
-                let Some(chunk) = next else { break };
+            engine.stop_capture();
+            while let Some(chunk) = engine.next_chunk()? {
                 session.chunks += 1;
                 captured.push(chunk.clone());
                 self.publish(
@@ -162,18 +166,15 @@ impl<B: EventBus> DaemonRuntime<B> {
                     VoiceActivity::Silence | VoiceActivity::SpeechContinues => {}
                 }
             }
-            if let Some(engine) = self.audio.as_mut() {
-                engine.stop_capture();
-            }
+            engine.stop_capture();
             self.captured_audio = captured;
             Ok(session.chunks)
         })();
         if let Err(error) = &result {
-            if let Some(engine) = self.audio.as_mut() {
-                engine.stop_capture();
-            }
+            engine.stop_capture();
             self.publish(EventKind::AudioError, Value::String(error.to_string()));
         }
+        drop(engine);
         if cancelled {
             self.publish(EventKind::DictationCancelled, Value::Null);
         }
@@ -186,6 +187,36 @@ impl<B: EventBus> DaemonRuntime<B> {
 
     /// Transcribe captured chunks through the configured provider boundary.
     /// Return the most recently stopped capture exactly once.
+    pub fn captured_audio_stats(&self) -> (usize, u32, f32, f32) {
+        let samples = self
+            .captured_audio
+            .iter()
+            .flat_map(|chunk| chunk.samples.iter());
+        let mut count = 0usize;
+        let mut peak = 0.0f32;
+        let mut energy = 0.0f32;
+        for sample in samples {
+            count += 1;
+            peak = peak.max(sample.abs());
+            energy += sample * sample;
+        }
+        let rms = if count == 0 {
+            0.0
+        } else {
+            (energy / count as f32).sqrt()
+        };
+        let sample_rate = self
+            .captured_audio
+            .first()
+            .map(|chunk| chunk.format.sample_rate_hz)
+            .unwrap_or(0);
+        (count, sample_rate, peak, rms)
+    }
+
+    pub fn captured_audio(&self) -> &[AudioChunk] {
+        &self.captured_audio
+    }
+
     pub fn take_captured_audio(&mut self) -> Vec<AudioChunk> {
         std::mem::take(&mut self.captured_audio)
     }
@@ -224,6 +255,32 @@ impl<B: EventBus> DaemonRuntime<B> {
                 Err(error)
             }
         }
+    }
+
+    pub fn complete_captured_dictation_with_vocabulary(
+        &mut self,
+        route: &ModelRoute,
+        injector: &mut dyn TextInjector,
+        target: &dyn TextTarget,
+        history: &dyn HistoryRepository,
+        vocabulary: &Vocabulary,
+    ) -> Result<sori_core::DictationResult, sori_core::PipelineError> {
+        let audio = self.take_captured_audio();
+        let provider = self.provider.as_deref().ok_or_else(|| {
+            sori_core::PipelineError::Asr(ModelError::Inference(
+                "no model provider is configured".into(),
+            ))
+        })?;
+        complete_dictation_with_vocabulary(
+            audio,
+            provider,
+            injector,
+            target,
+            route,
+            history,
+            &self.events,
+            vocabulary,
+        )
     }
 
     pub fn complete_captured_dictation(
@@ -459,6 +516,10 @@ mod tests {
         }));
         runtime.start_audio().unwrap();
         assert_eq!(runtime.stop_audio(false).unwrap(), 2);
+        let (samples, sample_rate, peak, rms) = runtime.captured_audio_stats();
+        assert_eq!((samples, sample_rate), (2, 16_000));
+        assert!(peak > 0.0);
+        assert!(rms > 0.0);
         assert_eq!(runtime.take_captured_audio().len(), 2);
         assert!(runtime.take_captured_audio().is_empty());
         let kinds = events

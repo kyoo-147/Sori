@@ -1,33 +1,41 @@
-# Benchmark and route routing scaffolding
+# Benchmark runner and route recommendations
 
-The core crate contains the initial contracts for comparing model runtimes and
-explaining route selection. This is data-model scaffolding; collecting real
-samples and connecting providers are not wired yet.
+Sori benchmarks are provider-backed measurements, not UI rehearsals. `sori benchmark`
+accepts a mono PCM16 WAV, sends it to `sorid` over loopback IPC, invokes the configured
+`ModelProvider`, records one cold sample plus warm samples, and persists the result in
+SQLite (`benchmark_runs`). The daemon returns an explicit IPC error when the provider,
+model, or audio prerequisite is unavailable.
 
-## Benchmark results
+```powershell
+sori benchmark --model ggml-base.en.bin --audio .\fixtures\sample.wav --reference "reference transcript" --iterations 5
+```
 
-`BenchmarkResult` records p50/p95 end-to-end latency, real-time factor, RAM and
-optional VRAM usage, optional WER/CER, cold and warm startup latency, and
-failure/fallback rates. Rates and accuracy values are represented as fractions
-(for example, `0.05` means 5%). `BenchmarkResult::is_realtime` reports whether
-RTF is at most 1.0.
+The runner reports cold/warm latency, p50/p95, real-time factor, failure rate, and
+optional WER/CER. WER/CER are only computed when a caller supplies a reference string;
+there is no bundled reference dataset in this repository, so unlabelled audio is
+`UNVERIFIED` for accuracy. RAM/VRAM are also `UNVERIFIED` until a provider exposes
+process-level resource telemetry; the runner does not print zero as a fake measurement.
 
-## Presets
+The desktop must use `run_benchmark` and `apply_benchmark_recommendation` IPC operations
+for future benchmark controls. Applying a recommendation persists the selected
+provider/model route under `model_routes.recommended`; it does not claim that a route
+was applied to audio until the runtime router consumes that persisted route.
 
-`RoutePreset` currently includes:
+## Reference implementations and licenses
 
-- `Performance`: prioritize a warm/fast route and permit cloud use.
-- `Balanced`: prefer local, with cloud fallback.
-- `Battery`: prefer local and avoid cloud while optimizing power.
-- `Privacy` and `NeverCloud`: local only; never send audio to cloud.
-- `LocalFirst`: local preferred, cloud fallback permitted.
-- `CloudAllowed`: cloud is permitted when local is not preferred/available.
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) provides `whisper-bench` and
+  `scripts/bench.py`; its repository is MIT licensed. Its benchmark is encoder-focused,
+  so Sori measures the canonical provider call and full supplied audio duration instead.
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) publishes comparative
+  time/memory measurements and is MIT licensed. It is a useful methodology reference,
+  not a runtime dependency.
+- Public speech corpora must be introduced with a separate license and attribution
+  record. Until then, Sori accepts a caller-owned WAV and reference boundary explicitly.
 
-`RouteSimulatorInput` is intentionally small: it describes preset, local/cloud
-availability, and whether the local runtime is warm. `explain_route` returns
-the selected target, an optional fallback, and human-readable reasons. Future
-routing work can add benchmark scores, network state, consent, and model
-capabilities without changing the result contract's purpose.
+## Validation boundary
 
-The CLI placeholder is available as `sori benchmark` and reports that execution
-is not wired yet.
+Deterministic core tests use a test `ModelProvider` only to verify sampling, percentile,
+RTF, and edit-distance math. They do not count as local model evidence. Real evidence
+requires a running intended `sorid`, an installed whisper.cpp executable/model, and a
+caller-supplied WAV; if any prerequisite is absent, record `UNVERIFIED/SKIP` rather than
+fabricating results.

@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tsx src/adapters/http/server.ts",
     "build": "tsc -p tsconfig.json",
+    "test:types": "tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run --exclude dist/**",
     "check": "npm run build && npm run test && npm run desktop:check",
     "tray:mock": "tsx src/tray/mock-shell.ts",
@@ -15,6 +16,7 @@
     "desktop:check": "npm --prefix apps/desktop run check",
     "e2e:desktop-backend": "tsx scripts/e2e-desktop-backend.ts",
     "e2e:backend-ipc": "cargo test -p sorid --test backend_ipc_e2e -- --nocapture",
+    "e2e:reliability": "tsx scripts/e2e-reliability.ts",
     "e2e:desktop-native": "tsx scripts/e2e-desktop-native.ts",
     "e2e:desktop-ocu": "tsx scripts/e2e-desktop-ocu.ts",
     "e2e:product": "tsx scripts/e2e-product-gate.ts"

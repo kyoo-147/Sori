@@ -70,6 +70,7 @@ export interface DictionaryTerm {
   category: 'code' | 'name' | 'acronym' | 'vietnamese' | 'custom';
   casing?: 'normal' | 'snake_case' | 'camelCase' | 'PascalCase' | 'kebab-case';
   notes?: string;
+  correction?: string;
 }
 
 export interface Snippet {

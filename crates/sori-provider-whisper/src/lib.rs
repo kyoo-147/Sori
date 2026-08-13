@@ -13,6 +13,7 @@ use sori_core::{
     ModelManifest, ModelProvider, ModelRoute, ModelRuntime, PrivacyMode, RuntimeStatus,
     SampleFormat, Transcript, TranscriptSegment,
 };
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
@@ -188,6 +189,8 @@ pub struct WhisperCppProvider {
     model_dir: Option<PathBuf>,
     manifests: Vec<ModelManifest>,
     status: Arc<Mutex<WhisperStatus>>,
+    loaded: Arc<Mutex<BTreeSet<ModelId>>>,
+    warm: Arc<Mutex<BTreeSet<ModelId>>>,
 }
 
 fn initial_status() -> Arc<Mutex<WhisperStatus>> {
@@ -209,6 +212,8 @@ impl WhisperCppProvider {
             model_dir: None,
             manifests,
             status: initial_status(),
+            loaded: Arc::new(Mutex::new(BTreeSet::new())),
+            warm: Arc::new(Mutex::new(BTreeSet::new())),
         }
     }
 
@@ -218,6 +223,8 @@ impl WhisperCppProvider {
             model_dir: config.model_dir,
             manifests,
             status: initial_status(),
+            loaded: Arc::new(Mutex::new(BTreeSet::new())),
+            warm: Arc::new(Mutex::new(BTreeSet::new())),
         }
     }
 
@@ -226,6 +233,44 @@ impl WhisperCppProvider {
     }
     pub fn model_dir(&self) -> Option<&Path> {
         self.model_dir.as_deref()
+    }
+
+    pub fn remove_model(&self, model: &ModelId) -> Result<(), ModelError> {
+        self.validate_model_name(model)?;
+        let path = self.verified_model_path(model)?;
+        fs::remove_file(&path).map_err(|error| {
+            ModelError::Inference(format!(
+                "could not remove model {}: {error}",
+                path.display()
+            ))
+        })?;
+        self.loaded.lock().unwrap().remove(model);
+        self.warm.lock().unwrap().remove(model);
+        Ok(())
+    }
+
+    pub fn load(&self, model: &ModelId) -> Result<(), ModelError> {
+        self.validate_for_transcription(model)?;
+        self.loaded.lock().unwrap().insert(model.clone());
+        Ok(())
+    }
+
+    pub fn warm(&self, model: &ModelId) -> Result<(), ModelError> {
+        self.load(model)?;
+        self.warm.lock().unwrap().insert(model.clone());
+        Ok(())
+    }
+
+    pub fn unload(&self, model: &ModelId) {
+        self.warm.lock().unwrap().remove(model);
+        self.loaded.lock().unwrap().remove(model);
+    }
+
+    pub fn is_loaded(&self, model: &ModelId) -> bool {
+        self.loaded.lock().unwrap().contains(model)
+    }
+    pub fn is_warm(&self, model: &ModelId) -> bool {
+        self.warm.lock().unwrap().contains(model)
     }
 
     /// Install a checked model artifact inside the configured model directory.
@@ -892,6 +937,20 @@ where
     failure.map_or(Ok(()), |error| Err(ModelError::Inference(error)))
 }
 
+struct VocabularyPromptRunner<'a> {
+    prompt: &'a str,
+}
+impl ProcessRunner for VocabularyPromptRunner<'_> {
+    fn run(&self, spec: &ExternalProcessSpec) -> Result<ProcessOutput, ModelError> {
+        let mut prompted = spec.clone();
+        if !self.prompt.trim().is_empty() {
+            prompted
+                .arguments
+                .extend(["--prompt".into(), self.prompt.to_owned()]);
+        }
+        CommandProcessRunner.run(&prompted)
+    }
+}
 impl ModelProvider for WhisperCppProvider {
     fn provider_name(&self) -> &'static str {
         PROVIDER_NAME
@@ -907,6 +966,24 @@ impl ModelProvider for WhisperCppProvider {
             return Err(ModelError::Unsupported(model.clone()));
         }
         self.transcribe_audio(model, audio, OutputFormat::Text, &ProcessOptions::default())
+    }
+    fn transcribe_with_context(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        vocabulary: &sori_core::Vocabulary,
+    ) -> Result<Transcript, ModelError> {
+        if !self.can_transcribe(model) {
+            return Err(ModelError::Unsupported(model.clone()));
+        }
+        let prompt = vocabulary.prompt();
+        self.transcribe_audio_with_runner_options(
+            model,
+            audio,
+            OutputFormat::Text,
+            &VocabularyPromptRunner { prompt: &prompt },
+            &ProcessOptions::default(),
+        )
     }
 }
 
@@ -1087,8 +1164,8 @@ impl ModelRuntime for WhisperRuntime {
         RuntimeStatus {
             model: model.clone(),
             installed: self.installed.iter().any(|candidate| candidate == model),
-            loaded: false,
-            warm: false,
+            loaded: self.provider.is_loaded(model),
+            warm: self.provider.is_warm(model),
             memory_bytes: None,
             backend: Some(PROVIDER_NAME.to_owned()),
         }
@@ -1478,6 +1555,32 @@ mod tests {
             provider.status(&ModelId::from("fixture.bin")).lifecycle,
             WhisperLifecycle::Ready
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn model_lifecycle_load_warm_unload_remove_is_truthful() {
+        let root =
+            std::env::temp_dir().join(format!("sori-whisper-lifecycle-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let binary = root.join("whisper-cli");
+        let model = root.join("model.bin");
+        std::fs::write(&binary, b"binary").unwrap();
+        std::fs::write(&model, b"model").unwrap();
+        let provider = WhisperCppProvider::from_config(
+            WhisperCppConfig::new(binary, Some(root.clone())),
+            vec![manifest("model.bin")],
+        );
+        let id = ModelId::from("model.bin");
+        assert!(!provider.is_loaded(&id));
+        provider.load(&id).unwrap();
+        assert!(provider.is_loaded(&id));
+        provider.warm(&id).unwrap();
+        assert!(provider.is_warm(&id));
+        provider.unload(&id);
+        assert!(!provider.is_loaded(&id));
+        provider.remove_model(&id).unwrap();
+        assert!(provider.verified_model_path(&id).is_err());
         let _ = std::fs::remove_dir_all(root);
     }
 

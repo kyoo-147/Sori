@@ -1,7 +1,7 @@
 use crate::{
     AudioChunk, AudioEngine, ContextSnapshot, Event, EventBus, EventKind, FastIntent, HistoryEntry,
     HistoryRepository, ModelError, ModelProvider, ModelRoute, TextInjectionRequest, TextInjector,
-    TextTarget, Transcript,
+    TextTarget, Transcript, Vocabulary, normalize_transcript,
 };
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -90,8 +90,35 @@ pub fn complete_dictation(
     history: &dyn HistoryRepository,
     events: &dyn EventBus,
 ) -> Result<DictationResult, PipelineError> {
+    complete_dictation_with_vocabulary(
+        chunks,
+        asr,
+        injector,
+        target,
+        route,
+        history,
+        events,
+        &Vocabulary::default(),
+    )
+}
+
+/// Vocabulary is an explicit pipeline dependency; the legacy wrapper above keeps the public MVP API stable.
+#[allow(clippy::too_many_arguments)]
+pub fn complete_dictation_with_vocabulary(
+    chunks: Vec<AudioChunk>,
+    asr: &dyn ModelProvider,
+    injector: &mut dyn TextInjector,
+    target: &dyn TextTarget,
+    route: &ModelRoute,
+    history: &dyn HistoryRepository,
+    events: &dyn EventBus,
+    vocabulary: &Vocabulary,
+) -> Result<DictationResult, PipelineError> {
     publish(events, EventKind::AsrSelected, &route.model.0);
-    let transcript = asr.transcribe(&route.model, &chunks)?;
+    let transcript = normalize_transcript(
+        asr.transcribe_with_context(&route.model, &chunks, vocabulary)?,
+        vocabulary,
+    );
     publish(events, EventKind::TranscriptFinal, &transcript.text);
     let request = TextInjectionRequest {
         text: transcript.text.clone(),

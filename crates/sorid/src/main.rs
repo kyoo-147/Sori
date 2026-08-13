@@ -1,13 +1,14 @@
 use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
-    FastIntent, HistoryEntry, HistoryRepository, ModelId, ModelLicense, ModelManifest, ModelRoute,
-    PrivacyMode, ProfileMode,
+    BenchmarkInput, FastIntent, HistoryEntry, HistoryRepository, ModelId, ModelLicense,
+    ModelManifest, ModelRoute, PrivacyMode, ProfileMode, Vocabulary, VocabularyTerm, run_benchmark,
 };
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
-    IpcEvent, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse, RecentHistoryResponse,
-    Request, Response, RouteSummary, RuntimeActivity, StatusResponse,
+    ExtensionManifest, ExtensionRecord, ExtensionsResponse, IpcEvent, LocalIpcServer,
+    PROTOCOL_VERSION, RecentEventsResponse, RecentHistoryResponse, Request, Response, RouteSummary,
+    RuntimeActivity, StatusResponse,
 };
 use sori_persistence::SqliteStore;
 use sori_provider_whisper::{WhisperCppConfig, WhisperCppProvider};
@@ -27,7 +28,7 @@ impl sori_core::TextTarget for RuntimeTarget {
         sori_core::TextTargetCapabilities {
             accepts_text: true,
             supports_direct_input: cfg!(windows),
-            supports_clipboard_paste: false,
+            supports_clipboard_paste: true,
             supports_undo: false,
             requires_elevation: false,
         }
@@ -151,6 +152,12 @@ async fn main() -> Result<()> {
             Err(error) => (None, format!("unavailable: {error}")),
         };
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
+    if let Some(value) = store.setting("route.policy")? {
+        if let Ok(preset) = serde_json::from_value::<sori_core::RoutePreset>(value) {
+            config.route = preset.policy();
+        }
+    }
+    let benchmark_provider = whisper_provider.clone();
     if let Some(value) = store.setting("hotkey.binding")? {
         if let Some(binding) = value.as_str() {
             config.hotkey.binding = binding.to_owned();
@@ -175,9 +182,17 @@ async fn main() -> Result<()> {
         Err(error) => info!(detail = %error, "microphone adapter unavailable"),
     }
     daemon.publish_capability("asr", daemon.whisper_available(), whisper_detail.clone());
-    let runtime = Arc::new(Mutex::new(daemon));
+    let runtime = Arc::new(Mutex::new(Some(daemon)));
     let hotkey_runtime = Arc::clone(&runtime);
-    let hotkey_model = ModelId::from(whisper_model.as_str());
+    let hotkey_model = store
+        .setting("resource.route")?
+        .and_then(|value| {
+            value
+                .get("activeModelId")
+                .and_then(|id| id.as_str())
+                .map(ModelId::from)
+        })
+        .unwrap_or_else(|| ModelId::from(whisper_model.as_str()));
     let hotkey = sorid::parse_hotkey_binding(&config.hotkey.binding).map_err(|error| {
         anyhow::anyhow!(
             "invalid configured hotkey `{}`: {error}",
@@ -188,8 +203,14 @@ async fn main() -> Result<()> {
         Arc::new(events.clone()),
         hotkey,
         Arc::new(move |event| {
-            if let Ok(mut runtime) = hotkey_runtime.lock() {
-                runtime.handle_hotkey(event, &hotkey_model);
+            if let Ok(mut slot) = hotkey_runtime.lock() {
+                if let Some(mut runtime) = slot.take() {
+                    drop(slot);
+                    runtime.handle_hotkey(event, &hotkey_model);
+                    if let Ok(mut slot) = hotkey_runtime.lock() {
+                        *slot = Some(runtime);
+                    }
+                }
             }
         }),
     );
@@ -219,22 +240,49 @@ async fn main() -> Result<()> {
     let handler_config = Arc::new(Mutex::new(config.clone()));
     let handler_privacy = Arc::new(Mutex::new(privacy_mode));
     let server_task = server.serve(move |request| {
-        let mut handler_config = handler_config
+        let config_snapshot = handler_config
             .lock()
-            .map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?;
-        let mut runtime = handler_runtime
-            .lock()
-            .map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
-        let mut privacy = handler_privacy
+            .map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?
+            .clone();
+        let privacy = *handler_privacy
             .lock()
             .map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))?;
         let response = match request {
-            Request::Status => Response::Status(status_response(&runtime, &handler_config, *privacy)),
+            Request::ExtensionsList => Response::Extensions(ExtensionsResponse {
+                extensions: handler_store.extensions().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.into_iter().map(extension_record).collect(),
+            }),
+            Request::ExtensionInstall { manifest } => {
+                validate_extension_manifest(&manifest).map_err(sori_ipc::IpcError::Transport)?;
+                let value = serde_json::to_value(&manifest).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                handler_store.save_extension(&manifest.id, &value, "disabled", None).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Control(ControlResponse { accepted: true, detail: format!("extension {} installed and disabled; execution requires the sandbox host", manifest.id) })
+            }
+            Request::ExtensionEnable { id } => extension_state(&handler_store, &id, "enabled")?,
+            Request::ExtensionDisable { id } => extension_state(&handler_store, &id, "disabled")?,
+            Request::ExtensionUninstall { id } => {
+                let removed = handler_store.delete_extension(&id).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if removed { Response::Control(ControlResponse { accepted: true, detail: format!("extension {id} uninstalled") }) }
+                else { Response::Error(sori_ipc::IpcErrorResponse { code: "not_found".into(), detail: format!("extension {id} is not installed") }) }
+            }
+            Request::ExtensionInvoke { id, command, .. } => Response::Error(sori_ipc::IpcErrorResponse {
+                code: "execution_unavailable".into(),
+                detail: format!("extension {id} command {command} was not executed: isolated extension host is not installed"),
+            }),
+            Request::Status => {
+                let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                Response::Status(slot.as_ref().map(|runtime| status_response(runtime, &config_snapshot, privacy)).unwrap_or_else(|| busy_status_response(&config_snapshot, privacy)))
+            }
             Request::DictationStart => {
+                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let runtime = slot.as_mut().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 runtime.start_audio().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Response::Control(ControlResponse { accepted: true, detail: "microphone capture started".into() })
             }
             Request::DictationStop => {
+                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let mut runtime = slot.take().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
+                drop(slot);
+                let operation: std::result::Result<Response, sori_ipc::IpcError> = (|| {
                 let history_enabled = handler_store
                     .setting("history.enabled")
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
@@ -246,22 +294,75 @@ async fn main() -> Result<()> {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(20) as usize;
                 let chunks = runtime.stop_audio(false).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                let route = ModelRoute { provider: "whisper.cpp".into(), model: ModelId::from(whisper_model.as_str()), reason: "configured local route".into(), fallback: Vec::new() };
+                let (sample_count, sample_rate, peak, rms) = runtime.captured_audio_stats();
+                info!(chunks, sample_count, sample_rate, peak, rms, "captured audio diagnostics");
+                if let Some(path) = std::env::var_os("SORI_CAPTURE_DEBUG_WAV") {
+                    let wav = sori_provider_whisper::encode_wav(runtime.captured_audio())
+                        .map_err(|error| sori_ipc::IpcError::Transport(format!("capture diagnostics WAV encoding failed: {error}")))?;
+                    std::fs::write(&path, wav)
+                        .map_err(|error| sori_ipc::IpcError::Transport(format!("capture diagnostics WAV write failed ({}): {error}", path.to_string_lossy())))?;
+                    info!(path = %path.to_string_lossy(), "wrote captured audio diagnostics WAV");
+                }
+                if peak < 0.005 {
+                    tracing::warn!(sample_count, sample_rate, peak, rms, "captured signal is below audibility diagnostic threshold");
+                    Ok(Response::Error(sori_ipc::IpcErrorResponse {
+                        code: "capture_signal_unavailable".into(),
+                        detail: format!("captured signal is below audibility threshold: samples={sample_count}, rate={sample_rate}, peak={peak:.9}, rms={rms:.9}; verify the selected microphone and Windows permission"),
+                    }))
+                } else {
+                let route_config = handler_store.setting("resource.route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.unwrap_or_else(|| default_resource("route"));
+                let selected_model = route_config.get("activeModelId").and_then(|id| id.as_str()).unwrap_or(whisper_model.as_str());
+                let selected_model = selected_model.strip_prefix("whisper.cpp/").unwrap_or(selected_model);
+                let selected_model = if selected_model == "ggml-base.en" && whisper_model != "ggml-base.en" { whisper_model.as_str() } else { selected_model };
+                let fallback = route_config.get("fallbackModelIds").and_then(|ids| ids.as_array()).map(|ids| ids.iter().filter_map(|id| id.as_str().map(|id| ModelId::from(id.strip_prefix("whisper.cpp/").unwrap_or(id)))).collect()).unwrap_or_default();
+                let route = ModelRoute { provider: "whisper.cpp".into(), model: ModelId::from(selected_model), reason: format!("{} policy", route_config.get("policy").and_then(|p| p.as_str()).unwrap_or("LocalFirst")), fallback };
                 let mut injector = RuntimeInjector::new();
                 let target = RuntimeTarget;
                 let no_history = NoopHistory;
                 let history: &dyn HistoryRepository = if history_enabled { handler_store.as_ref() } else { &no_history };
-                let result = runtime.complete_captured_dictation(&route, &mut injector, &target, history)
+                let vocabulary = handler_store.setting("resource.vocabulary").ok().flatten()
+                    .and_then(|value| serde_json::from_value::<Vec<serde_json::Value>>(value).ok())
+                    .map(|items| Vocabulary { terms: items.into_iter().filter_map(|item| Some(VocabularyTerm {
+                        term: item.get("term")?.as_str()?.to_owned(),
+                        pronunciation_hint: item.get("pronunciationHint").and_then(|v| v.as_str()).map(str::to_owned),
+                        correction: item.get("correction").and_then(|v| v.as_str()).map(str::to_owned),
+                    })).collect() }).unwrap_or_default();
+                let result = runtime.complete_captured_dictation_with_vocabulary(&route, &mut injector, &target, history, &vocabulary)
                     .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but canonical dictation pipeline failed: {error}")))?;
                 if history_enabled { handler_store.try_retain_history(history_retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?; }
-                Response::Transcript(result.transcript)
+                Ok(Response::Transcript(result.transcript))
+                }
+                })();
+                handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
+                operation?
+            }
+            Request::VoiceEdit { selection, instruction, approved } => {
+                if !approved {
+                    sori_core::voice_edit::preview(&selection, &instruction)
+                        .map(Response::VoiceEdit)
+                        .map_err(|error| sori_ipc::IpcError::Transport(format!("voice edit preview unavailable: {error}")))?
+                } else {
+                    Response::Error(sori_ipc::IpcErrorResponse {
+                        code: "voice_edit_target_unavailable".into(),
+                        detail: "Voice Edit approval is unavailable until sorid captures and revalidates the native focused selection; no replacement was performed".into(),
+                    })
+                }
             }
             Request::DictationCancel => {
-                let chunks = runtime.stop_audio(true).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                let _ = runtime.take_captured_audio();
-                Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") })
+                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let mut runtime = slot.take().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
+                drop(slot);
+                let operation = (|| {
+                    let chunks = runtime.stop_audio(true).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                    let _ = runtime.take_captured_audio();
+                    Ok::<Response, sori_ipc::IpcError>(Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") }))
+                })();
+                handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
+                operation?
             }
             Request::Dictation { model, audio } => {
+                let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let runtime = slot.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 let transcript = runtime
                     .transcribe(&model, &audio)
                     .map_err(|error| sori_ipc::IpcError::Transport(error.to_string()))?;
@@ -278,10 +379,27 @@ async fn main() -> Result<()> {
                 }
                 Response::Transcript(transcript)
             }
+            Request::RunBenchmark { model, audio, reference, iterations } => {
+                let provider = benchmark_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("benchmark unavailable: Whisper provider is not ready".into()))?;
+                let result = run_benchmark(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark failed: {e}")))?;
+                handler_store.save_benchmark(&result).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark persistence failed: {e}")))?;
+                Response::Benchmark(result)
+            }
+            Request::RecentBenchmarks { limit } => Response::Resource(sori_ipc::ResourceResponse {
+                resource: "benchmarks".into(),
+                value: serde_json::to_value(handler_store.recent_benchmarks(usize::from(limit)).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?,
+            }),
+            Request::ApplyBenchmarkRecommendation { model } => {
+                let route = serde_json::json!({"provider":"whisper.cpp","model":model,"reason":"recommended by persisted benchmark","fallback":[]});
+                handler_store.save_model_route("recommended", &route).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Control(ControlResponse { accepted: true, detail: format!("benchmark recommendation persisted for {}", model.0) })
+            }
             Request::Doctor => {
+                let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let runtime = slot.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);
                 Response::Doctor(DoctorResponse {
-                    status: status_response(&runtime, &handler_config, *privacy),
+                    status: status_response(runtime, &config_snapshot, privacy),
                     checks: vec![
                         DoctorCheck {
                             name: "daemon".into(),
@@ -341,10 +459,10 @@ async fn main() -> Result<()> {
                     .unwrap_or(true);
                 Response::ConfigSummary(ConfigSummaryResponse {
                 profile: ProfileMode::Basic,
-                privacy: *privacy,
+                privacy,
                 history_enabled,
-                hotkey: handler_config.hotkey.binding.clone(),
-                route: route_summary(&handler_config),
+                hotkey: config_snapshot.hotkey.binding.clone(),
+                route: route_summary(&config_snapshot),
                 })
             }
             Request::RecentHistory { limit } => Response::RecentHistory(RecentHistoryResponse {
@@ -372,8 +490,9 @@ async fn main() -> Result<()> {
             Request::SetConfig { key, value } => {
                 validate_setting(&key, &value).map_err(sori_ipc::IpcError::Transport)?;
                 handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                if key == "hotkey.binding" { handler_config.hotkey.binding = value.as_str().unwrap().to_owned(); }
-                if key == "privacy.mode" { *privacy = serde_json::from_value(value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
+                if key == "hotkey.binding" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.hotkey.binding = value.as_str().unwrap().to_owned(); }
+                if key == "privacy.mode" { *handler_privacy.lock().map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))? = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
+                if key == "route.policy" { let preset: sori_core::RoutePreset = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.route = preset.policy(); }
                 Response::Control(ControlResponse { accepted: true, detail: format!("setting {key} persisted") })
             }
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
@@ -386,6 +505,8 @@ async fn main() -> Result<()> {
                     .collect(),
             }),
             Request::Pause => {
+                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let runtime = slot.as_mut().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 runtime
                     .pause()
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -395,6 +516,8 @@ async fn main() -> Result<()> {
                 })
             }
             Request::Resume => {
+                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let runtime = slot.as_mut().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 runtime
                     .resume()
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -412,9 +535,12 @@ async fn main() -> Result<()> {
         signal = tokio::signal::ctrl_c() => { signal?; Ok(()) }
     };
     // Cleanup is deliberately performed even when the IPC server exits with an error.
-    let mut runtime = runtime
+    let mut runtime_slot = runtime
         .lock()
         .map_err(|_| anyhow::anyhow!("runtime lock poisoned"))?;
+    let runtime = runtime_slot
+        .as_mut()
+        .ok_or_else(|| anyhow::anyhow!("runtime operation still active"))?;
     if !matches!(runtime.state(), RuntimeState::ShuttingDown) {
         runtime.shutdown()?;
     }
@@ -425,6 +551,89 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+fn validate_extension_manifest(manifest: &ExtensionManifest) -> std::result::Result<(), String> {
+    let id_ok = !manifest.id.is_empty()
+        && manifest.id.len() <= 64
+        && manifest
+            .id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+    if !id_ok {
+        return Err(
+            "extension id must be lowercase ASCII and contain only letters, digits, '-' or '_'"
+                .into(),
+        );
+    }
+    if manifest.name.trim().is_empty() || manifest.version.trim().is_empty() {
+        return Err("extension name and version are required".into());
+    }
+    if manifest.entrypoint.is_empty()
+        || std::path::Path::new(&manifest.entrypoint).is_absolute()
+        || manifest
+            .entrypoint
+            .split(['/', '\\'])
+            .any(|part| part == "..")
+    {
+        return Err("entrypoint must be a relative path without traversal".into());
+    }
+    const ALLOWED: &[&str] = &[
+        "network",
+        "filesystem.read",
+        "filesystem.write",
+        "shell",
+        "dictation",
+        "events",
+    ];
+    if let Some(permission) = manifest
+        .permissions
+        .iter()
+        .find(|permission| !ALLOWED.contains(&permission.as_str()))
+    {
+        return Err(format!("unsupported extension permission: {permission}"));
+    }
+    if manifest.license.trim().is_empty() {
+        return Err("license evidence is required".into());
+    }
+    Ok(())
+}
+
+fn extension_record(
+    row: (String, serde_json::Value, String, i64, i64, Option<String>),
+) -> ExtensionRecord {
+    let (_id, manifest, state, installed_at, updated_at, last_error) = row;
+    ExtensionRecord {
+        manifest: serde_json::from_value(manifest).expect("validated extension manifest in SQLite"),
+        state,
+        installed_at,
+        updated_at,
+        last_error,
+    }
+}
+
+fn extension_state(
+    store: &SqliteStore,
+    id: &str,
+    state: &str,
+) -> std::result::Result<Response, sori_ipc::IpcError> {
+    let Some((manifest, _, _, _, _)) = store
+        .extension(id)
+        .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+    else {
+        return Ok(Response::Error(sori_ipc::IpcErrorResponse {
+            code: "not_found".into(),
+            detail: format!("extension {id} is not installed"),
+        }));
+    };
+    store
+        .save_extension(id, &manifest, state, None)
+        .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+    Ok(Response::Control(ControlResponse {
+        accepted: true,
+        detail: format!("extension {id} {state}"),
+    }))
+}
+
+#[cfg(windows)]
 #[cfg(windows)]
 fn native_text_injection_detail() -> &'static str {
     sori_core::WindowsSendInputAdapter::diagnostic()
@@ -440,6 +649,20 @@ fn route_summary(config: &DaemonConfig) -> RouteSummary {
         allow_cloud: config.route.allow_cloud,
         prefer_warm_runtime: config.route.prefer_warm_runtime,
         optimize_battery: config.route.optimize_battery,
+    }
+}
+
+fn busy_status_response(config: &DaemonConfig, privacy: PrivacyMode) -> StatusResponse {
+    StatusResponse {
+        protocol_version: PROTOCOL_VERSION,
+        daemon_version: env!("CARGO_PKG_VERSION").into(),
+        running: true,
+        activity: RuntimeActivity::Idle,
+        paused: false,
+        hotkey: config.hotkey.binding.clone(),
+        route: route_summary(config),
+        profile: ProfileMode::Basic,
+        privacy,
     }
 }
 
@@ -472,6 +695,16 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
         "hotkey.binding" if value.as_str().is_some_and(|v| !v.trim().is_empty()) => Ok(()),
         "history.enabled" if value.is_boolean() => Ok(()),
         "history.retention_limit" if value.as_u64().is_some_and(|v| v > 0 && v <= 10_000) => Ok(()),
+        "route.policy"
+            if value
+                .as_str()
+                .and_then(|v| {
+                    serde_json::from_str::<sori_core::RoutePreset>(&format!("\"{v}\"")).ok()
+                })
+                .is_some() =>
+        {
+            Ok(())
+        }
         "privacy.mode"
             if value
                 .as_str()
@@ -485,6 +718,7 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
         "history.retention_limit" => {
             Err("history.retention_limit must be an integer from 1 to 10000".into())
         }
+        "route.policy" => Err("route.policy must be a supported route preset".into()),
         "privacy.mode" => {
             Err("privacy.mode must be Auto, LocalOnly, CloudAllowed, or NeverCloud".into())
         }
@@ -494,15 +728,18 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
 
 fn validate_resource(resource: &str) -> Result<(), String> {
     match resource {
-        "vocabulary" | "models" | "benchmarks" | "extensions" | "privacy" | "onboarding"
-        | "route" => Ok(()),
+        "vocabulary" | "models" | "benchmarks" | "extensions" | "permissions" | "privacy"
+        | "onboarding" | "route" => Ok(()),
         _ => Err(format!("unsupported resource: {resource}")),
     }
 }
 
 fn default_resource(resource: &str) -> serde_json::Value {
     match resource {
-        "vocabulary" | "models" | "benchmarks" | "extensions" => serde_json::json!([]),
+        "vocabulary" | "benchmarks" | "extensions" | "permissions" => serde_json::json!([]),
+        "models" => {
+            serde_json::json!([{"id":"whisper.cpp/ggml-base.en","name":"Whisper base.en","provider":"whisper.cpp","location":"local","qualityTier":"standard","recommended":true,"available":false,"unavailableReason":"UNVERIFIED: local model files have not been configured"}])
+        }
         "privacy" => {
             serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
         }
@@ -510,7 +747,7 @@ fn default_resource(resource: &str) -> serde_json::Value {
             serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
         }
         "route" => {
-            serde_json::json!({"prefer_local": true, "allow_cloud": false, "prefer_warm_runtime": false, "optimize_battery": false})
+            serde_json::json!({"activeModelId":"whisper.cpp/ggml-base.en","policy":"LocalFirst","fallbackModelIds":[]})
         }
         _ => serde_json::Value::Null,
     }

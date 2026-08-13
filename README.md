@@ -742,7 +742,25 @@ npm test
 npm run desktop:check
 npm run build
 npm run e2e:backend-ipc
+npm run e2e:desktop-native
 ```
+
+### Firstmate / Treehouse worktree troubleshooting
+
+Firstmate workers use disposable Treehouse worktrees. If `treehouse get` reports `all 16 worktrees are in use or dirty`, this is a capacity/lease condition, not a Sori application error. Inspect before removing anything:
+
+```powershell
+treehouse status
+git worktree list
+```
+
+Return only a known-finished, clean worker worktree (or one whose changes are already landed and whose artifacts have been preserved):
+
+```powershell
+treehouse return --force C:\Users\<you>\.treehouse\Sori-<pool>\<slot>\Sori
+```
+
+Do not return an `in-use` or dirty worktree blindly. Stop/teardown the exact Firstmate task first, preserve uncommitted artifacts, and verify `git status` before freeing its lease. A stale Firstmate session lock can also block new dispatches; only remove a lock after proving its recorded PID is dead and no Firstmate/treehouse teardown is active. After cleanup, rerun `treehouse status` and retry `treehouse get`.
 
 ## Workflow policy
 

@@ -207,7 +207,10 @@ async function nativeMouseAction(pid: number, start: { x: number; y: number }, e
 $p = Get-Process -Id ${pid} -ErrorAction Stop
 $h = $p.MainWindowHandle
 if ($h -eq [IntPtr]::Zero) { throw "process ${pid} has no main window" }
-[SoriNativeMouse]::SetForegroundWindow($h) | Out-Null
+[uint32]$foregroundPid = 0
+$foreground = [SoriNativeMouse]::GetForegroundWindow()
+[SoriNativeMouse]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid) | Out-Null
+if ($foregroundPid -ne $p.Id) { throw "foreground pid changed immediately before mouse input (foreground pid=$foregroundPid, expected=$($p.Id))" }
 [SoriNativeMouse]::SetCursorPos(${start.x}, ${start.y}) | Out-Null
 Start-Sleep -Milliseconds 120
 [SoriNativeMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
@@ -381,6 +384,11 @@ async function main(): Promise<void> {
     }
 
     console.log('Verifying focus-independent geometry changes...');
+    // A failed state probe may leave the HWND zoomed; normalize before geometry
+    // and foreground-click assertions so the click sequence is deterministic.
+    await nativeWindowCommand(appProcess.pid, 'restore');
+    info = await waitForNativeWindow(appProcess.pid);
+    if (info.minimized || info.maximized) throw new Error('could not normalize native window before interaction E2E');
     await nativeSetWindowRect(appProcess.pid, Math.max(40, info.left), Math.max(40, info.top), 1462, 880);
     info = await waitForNativeWindow(appProcess.pid);
     const beforeDrag = info;
@@ -403,8 +411,57 @@ async function main(): Promise<void> {
     assertions.push(`native minimum geometry ${MIN_WIDTH}x${MIN_HEIGHT} verified without foreground activation`);
     artifacts.push(await captureWindowNoFocus(appProcess.pid, resolve(ARTIFACT_DIR, '04-minimum.png')));
 
-    const interactiveSkip = 'foreground-dependent mouse/titlebar actions are intentionally isolated from the focus-independent suite';
-    assertions.push('interactive mouse/titlebar verification SKIP: focus-independent mode does not synthesize foreground input');
+    console.log('Verifying real foreground mouse controls and workspace interactions...');
+    const initialRestored = info;
+    await clickWindowRelative(appProcess.pid, controlX(initialRestored, 'maximize'), Math.floor(TITLEBAR_HEIGHT / 2));
+    info = await waitForNativeWindow(appProcess.pid);
+    if (!info.maximized || info.width <= initialRestored.width || info.height <= initialRestored.height) throw new Error(`native maximize click did not produce a larger maximized window: ${info.width}x${info.height}`);
+    assertions.push('native maximize control click verified maximized state and larger native size');
+    await clickWindowRelative(appProcess.pid, controlX(info, 'maximize'), Math.floor(TITLEBAR_HEIGHT / 2));
+    info = await waitForNativeWindow(appProcess.pid);
+    if (info.maximized) throw new Error('native restore click did not leave maximized state');
+    assertions.push('native restore control click verified restored native state');
+    await clickWindowRelative(appProcess.pid, controlX(info, 'minimize'), Math.floor(TITLEBAR_HEIGHT / 2));
+    info = await waitForNativeWindow(appProcess.pid);
+    if (!info.minimized) throw new Error('native minimize control click did not minimize the window');
+    assertions.push('native minimize control click verified minimized native state');
+    await nativeWindowCommand(appProcess.pid, 'restore');
+    info = await waitForNativeWindow(appProcess.pid);
+    if (info.minimized || info.maximized) throw new Error('native restore after minimize did not restore normal state');
+
+    // Click the maximize button at the SVG path center, using real native input.
+    await clickWindowRelative(appProcess.pid, controlX(info, 'maximize'), Math.floor(TITLEBAR_HEIGHT / 2));
+    info = await waitForNativeWindow(appProcess.pid);
+    if (!info.maximized) throw new Error('nested SVG/path maximize click was stolen by native dragging');
+    assertions.push('nested SVG/path maximize click reached the button action without titlebar drag theft');
+    await clickWindowRelative(appProcess.pid, controlX(info, 'maximize'), Math.floor(TITLEBAR_HEIGHT / 2));
+    info = await waitForNativeWindow(appProcess.pid);
+
+    const sidebarBefore = await captureWindowNoFocus(appProcess.pid, resolve(ARTIFACT_DIR, '05-sidebar-expanded.png'));
+    artifacts.push(sidebarBefore);
+    await clickWindowRelative(appProcess.pid, 28, Math.floor(TITLEBAR_HEIGHT / 2));
+    await delay(300);
+    const sidebarCollapsed = await captureWindowNoFocus(appProcess.pid, resolve(ARTIFACT_DIR, '06-sidebar-collapsed.png'));
+    artifacts.push(sidebarCollapsed);
+    if (sidebarBefore.sha256 === sidebarCollapsed.sha256) throw new Error('sidebar collapse click produced no native inspectable visual change');
+    assertions.push('sidebar collapse click verified by changed real-window evidence; main workspace expansion is inspectable in 06-sidebar-collapsed.png');
+
+    // Restore the sidebar, then exercise pointerdown + multiple pointermoves + pointerup.
+    await clickWindowRelative(appProcess.pid, 28, Math.floor(TITLEBAR_HEIGHT / 2));
+    await delay(300);
+    info = await waitForNativeWindow(appProcess.pid);
+    const resizeBefore = await captureWindowNoFocus(appProcess.pid, resolve(ARTIFACT_DIR, '07-sidebar-before-resize.png'));
+    artifacts.push(resizeBefore);
+    await dragWindowRelative(appProcess.pid, 252, Math.max(TITLEBAR_HEIGHT + 80, Math.floor(info.height / 2)), 96, 0);
+    const resizeAfter = await captureWindowNoFocus(appProcess.pid, resolve(ARTIFACT_DIR, '08-sidebar-after-resize.png'));
+    artifacts.push(resizeAfter);
+    if (resizeBefore.sha256 === resizeAfter.sha256) throw new Error('sidebar pointer resize produced no inspectable visual change');
+    assertions.push('sidebar pointerdown/pointermove/pointerup resize verified with real native input and before/after evidence');
+
+    await clickWindowRelative(appProcess.pid, controlX(info, 'close'), Math.floor(TITLEBAR_HEIGHT / 2));
+    if (!await waitForExit(appProcess)) throw new Error('native close control did not exit the Tauri process');
+    assertions.push('native close control verified Tauri process exit');
+    const interactiveSkip: string | null = null;
     const manifest = {
       schema: 1,
       generatedAt: new Date().toISOString(),
@@ -414,7 +471,7 @@ async function main(): Promise<void> {
       visualReview: 'pending',
       stateSkip,
       interactiveSkip,
-      truthBoundary: `This native shell E2E proves the real Tauri window frame, launch geometry, geometry move/resize/minimum constraints, and screenshot capture without foreground activation${stateSkip ? '; native minimize/maximize state is SKIP in this environment' : '; native minimize/maximize/restore state also passed'}. Interactive mouse/titlebar control proof remains SKIP when Windows focus policy blocks activation; this does not prove microphone capture, Whisper inference, global hotkeys, overlay delivery, or OS text injection.`,
+      truthBoundary: `This native shell E2E proves the real Tauri executable/HWND, geometry, foreground-PID-guarded mouse controls, nested SVG/path routing, sidebar collapse/expansion, pointer resize, close/process exit, and inspectable PNG evidence${stateSkip ? '; focus-independent minimize/maximize state is SKIP' : ''}. This does not prove microphone capture, Whisper inference, global hotkeys, overlay delivery, or OS text injection.`,
     };
     writeFileSync(resolve(ARTIFACT_DIR, 'visual-review-manifest.json'), JSON.stringify(manifest, null, 2));
     console.log(`PASS: native shell controls and geometry verified; ${artifacts.length} screenshots recorded at ${ARTIFACT_DIR}`);
@@ -427,12 +484,18 @@ async function main(): Promise<void> {
 main().catch((error: unknown) => {
   if (error instanceof NativeEnvironmentSkip) {
     mkdirSync(ARTIFACT_DIR, { recursive: true });
-    writeFileSync(resolve(ARTIFACT_DIR, 'skip.json'), JSON.stringify({
+    const skipEvidence = {
       schema: 1,
       status: 'SKIP',
+      generatedAt: new Date().toISOString(),
       reason: error.message,
       evidence: 'The real Tauri HWND could not own the foreground. Browser preview or an overlay screenshot is not native evidence.',
-    }, null, 2));
+    };
+    writeFileSync(resolve(ARTIFACT_DIR, 'skip.json'), JSON.stringify(skipEvidence, null, 2));
+    writeFileSync(resolve(ARTIFACT_DIR, 'visual-review-manifest.json'), JSON.stringify({ ...skipEvidence, visualReview: 'pending', artifacts: [], assertions: [], truthBoundary: skipEvidence.evidence }, null, 2));
+    writeFileSync(resolve(ARTIFACT_DIR, 'native-e2e.log'), `SKIP ${skipEvidence.generatedAt}
+${error.message}
+`);
     console.log(`SKIP: native visual E2E unavailable: ${error.message}`);
     return;
   }

@@ -576,12 +576,7 @@ pub mod windows {
                 INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_CONTROL,
                 VK_LMENU, VK_LSHIFT, VK_LWIN,
             };
-            let keys = [
-                VK_CONTROL,
-                VK_LSHIFT,
-                VK_LMENU,
-                VK_LWIN,
-            ];
+            let keys = [VK_CONTROL, VK_LSHIFT, VK_LMENU, VK_LWIN];
             let inputs: Vec<INPUT> = keys
                 .into_iter()
                 .map(|vk| INPUT {

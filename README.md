@@ -2,7 +2,7 @@
 
 ## Status
 
-Sori is an early Windows-first desktop MVP. The current repository contains a Rust daemon (`sorid`), loopback IPC, SQLite persistence, and a React/Tauri desktop shell. The Windows global hotkey is registered by the daemon, while microphone capture, Whisper execution, and text injection remain incomplete end-to-end. See the [MVP capability matrix](docs/mvp-capability-matrix.md).
+Sori is a Windows-first desktop MVP foundation. The active runtime is a Rust daemon (`sorid`) with loopback IPC, SQLite persistence, a React/Tauri shell, Windows hotkey/audio/Whisper/injection boundaries, and explicit capability diagnostics. The repository does **not** claim a fully verified physical voice vertical slice yet: microphone speech, physical hotkey delivery, focused-app insertion, and transcript persistence from a real session remain `UNVERIFIED`/machine-dependent. See the [MVP capability matrix](docs/mvp-capability-matrix.md) and the [native voice evidence report](docs/e2e/native-voice-e2e-2026-08-13.md).
 
 Repository: <https://github.com/kyoo-147/Sori>
 
@@ -49,7 +49,7 @@ React/Tauri shell → loopback IPC bridge → sorid (Rust) → SQLite
                                       ↘ lifecycle/diagnostic contracts
 ```
 
-The hotkey platform adapter is wired into the daemon lifecycle, but audio, ASR, and injection are not yet a working end-to-end dictation path. The larger pipeline below is product direction, not a claim about current implementation.
+The daemon owns the canonical runtime pipeline and the desktop talks to it over the authoritative loopback IPC contract. A configured Whisper executable and model can be discovered and exercised by the provider, but fixture inference is not microphone or focused-application proof.
 
 
 ```text
@@ -98,7 +98,7 @@ Implementation direction:
 - Core daemon: Rust (`sorid`).
 - UI: Tauri + React as optional client.
 - CLI: Rust + `clap`.
-- IPC: Windows named pipe; Unix socket on macOS/Linux.
+- IPC: bounded loopback TCP at `127.0.0.1:17373` on the current Windows MVP.
 - Metadata: SQLite.
 - Config: TOML/YAML/JSON for advanced users.
 - Secrets: OS keychain.
@@ -664,12 +664,16 @@ sori dictionary
 
 ### Current MVP foundation
 
-- Rust daemon and lifecycle control.
-- Loopback IPC and SQLite event persistence.
-- React/Tauri desktop shell with diagnostics.
-- Contracts/scaffolds for Windows hotkey, audio/VAD, `whisper.cpp`, and text injection.
+- Rust `sorid` daemon with lifecycle, Doctor, pause/resume, and event contracts.
+- Bounded loopback IPC with request timing, cancellation, and concurrency limits.
+- SQLite migrations, settings, events, and transcript/history persistence seams.
+- React/Tauri desktop shell with native titlebar, sidebar, diagnostics, and IPC states.
+- Windows global hotkey lifecycle and recovery handling.
+- CPAL capture lifecycle with readiness checks, cancellation, and restart-safe cleanup.
+- Verified `whisper.cpp` provider discovery, model validation, checksum installation, temporary WAV execution, and truthful failure states.
+- Windows SendInput plus clipboard fallback outcomes (`Inserted`, `CopiedFallback`, `PartiallyInserted`, `Failed`).
 
-The foundation and Windows global hotkey registration are implemented; the real hotkey → microphone → Whisper → injection path is still integration work.
+The canonical hotkey → microphone → VAD → Whisper → injection → SQLite → frontend pipeline is implemented behind these boundaries and covered by deterministic contract tests. Native shell and fixture Whisper checks pass; physical microphone speech, focused-target insertion, and end-to-end native transcript proof remain explicitly unverified until observed on the target Windows machine.
 
 ### V0.2
 
@@ -706,9 +710,9 @@ The foundation and Windows global hotkey registration are implemented; the real 
 
 ## Current repository
 
-The Rust workspace and `apps/desktop` are the active Sori runtime path. The older TypeScript/Fastify API under `src/` is a separate prototype and is not the desktop product backend. The desktop UI may use mock/HTTP fallback outside the native shell; that fallback is not evidence that voice capture or insertion works.
+The Rust workspace and `apps/desktop` are the active Sori runtime path. The older TypeScript/Fastify API under `src/` is a separate prototype and is not the desktop product backend. Browser/mock fallbacks are development conveniences only; they are never evidence that voice capture or insertion works.
 
-Existing scripts:
+### Development and validation
 
 ```sh
 npm install
@@ -716,6 +720,28 @@ npm run dev
 npm run build
 npm test
 npm run check
+npm run desktop:dev
+npm run desktop:build
+npm run desktop:check
+npm run e2e:backend-ipc
+npm run e2e:desktop-backend
+npm run e2e:desktop-native
+```
+
+To launch the native Windows desktop during development, start `sorid` first, then run `npm --prefix apps/desktop exec tauri dev`. The Tauri configuration starts the Vite frontend on port `1420`. For a local Whisper setup, configure `SORI_WHISPER_CPP_BIN` and `SORI_WHISPER_MODEL_DIR`, or use the restart-persistent Windows config at `%LOCALAPPDATA%\Sori\whisper.json`; see [`docs/backend/whisper-provider.md`](docs/backend/whisper-provider.md).
+
+Native validation must refuse a stale daemon on `127.0.0.1:17373`. The native shell E2E verifies real window geometry and shell controls, but does not by itself prove microphone capture, ASR from speech, or focused-app injection.
+
+The current required local gate is:
+
+```sh
+cargo fmt --all --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+npm test
+npm run desktop:check
+npm run build
+npm run e2e:backend-ipc
 ```
 
 ## Workflow policy

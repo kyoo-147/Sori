@@ -494,15 +494,17 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
 
 fn validate_resource(resource: &str) -> Result<(), String> {
     match resource {
-        "vocabulary" | "models" | "benchmarks" | "extensions" | "privacy" | "onboarding"
-        | "route" => Ok(()),
+        "vocabulary" | "models" | "benchmarks" | "extensions" | "permissions" | "privacy"
+        | "onboarding" | "route" => Ok(()),
         _ => Err(format!("unsupported resource: {resource}")),
     }
 }
 
 fn default_resource(resource: &str) -> serde_json::Value {
     match resource {
-        "vocabulary" | "models" | "benchmarks" | "extensions" => serde_json::json!([]),
+        "vocabulary" | "models" | "benchmarks" | "extensions" | "permissions" => {
+            serde_json::json!([])
+        }
         "privacy" => {
             serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
         }

@@ -10,8 +10,12 @@ The daemon's Windows listener in `sorid::hotkey` uses the authoritative
 - Repeated press notifications and stale release/cancel notifications are
   ignored. Cancellation always returns a held session to `Idle`.
 - `WindowsHotkeyBackend` owns a safe `RegisterHotKey`/`UnregisterHotKey`
-  boundary. `sorid` runs its message pump on a worker thread, translates
-  `WM_HOTKEY`, polls key state for release, and unregisters during shutdown.
+  boundary. A registration conflict retries once with the deterministic
+  `Ctrl+Alt+Space` fallback; the active combination is then used for release
+  polling. `HotkeyBackend::recover` re-registers and resets held state after a
+  stale listener. `sorid` runs its message pump on a worker thread, translates
+  matching `WM_HOTKEY` payloads, polls key state for release, and unregisters
+  during shutdown.
 - `FakeHotkeyBackend` and `FakeHotkeyRegistration` provide deterministic tests
   without OS hooks. Non-Windows builds use `UnsupportedHotkeyBackend`.
 

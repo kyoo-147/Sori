@@ -42,6 +42,9 @@ import { VoiceIdentityScreen } from './components/screens/VoiceIdentityScreen';
 import { AssistantVoiceScreen } from './components/screens/AssistantVoiceScreen';
 import { CoverageChecklistScreen } from './components/screens/CoverageChecklistScreen';
 import { SystemDesignScreen } from './components/screens/SystemDesignScreen';
+export const applySidebarLiveWidth = (shell: Pick<HTMLElement, 'style'>, width: number) => {
+  shell.style.setProperty('--sori-sidebar-width-live', `${width}px`);
+};
 import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
 import { readPreference, readSettings, writePreference } from './preferences';
 
@@ -66,6 +69,7 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => Number(window.localStorage.getItem('sori.sidebar.width')) || 248);
   const resizeFrame = useRef<number | null>(null);
   const resizeWidth = useRef(248);
+  const shellRef = useRef<HTMLDivElement>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly', version: null });
@@ -128,28 +132,46 @@ export default function App() {
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     if (sidebarCollapsed) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const owner = event.currentTarget;
+    const pointerId = event.pointerId;
+    owner.setPointerCapture(pointerId);
     resizeWidth.current = sidebarWidth;
     const startX = event.clientX;
     const startWidth = sidebarWidth;
+    let finished = false;
+    const applyLiveWidth = () => {
+      if (shellRef.current) applySidebarLiveWidth(shellRef.current, resizeWidth.current);
+    };
     const move = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId || finished) return;
       const next = Math.max(180, Math.min(360, startWidth + moveEvent.clientX - startX));
       resizeWidth.current = next;
       if (resizeFrame.current === null) {
         resizeFrame.current = window.requestAnimationFrame(() => {
-          document.documentElement.style.setProperty('--sori-sidebar-width-live', `${resizeWidth.current}px`);
+          applyLiveWidth();
           resizeFrame.current = null;
         });
       }
     };
-    const stop = () => {
+    const stop = (stopEvent?: PointerEvent) => {
+      if ((stopEvent && stopEvent.pointerId !== pointerId) || finished) return;
+      finished = true;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      owner.removeEventListener('lostpointercapture', stop);
+      if (resizeFrame.current !== null) {
+        window.cancelAnimationFrame(resizeFrame.current);
+        resizeFrame.current = null;
+      }
       setSidebarWidth(resizeWidth.current);
-      document.documentElement.style.setProperty('--sori-sidebar-width-live', `${resizeWidth.current}px`);
+      applyLiveWidth();
+      if (owner.hasPointerCapture(pointerId)) owner.releasePointerCapture(pointerId);
     };
     window.addEventListener('pointermove', move, { passive: true });
-    window.addEventListener('pointerup', stop, { once: true });
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    owner.addEventListener('lostpointercapture', stop);
   };
 
   const setPaused = async (paused: boolean) => {
@@ -197,7 +219,7 @@ export default function App() {
   };
 
   return (
-    <div className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
+    <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
       {/* Top Window Titlebar (Chrome Window Header) */}
       <div className="sori-shell__titlebar">
       <DesktopTitleBar

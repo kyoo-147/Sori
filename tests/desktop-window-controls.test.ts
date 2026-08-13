@@ -1,3 +1,36 @@
+import { handleTitlebarMouseDownBoundary } from '../apps/desktop/src/components/DesktopTitleBar.js';
+describe('nested SVG titlebar event boundary', () => {
+  it('does not start dragging when a nested Lucide SVG path activates an interactive control', async () => {
+    class SvgPathElementLike {
+      closest(selector: string) {
+        return selector.includes('button') ? {} : null;
+      }
+    }
+
+    const previousElement = globalThis.Element;
+    Object.defineProperty(globalThis, 'Element', { configurable: true, value: SvgPathElementLike });
+    try {
+      const calls: string[] = [];
+      const target = new SvgPathElementLike();
+      const api = {
+        minimize: async () => void calls.push('minimize'),
+        maximize: async () => void calls.push('maximize'),
+        restore: async () => void calls.push('restore'),
+        toggleMaximize: async () => void calls.push('toggle-maximize'),
+        close: async () => void calls.push('close'),
+        startDragging: async () => void calls.push('drag'),
+      };
+
+      handleTitlebarMouseDownBoundary(target as unknown as EventTarget, 0, () => void performWindowAction(api, 'drag'));
+      await performWindowAction(api, 'close');
+
+      expect(calls).toEqual(['close']);
+      expect(calls).not.toContain('drag');
+    } finally {
+      Object.defineProperty(globalThis, 'Element', { configurable: true, value: previousElement });
+    }
+  });
+});
 import { describe, expect, it } from 'vitest';
 import { performWindowAction, type WindowAction } from '../apps/desktop/src/window-actions.js';
 import { readFileSync } from 'node:fs';

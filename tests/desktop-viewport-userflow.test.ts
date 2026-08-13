@@ -1,3 +1,4 @@
+import { applySidebarLiveWidth } from '../apps/desktop/src/App.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -21,6 +22,22 @@ describe('desktop shell and truthful preview contracts', () => {
     expect(titleBar).not.toContain('Tablet preview');
     expect(titleBar).not.toContain('Mobile preview');
     expect(sidebar).toContain('max-md:top-10');
+  });
+
+  it('keeps sidebar resize owned by one pointer through the pre-pointerup commit', () => {
+    const app = desktopSource('App.tsx');
+    expect(app).toContain('const pointerId = event.pointerId;');
+    expect(app).toContain('moveEvent.pointerId !== pointerId || finished');
+    expect(app).toContain("window.addEventListener('pointermove', move");
+    expect(app).toContain("window.addEventListener('pointerup', stop)");
+    expect(app).toContain("window.addEventListener('pointercancel', stop)");
+    expect(app).toContain("owner.addEventListener('lostpointercapture', stop)");
+    expect(app).toContain('window.cancelAnimationFrame(resizeFrame.current)');
+    expect(app).toContain('setSidebarWidth(resizeWidth.current);');
+    expect(app).toContain('applyLiveWidth();');
+    expect(app).toContain('applyLiveWidth();');
+    expect(app).toContain('shellRef.current');
+    expect(app).not.toContain("document.documentElement.style.setProperty('--sori-sidebar-width-live'");
   });
 
   it('keeps the primary navigation labels explicit and stable', () => {
@@ -50,5 +67,14 @@ describe('desktop shell and truthful preview contracts', () => {
     expect(onboarding).not.toContain('successfully injected text');
     expect(runtime).toContain("this.control('dictation_start')");
     expect(runtime).toContain("this.call('dictation_stop'");
+  });
+  it('writes the live width to the shell ref before pointerup commits React state', () => {
+    const values = new Map<string, string>();
+    const sequence: string[] = [];
+    const shell = { style: { setProperty: (name: string, value: string) => { values.set(name, value); sequence.push('shell-style'); } } };
+    applySidebarLiveWidth(shell, 312);
+    sequence.push('pointerup');
+    expect(values.get('--sori-sidebar-width-live')).toBe('312px');
+    expect(sequence).toEqual(['shell-style', 'pointerup']);
   });
 });

@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use sori_core::{
-    AudioChunk, Event, EventKind, ModelId, PrivacyMode, ProfileMode, Transcript,
+    AudioChunk, BenchmarkResult, Event, EventKind, ModelId, PrivacyMode, ProfileMode, Transcript,
     event::serde_json_like,
 };
 use std::io::{Read, Write};
@@ -40,6 +40,18 @@ pub enum Request {
         selection: sori_core::VoiceEditSelection,
         instruction: String,
         approved: bool,
+    },
+    RunBenchmark {
+        model: ModelId,
+        audio: Vec<AudioChunk>,
+        reference: Option<String>,
+        iterations: u16,
+    },
+    RecentBenchmarks {
+        limit: u16,
+    },
+    ApplyBenchmarkRecommendation {
+        model: ModelId,
     },
     Doctor,
     ConfigSummary,
@@ -96,6 +108,7 @@ pub enum Response {
     Transcript(Transcript),
     VoiceEdit(sori_core::VoiceEditResponse),
     Extensions(ExtensionsResponse),
+    Benchmark(BenchmarkResult),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -231,7 +244,7 @@ pub enum IpcError {
     #[error("transport error: {0}")]
     Transport(String),
     #[error("unexpected response for {request:?}")]
-    UnexpectedResponse { request: Request },
+    UnexpectedResponse { request: Box<Request> },
     #[error("invalid IPC message: {0}")]
     Protocol(String),
 }
@@ -531,7 +544,10 @@ impl Transport for MockTransport {
             Request::DictationStart
             | Request::DictationStop
             | Request::DictationCancel
-            | Request::Dictation { .. } => {
+            | Request::Dictation { .. }
+            | Request::RunBenchmark { .. }
+            | Request::RecentBenchmarks { .. }
+            | Request::ApplyBenchmarkRecommendation { .. } => {
                 return Err(IpcError::Transport(
                     "mock transport does not execute dictation".into(),
                 ));
@@ -650,7 +666,9 @@ mod tests {
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
             })),
-            _ => Err(IpcError::UnexpectedResponse { request }),
+            _ => Err(IpcError::UnexpectedResponse {
+                request: Box::new(request),
+            }),
         }));
         let client = LocalIpcClient::connect_to(endpoint).unwrap();
         let response =
@@ -702,7 +720,9 @@ mod tests {
                 profile: ProfileMode::Basic,
                 privacy: PrivacyMode::LocalOnly,
             })),
-            _ => Err(IpcError::UnexpectedResponse { request }),
+            _ => Err(IpcError::UnexpectedResponse {
+                request: Box::new(request),
+            }),
         }));
         for _ in 0..20 {
             let client = LocalIpcClient::connect_to(endpoint).unwrap();

@@ -1,7 +1,7 @@
 //! SQLite-backed persistence adapters for Sori's core repositories.
 
 use rusqlite::{Connection, OptionalExtension, params};
-use sori_core::{Event, EventBus, HistoryEntry, HistoryRepository};
+use sori_core::{BenchmarkResult, Event, EventBus, HistoryEntry, HistoryRepository};
 use std::path::Path;
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -25,6 +25,9 @@ pub enum PersistenceError {
 }
 
 /// A SQLite database containing the local settings and runtime journals.
+pub type ExtensionRow = (serde_json::Value, String, i64, i64, Option<String>);
+pub type ExtensionListRow = (String, serde_json::Value, String, i64, i64, Option<String>);
+
 pub struct SqliteStore {
     connection: Mutex<Connection>,
 }
@@ -127,10 +130,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    pub fn extension(
-        &self,
-        id: &str,
-    ) -> Result<Option<(serde_json::Value, String, i64, i64, Option<String>)>> {
+    pub fn extension(&self, id: &str) -> Result<Option<ExtensionRow>> {
         let connection = self.connection()?;
         connection.query_row("SELECT manifest_json, state, installed_at, updated_at, last_error FROM extensions WHERE id=?1", [id], |row| {
             let manifest: serde_json::Value = serde_json::from_str(&row.get::<_, String>(0)?).map_err(to_sqlite_error)?;
@@ -138,9 +138,7 @@ impl SqliteStore {
         }).optional().map_err(Into::into)
     }
 
-    pub fn extensions(
-        &self,
-    ) -> Result<Vec<(String, serde_json::Value, String, i64, i64, Option<String>)>> {
+    pub fn extensions(&self) -> Result<Vec<ExtensionListRow>> {
         let connection = self.connection()?;
         let mut statement = connection.prepare("SELECT id, manifest_json, state, installed_at, updated_at, last_error FROM extensions ORDER BY id")?;
         let rows = statement.query_map([], |row| {
@@ -212,6 +210,26 @@ impl SqliteStore {
         value
             .map(|json| serde_json::from_str(&json).map_err(PersistenceError::from))
             .transpose()
+    }
+
+    pub fn save_benchmark(&self, result: &BenchmarkResult) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO benchmark_runs (id, at, result_json) VALUES (?1, ?2, ?3)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                unix_timestamp(),
+                serde_json::to_string(result)?
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn recent_benchmarks(&self, limit: usize) -> Result<Vec<BenchmarkResult>> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare("SELECT result_json FROM benchmark_runs ORDER BY at DESC, id DESC LIMIT ?1")?;
+        let rows = statement.query_map([limit as i64], |row| row.get::<_, String>(0))?;
+        rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
     }
 
     pub fn try_publish_event(&self, event: &Event) -> Result<()> {

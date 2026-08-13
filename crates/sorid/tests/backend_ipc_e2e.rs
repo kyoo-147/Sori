@@ -258,7 +258,9 @@ async fn canonical_ipc_exercises_success_cancellation_and_injection_fallback() {
                         .collect(),
                 }))
             }
-            _ => Err(sori_ipc::IpcError::UnexpectedResponse { request }),
+            _ => Err(sori_ipc::IpcError::UnexpectedResponse {
+                request: Box::new(request),
+            }),
         }
     }));
     let request = |request| {

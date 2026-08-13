@@ -102,6 +102,8 @@ pub fn complete_dictation(
     )
 }
 
+/// Vocabulary is an explicit pipeline dependency; the legacy wrapper above keeps the public MVP API stable.
+#[allow(clippy::too_many_arguments)]
 pub fn complete_dictation_with_vocabulary(
     chunks: Vec<AudioChunk>,
     asr: &dyn ModelProvider,

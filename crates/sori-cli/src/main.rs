@@ -1,8 +1,10 @@
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
+use sori_core::{AudioChunk, AudioFormat, ModelId, SampleFormat};
 use sori_ipc::{IpcClient, LocalIpcClient, Request, Response};
 use std::io::{self, BufRead, Write};
+use time::OffsetDateTime;
 
 #[derive(Debug, Parser)]
 #[command(name = "sori", version, about = "Sori voice runtime CLI")]
@@ -24,8 +26,17 @@ enum Command {
     Status,
     /// List configured models from the daemon.
     Models,
-    /// Show persisted benchmark records from the daemon.
-    Benchmark,
+    /// Run a provider benchmark when --model and --audio are supplied, otherwise list persisted runs.
+    Benchmark {
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        audio: Option<std::path::PathBuf>,
+        #[arg(long)]
+        reference: Option<String>,
+        #[arg(long, default_value_t = 5)]
+        iterations: u16,
+    },
     /// List configured extensions from the daemon.
     Extensions,
     /// Print recent persisted transcripts.
@@ -54,11 +65,17 @@ enum SmokeCommand {
 fn main() {
     let cli = Cli::parse();
     let result = match cli.command.unwrap_or(Command::Status) {
+        Command::Benchmark {
+            model: Some(model),
+            audio: Some(audio),
+            reference,
+            iterations,
+        } => benchmark(model, audio, reference, iterations),
         command @ (Command::Run
         | Command::Doctor
         | Command::Status
         | Command::Models
-        | Command::Benchmark
+        | Command::Benchmark { .. }
         | Command::Extensions
         | Command::History { .. }
         | Command::Dictionary
@@ -107,7 +124,12 @@ fn execute(client: &impl IpcClient, command: Command, json: bool) -> Result<()> 
         }
         Command::Run => run(client),
         Command::Models => resource(client, "models", json),
-        Command::Benchmark => resource(client, "benchmarks", json),
+        Command::Benchmark {
+            model: None,
+            audio: None,
+            ..
+        } => resource(client, "benchmarks", json),
+        Command::Benchmark { .. } => bail!("benchmark requires both --model and --audio"),
         Command::Extensions => resource(client, "extensions", json),
         Command::Dictionary => resource(client, "vocabulary", json),
         Command::Permissions => resource(client, "permissions", json),
@@ -157,13 +179,92 @@ fn unexpected(response: Response, expected: &str) -> Result<()> {
     }
 }
 
-fn print_response<T: Serialize>(response: T, json: bool) -> Result<()> {
-    if json {
-        println!("{}", serde_json::to_string_pretty(&response)?);
-    } else {
-        println!("{}", serde_json::to_string_pretty(&response)?);
-    }
+fn print_response<T: Serialize>(response: T, _json: bool) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
+}
+
+fn benchmark(
+    model: String,
+    audio_path: std::path::PathBuf,
+    reference: Option<String>,
+    iterations: u16,
+) -> Result<()> {
+    let audio = read_wav(&audio_path)?;
+    let client =
+        LocalIpcClient::connect().map_err(|e| anyhow::anyhow!("daemon IPC unavailable: {e}"))?;
+    match client.request(Request::RunBenchmark {
+        model: ModelId::from(model.as_str()),
+        audio,
+        reference,
+        iterations,
+    })? {
+        Response::Benchmark(result) => {
+            println!(
+                "model={} provider={} samples={} cold_ms={:.2} warm_ms={:.2} p50_ms={:.2} p95_ms={:.2} rtf={:.4} wer={} cer={} ram_bytes={}",
+                result.model.0,
+                result.provider,
+                result.samples,
+                result.startup.cold_ms,
+                result.startup.warm_ms,
+                result.latency.p50_ms,
+                result.latency.p95_ms,
+                result.real_time_factor,
+                result
+                    .accuracy
+                    .as_ref()
+                    .and_then(|a| a.wer)
+                    .map_or("UNVERIFIED".into(), |v| format!("{v:.4}")),
+                result
+                    .accuracy
+                    .as_ref()
+                    .and_then(|a| a.cer)
+                    .map_or("UNVERIFIED".into(), |v| format!("{v:.4}")),
+                result
+                    .memory
+                    .ram_bytes
+                    .map_or("UNVERIFIED".into(), |v| v.to_string())
+            );
+            Ok(())
+        }
+        Response::Error(error) => bail!("benchmark failed: {}", error.detail),
+        other => bail!("unexpected benchmark response: {other:?}"),
+    }
+}
+
+fn read_wav(path: &std::path::Path) -> Result<Vec<AudioChunk>> {
+    let bytes = std::fs::read(path)?;
+    anyhow::ensure!(
+        bytes.len() >= 44 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE",
+        "only RIFF/WAVE audio is supported"
+    );
+    let channels = u16::from_le_bytes([bytes[22], bytes[23]]);
+    let rate = u32::from_le_bytes(bytes[24..28].try_into()?);
+    let bits = u16::from_le_bytes([bytes[34], bytes[35]]);
+    anyhow::ensure!(
+        channels == 1 && bits == 16,
+        "benchmark audio must be mono PCM16 WAV"
+    );
+    let data = bytes
+        .windows(4)
+        .position(|window| window == b"data")
+        .ok_or_else(|| anyhow::anyhow!("WAV data chunk missing"))?
+        + 4;
+    let size = u32::from_le_bytes(bytes[data..data + 4].try_into()?) as usize;
+    let raw = &bytes[data + 4..(data + 4 + size).min(bytes.len())];
+    let samples = raw
+        .chunks_exact(2)
+        .map(|s| i16::from_le_bytes([s[0], s[1]]) as f32 / i16::MAX as f32)
+        .collect();
+    Ok(vec![AudioChunk {
+        captured_at: OffsetDateTime::now_utc(),
+        format: AudioFormat {
+            sample_rate_hz: rate,
+            channels: 1,
+            sample_format: SampleFormat::F32,
+        },
+        samples,
+    }])
 }
 
 fn smoke_dictation() -> Result<()> {

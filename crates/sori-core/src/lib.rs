@@ -26,8 +26,8 @@ pub use audio::{
     SampleFormat, VoiceActivity, VoiceActivityDetector,
 };
 pub use benchmark::{
-    AccuracyMetrics, BenchmarkResult, LatencyMetrics, MemoryMetrics, ReliabilityMetrics,
-    StartupMetrics,
+    AccuracyMetrics, BenchmarkInput, BenchmarkResult, LatencyMetrics, MemoryMetrics,
+    ReliabilityMetrics, StartupMetrics, run_benchmark,
 };
 pub use context::{ContextSnapshot, PrivacyMode, ProfileMode};
 pub use event::{Event, EventBus, EventKind, InMemoryEventBus};

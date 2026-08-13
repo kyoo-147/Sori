@@ -15,6 +15,8 @@ pub enum HotkeyInput {
     Pressed,
     Released,
     Cancelled,
+    /// Toggle the current session for sources without key-up notifications.
+    Toggle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +88,14 @@ impl HotkeyStateMachine {
                 self.state = HotkeyState::Idle;
                 Some(HotkeyEvent::Cancelled)
             }
+            (HotkeyState::Idle, HotkeyInput::Toggle) => {
+                self.state = HotkeyState::Held;
+                Some(HotkeyEvent::Pressed)
+            }
+            (HotkeyState::Held, HotkeyInput::Toggle) => {
+                self.state = HotkeyState::Idle;
+                Some(HotkeyEvent::Released)
+            }
             // Ignore key-repeat and stale release/cancel notifications.
             _ => None,
         }
@@ -114,6 +124,8 @@ pub enum HotkeyError {
     Conflict,
     #[error("native hotkey operation failed with error code {0}")]
     Native(u32),
+    #[error("hotkey listener became stale and could not be recovered")]
+    StaleListener,
 }
 
 /// A Windows virtual-key combination. Modifiers use the Win32 MOD_* bit values.
@@ -124,11 +136,20 @@ pub struct HotkeyCombination {
 }
 
 impl HotkeyCombination {
+    pub const MOD_ALT: u32 = 1;
+    pub const MOD_CTRL: u32 = 2;
+    pub const MOD_SHIFT: u32 = 4;
+    pub const MOD_WIN: u32 = 8;
+
     pub const fn new(modifiers: u32, virtual_key: u32) -> Self {
         Self {
             modifiers,
             virtual_key,
         }
+    }
+
+    pub const fn fallback() -> Self {
+        Self::new(Self::MOD_CTRL | Self::MOD_ALT, 0x20)
     }
 }
 
@@ -137,6 +158,11 @@ impl HotkeyCombination {
 pub trait HotkeyRegistration {
     fn register(&mut self, hotkey: HotkeyCombination) -> Result<(), HotkeyError>;
     fn unregister(&mut self) -> Result<(), HotkeyError>;
+
+    fn reregister(&mut self, hotkey: HotkeyCombination) -> Result<(), HotkeyError> {
+        let _ = self.unregister();
+        self.register(hotkey)
+    }
 }
 
 /// In-memory registration adapter for hold-to-talk tests and non-interactive CI.
@@ -231,6 +257,10 @@ impl<R: HotkeyRegistration> HotkeyBackend for FakeHotkeyBackend<R> {
 pub trait HotkeyBackend {
     fn start(&mut self) -> Result<(), HotkeyError>;
     fn stop(&mut self) -> Result<(), HotkeyError>;
+    fn recover(&mut self) -> Result<(), HotkeyError> {
+        self.stop()?;
+        self.start()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -348,6 +378,17 @@ impl<R: HotkeyRegistration> WindowsHotkeyBackend<R> {
         {
             return Ok(None);
         }
+        if message != windows_sys::Win32::UI::WindowsAndMessaging::WM_HOTKEY
+            || wparam != self.registration_id() as usize
+        {
+            return Ok(None);
+        }
+        let packed = _lparam as u32;
+        if (packed & 0xffff) != self.hotkey.modifiers
+            || ((packed >> 16) & 0xffff) != self.hotkey.virtual_key
+        {
+            return Ok(None);
+        }
         self.handle_input(HotkeyInput::Pressed)
     }
 
@@ -362,7 +403,15 @@ impl<R: HotkeyRegistration> HotkeyBackend for WindowsHotkeyBackend<R> {
         if self.running {
             return Err(HotkeyError::AlreadyRunning);
         }
-        self.registration.register(self.hotkey)?;
+        match self.registration.register(self.hotkey) {
+            Ok(()) => {}
+            Err(HotkeyError::Conflict) => {
+                let fallback = HotkeyCombination::fallback();
+                self.registration.register(fallback)?;
+                self.hotkey = fallback;
+            }
+            Err(error) => return Err(error),
+        }
         self.running = true;
         Ok(())
     }
@@ -432,7 +481,7 @@ mod tests {
             backend.handle_message(
                 windows_sys::Win32::UI::WindowsAndMessaging::WM_HOTKEY,
                 0x534f,
-                0
+                ((0x20u32 << 16) | 1) as isize
             ),
             Ok(Some(HotkeyEvent::Pressed))
         );
@@ -476,5 +525,38 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![EventKind::HotkeyPressed, EventKind::HotkeyCancelled,]
         );
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn toggle_and_stale_notifications_are_deterministic() {
+        let mut state = HotkeyStateMachine::new();
+        assert_eq!(state.apply(HotkeyInput::Released), None);
+        assert_eq!(state.apply(HotkeyInput::Toggle), Some(HotkeyEvent::Pressed));
+        assert_eq!(
+            state.apply(HotkeyInput::Toggle),
+            Some(HotkeyEvent::Released)
+        );
+        assert_eq!(state.apply(HotkeyInput::Cancelled), None);
+        assert_eq!(state.state(), HotkeyState::Idle);
+    }
+
+    #[test]
+    fn backend_recovery_reregisters_and_clears_held_state() {
+        let mut backend =
+            FakeHotkeyBackend::new(HotkeyCombination::new(HotkeyCombination::MOD_ALT, 0x20));
+        backend.start().unwrap();
+        assert_eq!(
+            backend.input(HotkeyInput::Pressed).unwrap(),
+            Some(HotkeyEvent::Pressed)
+        );
+        backend.recover().unwrap();
+        assert_eq!(backend.input(HotkeyInput::Released).unwrap(), None);
+        assert_eq!(backend.registration().register_calls, 2);
+        assert_eq!(backend.registration().unregister_calls, 1);
     }
 }

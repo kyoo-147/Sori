@@ -1,3 +1,68 @@
+use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
+use std::sync::Mutex as StdMutex;
+
+struct DaemonSupervisor {
+    child: StdMutex<Option<Child>>,
+}
+
+impl Default for DaemonSupervisor {
+    fn default() -> Self {
+        Self { child: StdMutex::new(None) }
+    }
+
+}
+
+impl DaemonSupervisor {
+    fn daemon_path() -> PathBuf {
+        if let Some(path) = std::env::var_os("SORI_DAEMON_PATH") {
+            return PathBuf::from(path);
+        }
+        let executable_name = if cfg!(windows) { "sorid.exe" } else { "sorid" };
+        let parent = std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+            .unwrap_or_else(|| PathBuf::from("."));
+        let sibling = parent.join(executable_name);
+        if sibling.is_file() { sibling } else { parent.join("resources").join(executable_name) }
+    }
+
+    fn endpoint_occupied() -> bool {
+        std::net::TcpStream::connect_timeout(
+            &sori_ipc::DEFAULT_ENDPOINT.parse().expect("valid daemon endpoint"),
+            std::time::Duration::from_millis(150),
+        ).is_ok()
+    }
+
+    fn start(&self) -> Result<(), String> {
+        if Self::endpoint_occupied() {
+            eprintln!("[sori] daemon endpoint is already occupied; refusing to launch an unknown sorid");
+            return Ok(());
+        }
+        let path = Self::daemon_path();
+        if !path.is_file() {
+            eprintln!("[sori] sorid is not bundled or configured at {}; desktop remains offline", path.display());
+            return Ok(());
+        }
+        let child = Command::new(&path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|error| format!("failed to launch sorid at {}: {error}", path.display()))?;
+        *self.child.lock().map_err(|_| "daemon supervisor lock poisoned".to_string())? = Some(child);
+        Ok(())
+    }
+
+    fn stop(&self) {
+        let Ok(mut child) = self.child.lock() else { return };
+        let Some(mut child) = child.take() else { return };
+        if child.try_wait().ok().flatten().is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
 #[cfg(windows)]
 fn enforce_custom_window_frame(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -211,6 +276,8 @@ mod commands {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            let supervisor = app.state::<DaemonSupervisor>();
+            supervisor.start().map_err(|error| tauri::Error::Anyhow(anyhow::anyhow!(error)))?;
             let window = app
                 .get_webview_window("main")
                 .expect("main window is not available");
@@ -219,6 +286,7 @@ pub fn run() {
             Ok(())
         })
         .manage(commands::IpcRuntime::default())
+        .manage(DaemonSupervisor::default())
         .invoke_handler(tauri::generate_handler![
             commands::sori_ipc,
             commands::sori_ipc_cancel,
@@ -229,7 +297,11 @@ pub fn run() {
             commands::window_close,
             commands::window_start_dragging
         ])
-        .run(tauri::generate_context!())
+        .run(tauri::generate_context!(), |app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<DaemonSupervisor>().stop();
+            }
+        })
         .expect("error while running Sori desktop");
 }
 

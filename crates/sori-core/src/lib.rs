@@ -43,7 +43,9 @@ pub use model::{
     ModelProvider, ModelRoute, ModelRuntime, RuntimeStatus,
 };
 pub use permission::{ActionRisk, PermissionDecision, PermissionRequest};
-pub use pipeline::{DictationResult, PipelineError, PipelinePlan, PipelineStage, run_dictation};
+pub use pipeline::{
+    DictationResult, PipelineError, PipelinePlan, PipelineStage, complete_dictation, run_dictation,
+};
 pub use routing::{
     RouteExplanation, RoutePolicy, RoutePreset, RouteSimulatorInput, RouteTarget, explain_route,
 };
@@ -51,9 +53,9 @@ pub use routing::{
 pub use text_injection::windows::WindowsSendInputAdapter;
 pub use text_injection::windows::WindowsTextInjector;
 pub use text_injection::{
-    AdapterTextInjector, ClipboardPolicy, InjectionPlan, InjectionStrategy, InjectorCapabilities,
-    TextInjectionAdapter, TextInjectionError, TextInjectionRequest, TextInjectionResult,
-    TextInjector, TextTarget, TextTargetCapabilities, UndoRestoreAttempt, UndoRestoreStatus,
-    select_strategy,
+    AdapterTextInjector, ClipboardPolicy, InjectionOutcome, InjectionPlan, InjectionStrategy,
+    InjectorCapabilities, TextInjectionAdapter, TextInjectionError, TextInjectionRequest,
+    TextInjectionResult, TextInjector, TextTarget, TextTargetCapabilities, UndoRestoreAttempt,
+    UndoRestoreStatus, select_strategy,
 };
 pub use transcript::{Transcript, TranscriptSegment};

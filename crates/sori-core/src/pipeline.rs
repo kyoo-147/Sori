@@ -81,8 +81,8 @@ fn publish(bus: &dyn EventBus, kind: EventKind, payload: &str) {
 /// Execute the synchronous, non-LLM dictation hot path. All device, ASR, and OS
 /// side effects are supplied by adapters, which makes this function deterministic
 /// with fakes and keeps persistence at an explicit boundary.
-pub fn run_dictation(
-    audio: &mut dyn AudioEngine,
+pub fn complete_dictation(
+    chunks: Vec<AudioChunk>,
     asr: &dyn ModelProvider,
     injector: &mut dyn TextInjector,
     target: &dyn TextTarget,
@@ -90,16 +90,9 @@ pub fn run_dictation(
     history: &dyn HistoryRepository,
     events: &dyn EventBus,
 ) -> Result<DictationResult, PipelineError> {
-    publish(events, EventKind::HotkeyPressed, "dictation-triggered");
-    publish(events, EventKind::AudioStarted, "capture-started");
-    let mut chunks: Vec<AudioChunk> = Vec::new();
-    while let Some(chunk) = audio.next_chunk()? {
-        chunks.push(chunk);
-    }
     publish(events, EventKind::AsrSelected, &route.model.0);
     let transcript = asr.transcribe(&route.model, &chunks)?;
     publish(events, EventKind::TranscriptFinal, &transcript.text);
-
     let request = TextInjectionRequest {
         text: transcript.text.clone(),
         dry_run: false,
@@ -118,7 +111,7 @@ pub fn run_dictation(
             (None, Some(error.to_string()))
         }
     };
-    let entry = HistoryEntry {
+    history.push(HistoryEntry {
         id: Uuid::new_v4(),
         at: OffsetDateTime::now_utc(),
         active_app: Some(target.name().to_owned()),
@@ -128,20 +121,36 @@ pub fn run_dictation(
         transcript: transcript.clone(),
         route: Some(route.clone()),
         inserted_text: inserted_text.clone(),
-    };
-    history.push(entry);
+    });
     Ok(DictationResult {
         transcript,
         inserted_text,
         chunks: chunks.len(),
         stages: vec![
-            PipelineStage::AudioCapture,
             PipelineStage::AsrRoute,
             PipelineStage::Transcribe,
             PipelineStage::InjectOrAct,
         ],
         injection_error,
     })
+}
+
+pub fn run_dictation(
+    audio: &mut dyn AudioEngine,
+    asr: &dyn ModelProvider,
+    injector: &mut dyn TextInjector,
+    target: &dyn TextTarget,
+    route: &ModelRoute,
+    history: &dyn HistoryRepository,
+    events: &dyn EventBus,
+) -> Result<DictationResult, PipelineError> {
+    publish(events, EventKind::HotkeyPressed, "dictation-triggered");
+    publish(events, EventKind::AudioStarted, "capture-started");
+    let mut chunks = Vec::new();
+    while let Some(chunk) = audio.next_chunk()? {
+        chunks.push(chunk);
+    }
+    complete_dictation(chunks, asr, injector, target, route, history, events)
 }
 
 #[cfg(test)]
@@ -240,6 +249,8 @@ mod tests {
                         },
                     },
                     dry_run_output: None,
+                    outcome: crate::InjectionOutcome::Inserted,
+                    diagnostics: Vec::new(),
                 })
             }
         }

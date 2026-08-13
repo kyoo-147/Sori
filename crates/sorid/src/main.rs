@@ -1,7 +1,8 @@
 use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
-    FastIntent, HistoryEntry, ModelId, ModelLicense, ModelManifest, PrivacyMode, ProfileMode,
+    FastIntent, HistoryEntry, HistoryRepository, ModelId, ModelLicense, ModelManifest, ModelRoute,
+    PrivacyMode, ProfileMode,
 };
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
@@ -17,6 +18,91 @@ use sorid::{
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tracing::info;
+struct RuntimeTarget;
+impl sori_core::TextTarget for RuntimeTarget {
+    fn name(&self) -> &str {
+        "foreground application"
+    }
+    fn capabilities(&self) -> sori_core::TextTargetCapabilities {
+        sori_core::TextTargetCapabilities {
+            accepts_text: true,
+            supports_direct_input: cfg!(windows),
+            supports_clipboard_paste: false,
+            supports_undo: false,
+            requires_elevation: false,
+        }
+    }
+}
+#[cfg(not(windows))]
+struct UnavailableInjectionAdapter;
+#[cfg(not(windows))]
+impl sori_core::TextInjectionAdapter for UnavailableInjectionAdapter {
+    fn send_direct_input(&mut self, _: &str) -> Result<(), String> {
+        Err("Windows SendInput is unavailable on this host".into())
+    }
+    fn snapshot_clipboard(&mut self) -> Result<(), String> {
+        Err("clipboard fallback is unavailable".into())
+    }
+    fn set_clipboard_text(&mut self, _: &str) -> Result<(), String> {
+        Err("clipboard fallback is unavailable".into())
+    }
+    fn paste_from_clipboard(&mut self) -> Result<(), String> {
+        Err("clipboard fallback is unavailable".into())
+    }
+    fn restore_clipboard(&mut self) -> Result<(), String> {
+        Err("clipboard fallback is unavailable".into())
+    }
+    fn request_undo(&mut self) -> Result<(), String> {
+        Err("undo is unavailable".into())
+    }
+}
+struct RuntimeInjector {
+    #[cfg(windows)]
+    inner: sori_core::WindowsTextInjector<sori_core::WindowsSendInputAdapter>,
+    #[cfg(not(windows))]
+    inner: sori_core::AdapterTextInjector<UnavailableInjectionAdapter>,
+}
+impl RuntimeInjector {
+    fn new() -> Self {
+        Self {
+            #[cfg(windows)]
+            inner: sori_core::WindowsTextInjector::native(),
+            #[cfg(not(windows))]
+            inner: sori_core::AdapterTextInjector::new(
+                UnavailableInjectionAdapter,
+                sori_core::InjectorCapabilities {
+                    direct_input: false,
+                    clipboard: false,
+                    clipboard_restore: false,
+                    undo: false,
+                },
+            ),
+        }
+    }
+}
+impl sori_core::TextInjector for RuntimeInjector {
+    fn capabilities(&self) -> sori_core::InjectorCapabilities {
+        self.inner.capabilities()
+    }
+    fn plan(&self, target: &dyn sori_core::TextTarget) -> sori_core::InjectionPlan {
+        self.inner.plan(target)
+    }
+    fn inject(
+        &mut self,
+        target: &dyn sori_core::TextTarget,
+        request: &sori_core::TextInjectionRequest,
+    ) -> Result<sori_core::TextInjectionResult, sori_core::TextInjectionError> {
+        self.inner.inject(target, request)
+    }
+}
+struct NoopHistory;
+impl sori_core::HistoryRepository for NoopHistory {
+    fn push(&self, _: sori_core::HistoryEntry) {}
+    fn recent(&self, _: usize) -> Vec<sori_core::HistoryEntry> {
+        Vec::new()
+    }
+    fn purge(&self) {}
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -160,14 +246,15 @@ async fn main() -> Result<()> {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(20) as usize;
                 let chunks = runtime.stop_audio(false).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                let transcript = runtime.transcribe_captured(&ModelId::from(whisper_model.as_str()))
-                    .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but Whisper inference failed: {error}")))?;
-                if history_enabled {
-                    let entry = HistoryEntry { id: uuid::Uuid::new_v4(), at: time::OffsetDateTime::now_utc(), active_app: None, transcript: transcript.clone(), intent: FastIntent::Dictation { text: transcript.text.clone() }, route: None, inserted_text: None };
-                    handler_store.try_push_history(&entry).map_err(|e| sori_ipc::IpcError::Transport(format!("transcript produced but history persistence failed: {e}")))?;
-                    handler_store.try_retain_history(history_retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?;
-                }
-                Response::Transcript(transcript)
+                let route = ModelRoute { provider: "whisper.cpp".into(), model: ModelId::from(whisper_model.as_str()), reason: "configured local route".into(), fallback: Vec::new() };
+                let mut injector = RuntimeInjector::new();
+                let target = RuntimeTarget;
+                let no_history = NoopHistory;
+                let history: &dyn HistoryRepository = if history_enabled { handler_store.as_ref() } else { &no_history };
+                let result = runtime.complete_captured_dictation(&route, &mut injector, &target, history)
+                    .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but canonical dictation pipeline failed: {error}")))?;
+                if history_enabled { handler_store.try_retain_history(history_retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?; }
+                Response::Transcript(result.transcript)
             }
             Request::DictationCancel => {
                 let chunks = runtime.stop_audio(true).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;

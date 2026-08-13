@@ -13,12 +13,12 @@ transaction, paste, and make a best-effort restore. The result and
 `UndoRestoreAttempt` representation must report that restoration/undo was only
 attempted, not guaranteed.
 
-On Windows, `WindowsTextInjector::native()` now provides a concrete UTF-16
-`SendInput` adapter. It deliberately advertises direct input only: clipboard
-snapshot/restore and undo remain unsupported, so the runtime cannot claim a
-clipboard fallback it cannot safely perform. Adapters should also refuse or
-clearly report elevated integrity-level mismatches rather than silently
-injecting into another security context.
+On Windows, `WindowsTextInjector::native()` provides UTF-16 `SendInput` first,
+modifier-release protection, a Unicode clipboard/paste fallback, and conditional
+restore only when the clipboard still contains the Sori payload. A failed paste
+is reported as `CopiedFallback`; a changed foreground identity is rejected.
+Focused-target insertion remains `UNVERIFIED` until observed in a real target.
+Adapters should refuse or clearly report elevated integrity-level mismatches.
 
 ## Manual application matrix
 

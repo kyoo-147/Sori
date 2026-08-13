@@ -2883,6 +2883,7 @@ dependencies = [
  "sori-ipc",
  "tauri",
  "tauri-build",
+ "tokio",
  "windows",
 ]
 

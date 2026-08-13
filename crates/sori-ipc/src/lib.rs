@@ -21,6 +21,9 @@ use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const DEFAULT_ENDPOINT: &str = "127.0.0.1:17373";
+/// Socket bounds keep native UI calls from waiting on a stalled daemon.
+pub const IPC_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
+pub const IPC_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(750);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
@@ -229,7 +232,18 @@ impl LocalIpcClient {
 impl Transport for LocalIpcClient {
     fn send(&self, request: Request) -> Result<Response, IpcError> {
         let body = serde_json::to_vec(&request).map_err(|e| IpcError::Protocol(e.to_string()))?;
-        let mut stream = TcpStream::connect(self.endpoint).map_err(|_| IpcError::Unavailable)?;
+        let mut stream =
+            TcpStream::connect_timeout(&self.endpoint, IPC_CONNECT_TIMEOUT).map_err(|error| {
+                if error.kind() == std::io::ErrorKind::TimedOut {
+                    IpcError::Transport("IPC connect timed out".into())
+                } else {
+                    IpcError::Unavailable
+                }
+            })?;
+        stream
+            .set_read_timeout(Some(IPC_IO_TIMEOUT))
+            .and_then(|_| stream.set_write_timeout(Some(IPC_IO_TIMEOUT)))
+            .map_err(|error| IpcError::Transport(error.to_string()))?;
         let header = format!(
             "POST /ipc HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             body.len()
@@ -581,6 +595,60 @@ mod tests {
                 .await
                 .unwrap();
         assert!(matches!(response, Response::Status(status) if status.running));
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn stalled_daemon_is_bounded_by_the_socket_deadline() {
+        let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = server.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (_stream, _) = server.accept().await.unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        });
+        let client = LocalIpcClient::connect_to(endpoint).unwrap();
+        let started = std::time::Instant::now();
+        let response = tokio::task::spawn_blocking(move || client.request(Request::Status))
+            .await
+            .unwrap();
+        assert!(response.is_err());
+        assert!(started.elapsed() < IPC_IO_TIMEOUT + std::time::Duration::from_millis(500));
+        task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn repeated_calls_remain_independent_and_complete() {
+        let server = LocalIpcServer::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let endpoint = server.local_addr().unwrap();
+        let task = tokio::spawn(server.serve(|request| match request {
+            Request::Status => Ok(Response::Status(StatusResponse {
+                protocol_version: PROTOCOL_VERSION,
+                daemon_version: "test".into(),
+                running: true,
+                activity: RuntimeActivity::Idle,
+                paused: false,
+                hotkey: "Alt+Space".into(),
+                route: RouteSummary {
+                    prefer_local: true,
+                    allow_cloud: true,
+                    prefer_warm_runtime: false,
+                    optimize_battery: false,
+                },
+                profile: ProfileMode::Basic,
+                privacy: PrivacyMode::LocalOnly,
+            })),
+            _ => Err(IpcError::UnexpectedResponse { request }),
+        }));
+        for _ in 0..20 {
+            let client = LocalIpcClient::connect_to(endpoint).unwrap();
+            let response = tokio::task::spawn_blocking(move || client.request(Request::Status))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(matches!(response, Response::Status(status) if status.running));
+        }
         task.abort();
     }
 

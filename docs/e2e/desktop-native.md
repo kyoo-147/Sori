@@ -1,37 +1,43 @@
 # Native Windows desktop-shell E2E
 
-Sori's native shell must be verified with the actual Tauri executable, not only
-through browser automation. Run this from an interactive Windows desktop
-session. The harness targets the real Tauri HWND; browser preview and screenshots
-of a shared automation overlay are never accepted as native evidence:
+Sori's native shell is verified with the built Tauri executable, not browser
+preview, mocked Tauri calls, screenshots alone, or historical PASS output. Run
+from an interactive Windows desktop session:
 
 ```powershell
 npm install
 npm run e2e:desktop-native
 ```
 
-The executable check builds the real `sorid` daemon and Tauri debug app, refuses
-a stale daemon on `127.0.0.1:17373`, launches `sori-desktop.exe`, and verifies:
+The harness builds and launches the real `sori-desktop.exe`, refuses a stale
+owner of `127.0.0.1:17373`, records the executable PID, and targets its real
+HWND. Before every mouse action it focuses the HWND and verifies that the
+foreground-window PID is still the desktop PID immediately before the first
+mouse event. A focus-policy or shared-overlay conflict is an explicit `SKIP`,
+not a browser success.
 
-- the runtime Win32 style has no `WS_CAPTION` default frame or duplicate caption;
-- the custom minimize, maximize/restore, and close controls work through native
-  mouse input;
-- dragging the custom titlebar moves the real window;
-- a bottom-right native resize drag grows the real window;
-- shrinking the real window cannot pass the configured `720x480` minimum;
-- screenshots are captured at launch, dragged, resized, and minimum-size window
-  geometry.
+The executable flow verifies:
 
-Screenshots and `visual-review-manifest.json` are written to the ignored
-`.tmp/e2e-native-shell/` directory. The manifest records each artifact's real
-window dimensions, SHA-256, assertions, and `visualReview: "pending"`; a human
-must review the PNGs for clipping, duplicate chrome, and visual quality.
+- native maximize click, `IsZoomed` state, and larger native dimensions;
+- native restore click and minimize click/state, followed by restore;
+- a maximize click at the nested SVG/path center so titlebar dragging cannot
+  steal the button action;
+- sidebar collapse and main-workspace expansion, with before/after native PNGs;
+- sidebar pointerdown, repeated pointermove, and pointerup resizing, with
+  before/after native PNGs;
+- native close click and Tauri process exit;
+- no default `WS_CAPTION`, launch geometry, native move/resize, and `720x480`
+  minimum sizing.
 
-The command prints `SKIP` on non-Windows hosts because Win32, WebView2, and
-interactive screenshot capture are unavailable. Before every native action it
-focuses the HWND and verifies its foreground process ID. If focus policy or a
-shared interactive overlay prevents that, it exits cleanly with `SKIP` and
-writes `.tmp/e2e-native-shell/skip.json` with the reason and truth boundary;
-it never hangs or reports browser-preview success. A stale daemon is a hard
-failure. This test does not prove microphone capture, Whisper inference, global
-hotkeys, overlay delivery, or OS text injection.
+Inspectible artifacts are written to the ignored `.tmp/e2e-native-shell/`:
+`05-sidebar-expanded.png`, `06-sidebar-collapsed.png`,
+`07-sidebar-before-resize.png`, and `08-sidebar-after-resize.png` supplement
+the launch/geometry captures. `native-e2e.log` records environment skips and
+`visual-review-manifest.json` contains the real
+window dimensions, SHA-256 hashes, ordered assertions, and
+`visualReview: "pending"`; screenshots are evidence for human inspection, not
+human approval by hash.
+
+This shell E2E does not prove microphone capture, Whisper inference, global
+hotkeys, overlay delivery, or OS text injection. On non-Windows hosts it emits
+an explicit Windows/environment `SKIP`.

@@ -1033,6 +1033,7 @@ dependencies = [
  "cpal",
  "sori-core",
  "time",
+ "tracing",
 ]
 
 [[package]]

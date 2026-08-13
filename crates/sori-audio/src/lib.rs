@@ -326,6 +326,7 @@ pub struct CpalAudioController {
     state: CaptureState,
     next_generation: u64,
     session: Option<CaptureSession>,
+    stop_requested: bool,
 }
 
 impl CpalAudioController {
@@ -340,6 +341,7 @@ impl CpalAudioController {
             state: CaptureState::Idle,
             next_generation: 0,
             session: None,
+            stop_requested: false,
         })
     }
     pub fn state(&self) -> CaptureState {
@@ -366,11 +368,13 @@ impl AudioEngine for CpalAudioController {
             Some(chunks) => chunks,
             None => return Ok(None),
         };
-        let result = chunks
-            .recv()
-            .map(|chunk| chunk.map(Some))
-            .map_err(|_| AudioError::Pipeline("audio worker stopped".into()));
-        if result.as_ref().is_ok_and(|item| item.is_err()) || result.is_err() {
+        let result = match chunks.recv() {
+            Ok(Ok(chunk)) => Ok(Some(chunk)),
+            Ok(Err(error)) => Err(error),
+            Err(_) if self.stop_requested => Ok(None),
+            Err(_) => Err(AudioError::Pipeline("audio worker stopped".into())),
+        };
+        if result.is_err() {
             self.state = CaptureState::Stopping;
             self.commands.take();
             self.chunks.take();
@@ -380,7 +384,7 @@ impl AudioEngine for CpalAudioController {
             self.session = None;
             self.state = CaptureState::Idle;
         }
-        result?
+        result
     }
 }
 
@@ -390,6 +394,7 @@ impl AudioCaptureEngine for CpalAudioController {
             return Err(AudioError::Pipeline("capture is already running".into()));
         }
         self.state = CaptureState::Starting;
+        self.stop_requested = false;
         self.next_generation = self.next_generation.wrapping_add(1);
         let generation = self.next_generation;
         let config = self.config.clone();
@@ -397,9 +402,11 @@ impl AudioCaptureEngine for CpalAudioController {
         let (command_tx, command_rx) = mpsc::channel();
         let (chunk_tx, chunk_rx) = mpsc::channel();
         let worker = std::thread::spawn(move || {
+            tracing::debug!(generation, "capture worker started");
             let mut engine = match CpalAudioEngine::new(config) {
                 Ok(engine) => engine,
                 Err(error) => {
+                    tracing::warn!(generation, detail = %error, "capture worker failed to construct engine");
                     let _ = ready_tx.send(Err(error));
                     return;
                 }
@@ -407,6 +414,7 @@ impl AudioCaptureEngine for CpalAudioController {
             let device = match engine.start() {
                 Ok(device) => device,
                 Err(error) => {
+                    tracing::warn!(generation, detail = %error, "capture worker failed to start device");
                     let _ = ready_tx.send(Err(error));
                     return;
                 }
@@ -425,12 +433,14 @@ impl AudioCaptureEngine for CpalAudioController {
                     }
                     Ok(None) => break,
                     Err(error) => {
+                        tracing::warn!(generation, detail = %error, "capture worker reported device error");
                         let _ = chunk_tx.send(Err(error));
                         break;
                     }
                 }
             }
             engine.stop();
+            tracing::debug!(generation, "capture worker stopped");
         });
         let (device, format) = match ready_rx.recv() {
             Ok(Ok(value)) => value,
@@ -464,6 +474,7 @@ impl AudioCaptureEngine for CpalAudioController {
             return;
         }
         self.state = CaptureState::Stopping;
+        self.stop_requested = true;
         if let Some(command) = self.commands.take() {
             let _ = command.send(());
         }
@@ -666,5 +677,25 @@ mod lifecycle_tests {
             classify_stream_error("input device disconnected"),
             AudioError::DeviceUnavailable(_)
         ));
+    }
+}
+
+#[cfg(test)]
+mod controller_regression_tests {
+    use super::*;
+
+    #[test]
+    fn missing_device_stop_is_explicit_and_controller_can_retry() {
+        let config = CaptureConfig {
+            device_id: Some("__sori_missing_input_device__".into()),
+            ..CaptureConfig::default()
+        };
+        let mut controller = CpalAudioController::new(config).unwrap();
+        let start_error = controller.start_capture().unwrap_err();
+        assert!(matches!(start_error, AudioError::DeviceUnavailable(_)));
+        controller.stop_capture();
+        assert_eq!(controller.state(), CaptureState::Idle);
+        assert!(controller.start_capture().is_err());
+        assert_eq!(controller.state(), CaptureState::Idle);
     }
 }

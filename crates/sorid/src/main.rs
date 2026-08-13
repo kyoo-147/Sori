@@ -296,7 +296,9 @@ async fn main() -> Result<()> {
                 let chunks = runtime.stop_audio(false).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 let route_config = handler_store.setting("resource.route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.unwrap_or_else(|| default_resource("route"));
                 let selected_model = route_config.get("activeModelId").and_then(|id| id.as_str()).unwrap_or(whisper_model.as_str());
-                let fallback = route_config.get("fallbackModelIds").and_then(|ids| ids.as_array()).map(|ids| ids.iter().filter_map(|id| id.as_str().map(ModelId::from)).collect()).unwrap_or_default();
+                let selected_model = selected_model.strip_prefix("whisper.cpp/").unwrap_or(selected_model);
+                let selected_model = if selected_model == "ggml-base.en" && whisper_model != "ggml-base.en" { whisper_model.as_str() } else { selected_model };
+                let fallback = route_config.get("fallbackModelIds").and_then(|ids| ids.as_array()).map(|ids| ids.iter().filter_map(|id| id.as_str().map(|id| ModelId::from(id.strip_prefix("whisper.cpp/").unwrap_or(id)))).collect()).unwrap_or_default();
                 let route = ModelRoute { provider: "whisper.cpp".into(), model: ModelId::from(selected_model), reason: format!("{} policy", route_config.get("policy").and_then(|p| p.as_str()).unwrap_or("LocalFirst")), fallback };
                 let mut injector = RuntimeInjector::new();
                 let target = RuntimeTarget;

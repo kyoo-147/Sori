@@ -306,13 +306,10 @@ async fn main() -> Result<()> {
                         .map(Response::VoiceEdit)
                         .map_err(|error| sori_ipc::IpcError::Transport(format!("voice edit preview unavailable: {error}")))?
                 } else {
-                    let (replacement, diff) = sori_core::voice_edit::approve(&selection, &instruction, None)
-                        .map_err(|error| sori_ipc::IpcError::Transport(format!("voice edit replacement unavailable: {error}")))?;
-                    let mut injector = RuntimeInjector::new();
-                    let target = RuntimeTarget;
-                    let result = sori_core::TextInjector::inject(&mut injector, &target, &sori_core::TextInjectionRequest { text: replacement.clone(), dry_run: false })
-                        .map_err(|error| sori_ipc::IpcError::Transport(format!("voice edit injection failed: {error}")))?;
-                    Response::VoiceEdit(sori_core::VoiceEditResponse { accepted: matches!(result.outcome, sori_core::InjectionOutcome::Inserted), transformed_text: Some(replacement), diff: Some(diff), detail: "Replacement applied through canonical text injection.".into() })
+                    Response::Error(sori_ipc::IpcErrorResponse {
+                        code: "voice_edit_target_unavailable".into(),
+                        detail: "Voice Edit approval is unavailable until sorid captures and revalidates the native focused selection; no replacement was performed".into(),
+                    })
                 }
             }
             Request::DictationCancel => {

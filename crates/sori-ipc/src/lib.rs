@@ -536,9 +536,6 @@ impl Transport for MockTransport {
                     "mock transport does not execute dictation".into(),
                 ));
             }
-<<<<<<< HEAD
-            Request::VoiceEdit { .. } => {
-                return Err(IpcError::Transport(
             Request::VoiceEdit { .. }
             | Request::ExtensionsList
             | Request::ExtensionInstall { .. }
@@ -550,6 +547,7 @@ impl Transport for MockTransport {
                     "mock transport does not execute Voice Edit or manage extensions; connect sorid for canonical evidence".into(),
                 ));
             }
+            Request::Doctor => Response::Doctor(DoctorResponse {
                 status: state.status.clone(),
                 checks: state.checks.clone(),
             }),

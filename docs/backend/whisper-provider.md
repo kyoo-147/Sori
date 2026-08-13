@@ -9,12 +9,11 @@ code. The provider encodes `AudioChunk` samples as PCM16 WAV, while the producti
 command runner owns child-process lifetime, cancellation, timeouts, and stderr capture.
 
 This keeps `sori-core` independent of Whisper and makes the provider replaceable. It
-This keeps `sori-core` independent of Whisper and makes the provider replaceable. It
 
 The provider exposes `discover_models()` for file-backed model discovery,
 `verified_model_path()` for canonical, model-directory-contained resolution, and
 `WhisperLifecycle`/`WhisperStatus` (`Unavailable`, `Loading`, `Ready`, `Running`,
-`Failed`) for truthful UI/runtime reporting. Timed runner calls return
+`Failed`, `Downloading`) for truthful UI/runtime reporting. Timed runner calls return
 `TranscriptionResult` with measured wall-clock latency. Provider tests use the
 `ProcessRunner` seam, so missing binaries/models, cancellation, non-zero exits,
 malformed output, and cleanup failures remain explicit errors rather than fake
@@ -50,6 +49,22 @@ making Rust builds depend on CMake, CUDA, Metal, or platform toolchains.
   install.
 - Do not persist captured audio by default. Use bounded temporary files and remove
   them on success, failure, and cancellation.
+
+## Managed install and hardware boundary
+
+`WhisperCppProvider::install_model_from_file` is the reproducible install seam: it
+accepts a user-supplied artifact, verifies an optional SHA-256, writes only below
+`SORI_WHISPER_MODEL_DIR`, and renames atomically. Sori intentionally does not fetch
+arbitrary URLs or execute downloaded code; a host may download an artifact after
+showing its license, URL, checksum, and disk estimate. Installation reports
+`Downloading` with 0/100 progress and ends in `Ready` or `Failed`.
+
+`whisper.cpp` availability proves only that the executable and model were found.
+It does not prove a microphone, OS permission, CPU/GPU acceleration, hotkey,
+focused-app target, or text injection. Those remain `UNVERIFIED` until a native
+machine test. The ignored `real_fixture_transcription_smoke` test is the explicit
+real-process boundary and requires `SORI_WHISPER_CPP_BIN`,
+`SORI_WHISPER_MODEL_DIR`, `SORI_WHISPER_MODEL`, and `SORI_WHISPER_FIXTURE_WAV`.
 
 ## Manual installation
 

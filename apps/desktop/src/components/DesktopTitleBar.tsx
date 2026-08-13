@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AppSettings, ActiveScreen } from '../types';
 import type { DaemonStatus, RuntimeSource } from '../runtime-client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Mic, Flame, Command, CircleDot, Menu, X, Minus, Square, Copy } from 'lucide-react';
+import { Mic, Flame, Command, CircleDot, Menu, X, Minus, Square, Copy, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { performWindowAction, tauriWindowControls, type WindowAction } from '../window-controls';
 
 interface DesktopTitleBarProps {
@@ -19,6 +19,7 @@ interface DesktopTitleBarProps {
   onTogglePaused: () => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  sidebarCollapsed: boolean;
   onNavigate: (screen: ActiveScreen) => void;
 }
 
@@ -34,6 +35,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   onTogglePaused,
   sidebarOpen,
   onToggleSidebar,
+  sidebarCollapsed,
   onNavigate,
 }) => {
   const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
@@ -87,12 +89,17 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   const isInteractiveTarget = (target: EventTarget | null) =>
     target instanceof HTMLElement && Boolean(target.closest('button, a, input, select, textarea'));
 
+  const handleTitlebarMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || isInteractiveTarget(event.target)) return;
+    void runWindowAction('drag');
+  };
+
   const handleTitlebarDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!isInteractiveTarget(event.target)) void runWindowAction('toggle-maximize');
   };
 
   return (
-    <div data-tauri-drag-region role="toolbar" aria-label="Sori window title bar" onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
+    <div data-tauri-drag-region role="toolbar" aria-label="Sori window title bar" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
       <button
         type="button"
         onClick={onToggleSidebar}
@@ -145,6 +152,9 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
 
       {/* Right: Quick Tools and native window controls */}
       <div className="sori-titlebar__actions flex items-center gap-2">
+        <button type="button" onClick={onToggleSidebar} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={sidebarCollapsed} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} className="sori-titlebar__sidebar-toggle sori-tactile-btn rounded-[8px] p-1.5">
+          {sidebarCollapsed ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
+        </button>
         {/* Tray Toggle */}
         <button
           type="button"

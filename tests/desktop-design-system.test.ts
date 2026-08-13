@@ -66,6 +66,8 @@ describe('desktop visual architecture contracts', () => {
     expect(css).toContain('.sori-shell__sidebar-nav');
     expect(css).toContain('overflow-y: auto;');
     expect(css).toContain('.sori-shell__sidebar-footer');
+    expect(css).toContain('.sori-sidebar-divider');
+    expect(css).toContain('cursor: col-resize;');
     expect(css).toContain('overflow: hidden;');
     expect(css).toContain('height: 100%;');
   });

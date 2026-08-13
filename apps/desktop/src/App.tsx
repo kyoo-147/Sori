@@ -63,6 +63,9 @@ export default function App() {
   const [trayOpen, setTrayOpen] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => window.localStorage.getItem('sori.sidebar.collapsed') === 'true');
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => Number(window.localStorage.getItem('sori.sidebar.width')) || 248);
+  const resizeFrame = useRef<number | null>(null);
+  const resizeWidth = useRef(248);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly', version: null });
@@ -115,11 +118,39 @@ export default function App() {
 
   useEffect(() => {
     window.localStorage.setItem('sori.sidebar.collapsed', String(sidebarCollapsed));
-  }, [sidebarCollapsed]);
+    window.localStorage.setItem('sori.sidebar.width', String(sidebarWidth));
+  }, [sidebarCollapsed, sidebarWidth]);
 
   useEffect(() => {
     writePreference('extensions', extensions);
   }, [extensions]);
+
+  const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (sidebarCollapsed) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resizeWidth.current = sidebarWidth;
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    const move = (moveEvent: PointerEvent) => {
+      const next = Math.max(180, Math.min(360, startWidth + moveEvent.clientX - startX));
+      resizeWidth.current = next;
+      if (resizeFrame.current === null) {
+        resizeFrame.current = window.requestAnimationFrame(() => {
+          document.documentElement.style.setProperty('--sori-sidebar-width-live', `${resizeWidth.current}px`);
+          resizeFrame.current = null;
+        });
+      }
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      setSidebarWidth(resizeWidth.current);
+      document.documentElement.style.removeProperty('--sori-sidebar-width-live');
+    };
+    window.addEventListener('pointermove', move, { passive: true });
+    window.addEventListener('pointerup', stop, { once: true });
+  };
 
   const setPaused = async (paused: boolean) => {
     const result = await (paused ? runtimeClient.pause() : runtimeClient.resume());
@@ -166,7 +197,7 @@ export default function App() {
   };
 
   return (
-    <div className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sidebar-collapsed={sidebarCollapsed}>
+    <div className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
       {/* Top Window Titlebar (Chrome Window Header) */}
       <div className="sori-shell__titlebar">
       <DesktopTitleBar
@@ -183,6 +214,7 @@ export default function App() {
           onTogglePaused={() => setPaused(!runtimeStatus.paused)}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
+          sidebarCollapsed={sidebarCollapsed}
           onNavigate={(screen) => setActiveScreen(screen)}
       />
       </div>
@@ -201,7 +233,7 @@ export default function App() {
             collapsed={sidebarCollapsed}
           />
 
-          <button type="button" className="sori-sidebar-toggle" aria-label={sidebarCollapsed ? '>' : '<'} aria-pressed={sidebarCollapsed} onClick={() => setSidebarCollapsed((value) => !value)}>{sidebarCollapsed ? '›' : '‹'}</button>
+          <div className="sori-sidebar-divider" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" onPointerDown={startSidebarResize} />
 
           {sidebarOpen && (
             <button

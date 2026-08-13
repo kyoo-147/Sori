@@ -110,7 +110,7 @@
   display: grid;
   min-height: 0;
   flex: 1 1 auto;
-  grid-template-columns: minmax(0, var(--sori-sidebar-width)) minmax(0, 1fr);
+  grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) 8px minmax(0, 1fr);
   overflow: hidden;
   background: var(--sori-bg-sidebar);
 }
@@ -602,7 +602,7 @@
 
 /* Native shell interaction: the rail is a quiet, reversible boundary. */
 .sori-shell__body {
-  grid-template-columns: minmax(0, var(--sori-sidebar-width)) minmax(0, 1fr);
+  grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) 8px minmax(0, 1fr);
   transition: grid-template-columns 180ms ease;
 }
 
@@ -610,39 +610,38 @@
   --sori-sidebar-width: 0px;
 }
 
-.sori-sidebar-toggle {
+.sori-sidebar-divider {
+  position: relative;
+  z-index: 6;
+  grid-column: 2;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sori-sidebar-divider::after {
   position: absolute;
-  z-index: 5;
   top: 50%;
-  left: calc(var(--sori-sidebar-width) - 9px);
-  display: flex;
-  width: 18px;
-  height: 36px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(70, 62, 55, 0.10);
+  left: 3px;
+  width: 2px;
+  height: 32px;
   border-radius: 999px;
-  background: rgba(246, 246, 244, 0.92);
-  color: var(--sori-text-tertiary);
-  font-size: 16px;
-  line-height: 1;
-  box-shadow: 0 1px 3px rgba(26, 31, 36, 0.06);
+  background: transparent;
+  content: '';
   transform: translateY(-50%);
-  transition: left 180ms ease, background-color 120ms ease, color 120ms ease;
+  transition: background-color 120ms ease;
 }
 
-.sori-sidebar-toggle:hover {
-  background: var(--sori-bg-panel);
-  color: var(--sori-text-primary);
+.sori-sidebar-divider:hover::after,
+.sori-sidebar-divider:active::after {
+  height: 42px;
+  background: rgba(70, 62, 55, 0.20);
 }
 
-.sori-sidebar-toggle:active {
-  transform: translateY(-50%) scale(0.96);
+.sori-shell[data-sidebar-collapsed='true'] .sori-sidebar-divider {
+  cursor: default;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .sori-shell__body,
-  .sori-sidebar-toggle {
-    transition: none;
-  }
+@media (max-width: 767px) {
+  .sori-sidebar-divider { display: none; }
 }

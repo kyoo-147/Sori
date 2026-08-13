@@ -7,6 +7,9 @@ import { performWindowAction, tauriWindowControls, type WindowAction } from '../
 export const isTitlebarInteractiveTarget = (target: EventTarget | null) =>
   typeof Element !== 'undefined' && target instanceof Element && Boolean(target.closest('[data-sori-no-drag], button, a, input, select, textarea'));
 
+export const titlebarRouteLabel = (runtimeSource: RuntimeSource, activeModelName: string) =>
+  runtimeSource === 'native' || runtimeSource === 'backend' ? `Route: ${activeModelName}` : 'Route: UNVERIFIED';
+
 export const handleTitlebarMouseDownBoundary = (
   target: EventTarget | null,
   button: number,
@@ -53,6 +56,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   onToggleSidebarCollapse,
   sidebarCollapsed,
   onNavigate,
+  activeModelName,
 }) => {
   const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
   const [isMaximized, setIsMaximized] = useState(false);
@@ -171,7 +175,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         </button>
         <button type="button" onClick={() => onNavigate('models')} aria-label="Open model routing" className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-[11px] text-[#68635D] font-mono">
           <Flame className="w-3.5 h-3.5 text-[#98928A]" />
-          <span>Route: Local · Whisper Q5</span>
+          <span>{titlebarRouteLabel(runtimeSource, activeModelName)}</span>
         </button>
       </div>
 

@@ -45,10 +45,12 @@ export const OverlaySimulator: React.FC<OverlaySimulatorProps> = ({
           <p className="text-xs text-[#68635D]">{errorMessage}</p>
           <div className="flex items-center gap-2 pt-1">
             <button
-              onClick={() => alert('Simulating opening Windows Accessibility / Microphone Settings')}
-              className="px-3 py-1 rounded-[8px] bg-[#F9EBEA] hover:bg-[#F3DFDF] text-[#A75850] text-[11px] font-medium border border-[rgba(167,88,80,0.22)]"
+              type="button"
+              disabled
+              title="Needs Wiring: native settings navigation is not available"
+              className="px-3 py-1 rounded-[8px] bg-[#F2EEE8] text-[#98928A] text-[11px] font-medium border border-[rgba(92,84,75,0.12)] disabled:cursor-not-allowed"
             >
-              Open Settings
+              Open Settings (Needs Wiring)
             </button>
             <button
               onClick={onCloseError}
@@ -127,7 +129,7 @@ export const OverlaySimulator: React.FC<OverlaySimulatorProps> = ({
                     key={idx}
                     className="w-1.5 rounded-full bg-[#68635D] transition-all duration-150"
                     style={{
-                      height: isListening ? `${Math.min(100, Math.max(15, (h * Math.random()) + 20))}%` : '20%',
+                      height: isListening ? `${h}%` : '20%',
                     }}
                   />
                 ))}

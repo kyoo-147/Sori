@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { AssistantVoiceSettings } from '../../types';
 import {
   Volume2,
@@ -18,13 +18,6 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
   assistantVoice,
   setAssistantVoice,
 }) => {
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-
-  const previewVoice = () => {
-    setIsPlaying(true);
-    setTimeout(() => setIsPlaying(false), 2000);
-  };
-
   return (
     <div className="space-y-6 max-w-5xl mx-auto p-4 md:p-6 text-zinc-900 font-sans">
       {/* Header */}
@@ -67,13 +60,14 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
                   <div className="text-[10px] text-zinc-500 font-mono">{v.provider}</div>
                 </div>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    previewVoice();
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-zinc-900 text-white text-[11px] font-bold hover:bg-zinc-800 transition shadow-2xs"
+                  type="button"
+                  disabled
+                  title="Unavailable: no TTS preview IPC contract is wired"
+                  aria-label={`${v.name} preview unavailable`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="px-3 py-1.5 rounded-xl border border-zinc-200 bg-zinc-100 text-zinc-500 text-[11px] font-bold shadow-2xs disabled:cursor-not-allowed"
                 >
-                  {isPlaying && assistantVoice.voiceId === v.id ? 'Playing...' : 'Preview'}
+                  Preview unavailable
                 </button>
               </div>
             ))}

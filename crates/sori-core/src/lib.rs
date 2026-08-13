@@ -40,7 +40,7 @@ pub use hotkey::{WindowsHotkeyBackend, WindowsHotkeyRegistration};
 pub use intent::{FastIntent, IntentRouter};
 pub use model::{
     ExternalProcessProvider, ExternalProcessSpec, ModelError, ModelId, ModelLicense, ModelManifest,
-    ModelProvider, ModelRoute, ModelRuntime, RuntimeStatus,
+    ModelProvider, ModelProviderRegistry, ModelRoute, ModelRuntime, RuntimeStatus,
 };
 pub use permission::{ActionRisk, PermissionDecision, PermissionRequest};
 pub use pipeline::{

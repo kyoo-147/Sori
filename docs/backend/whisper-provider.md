@@ -1,3 +1,28 @@
+## Upstream pattern and license evidence
+
+The implementation follows the sidecar-and-temporary-file pattern used by
+[OpenWhispr](https://github.com/OpenWhispr/openwhispr) (MIT application, with
+local Whisper/whisper.cpp engines), while preserving Sori's Rust
+`ModelProvider` boundary. [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
+is MIT-licensed; the [OpenAI Whisper repository](https://github.com/openai/whisper)
+is also MIT-licensed. These upstream software licenses do **not** automatically
+license downloaded model weights: each model manifest must carry its own source,
+license, attribution, and checksum before distribution.
+
+OpenSuperWhisper is retained as a product reference in
+[`docs/Clone_repo.md`](../Clone_repo.md); Sori does not copy code or assets from
+it. Its application/model terms must be reviewed independently before using any
+artifact.
+
+## Runtime lifecycle
+
+`WhisperCppProvider` now owns truthful `load`, `warm`, `unload`, and
+`remove_model` operations. Load/warm require a verified executable and model;
+unload only clears Sori's runtime state because the CLI is a short-lived sidecar
+and has no persistent in-process context to unload. Removal deletes only a
+verified file below the configured model directory. The provider registry in
+`sori-core` rejects duplicate provider names and keeps routing on the canonical
+`ModelProvider` trait.
 # whisper.cpp provider strategy
 
 ## Recommendation for the MVP

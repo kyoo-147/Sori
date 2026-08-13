@@ -240,6 +240,8 @@ mod tests {
                         },
                     },
                     dry_run_output: None,
+                    outcome: crate::InjectionOutcome::Inserted,
+                    diagnostics: Vec::new(),
                 })
             }
         }

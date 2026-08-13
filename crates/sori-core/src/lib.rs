@@ -51,9 +51,9 @@ pub use routing::{
 pub use text_injection::windows::WindowsSendInputAdapter;
 pub use text_injection::windows::WindowsTextInjector;
 pub use text_injection::{
-    AdapterTextInjector, ClipboardPolicy, InjectionPlan, InjectionStrategy, InjectorCapabilities,
-    TextInjectionAdapter, TextInjectionError, TextInjectionRequest, TextInjectionResult,
-    TextInjector, TextTarget, TextTargetCapabilities, UndoRestoreAttempt, UndoRestoreStatus,
-    select_strategy,
+    AdapterTextInjector, ClipboardPolicy, InjectionOutcome, InjectionPlan, InjectionStrategy,
+    InjectorCapabilities, TextInjectionAdapter, TextInjectionError, TextInjectionRequest,
+    TextInjectionResult, TextInjector, TextTarget, TextTargetCapabilities, UndoRestoreAttempt,
+    UndoRestoreStatus, select_strategy,
 };
 pub use transcript::{Transcript, TranscriptSegment};

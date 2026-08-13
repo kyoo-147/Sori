@@ -30,6 +30,9 @@ impl TextTargetCapabilities {
 pub trait TextTarget: Send + Sync {
     fn name(&self) -> &str;
     fn capabilities(&self) -> TextTargetCapabilities;
+    fn identity(&self) -> Option<&str> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +97,16 @@ pub struct TextInjectionRequest {
 pub struct TextInjectionResult {
     pub plan: InjectionPlan,
     pub dry_run_output: Option<String>,
+    pub outcome: InjectionOutcome,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InjectionOutcome {
+    Inserted,
+    PartiallyInserted,
+    CopiedFallback,
+    Failed,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -110,6 +123,8 @@ pub enum TextInjectionError {
     ClipboardRestoreFailed(String),
     #[error("text injection adapter failed: {0}")]
     Adapter(String),
+    #[error("focused target changed during injection")]
+    FocusedTargetChanged,
 }
 
 pub trait TextInjectionAdapter {
@@ -119,6 +134,15 @@ pub trait TextInjectionAdapter {
     fn paste_from_clipboard(&mut self) -> Result<(), String>;
     fn restore_clipboard(&mut self) -> Result<(), String>;
     fn request_undo(&mut self) -> Result<(), String>;
+    fn release_modifiers(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+    fn focused_target_identity(&mut self) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+    fn clipboard_contains_text(&mut self, _text: &str) -> Result<bool, String> {
+        Ok(true)
+    }
 }
 
 pub trait TextInjector {
@@ -153,6 +177,7 @@ pub fn select_strategy(
 pub struct AdapterTextInjector<A> {
     adapter: A,
     capabilities: InjectorCapabilities,
+    transaction_lock: std::sync::Mutex<()>,
 }
 
 impl<A> AdapterTextInjector<A> {
@@ -160,6 +185,7 @@ impl<A> AdapterTextInjector<A> {
         Self {
             adapter,
             capabilities,
+            transaction_lock: std::sync::Mutex::new(()),
         }
     }
 
@@ -204,6 +230,9 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
         target: &dyn TextTarget,
         request: &TextInjectionRequest,
     ) -> Result<TextInjectionResult, TextInjectionError> {
+        let _transaction = self.transaction_lock.lock().map_err(|_| {
+            TextInjectionError::Adapter("injection transaction lock poisoned".into())
+        })?;
         let plan = self.make_plan(target);
         if plan.strategy == InjectionStrategy::Unavailable {
             return Err(if !target.capabilities().accepts_text {
@@ -216,8 +245,26 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
             return Ok(TextInjectionResult {
                 dry_run_output: Some(plan.dry_run_output(request.text.len())),
                 plan,
+                outcome: InjectionOutcome::Inserted,
+                diagnostics: vec!["dry-run: no OS or clipboard side effects".into()],
             });
         }
+        let expected_identity = target.identity().map(str::to_owned);
+        self.adapter
+            .release_modifiers()
+            .map_err(TextInjectionError::Adapter)?;
+        if let Some(expected) = expected_identity.as_deref() {
+            if let Some(actual) = self
+                .adapter
+                .focused_target_identity()
+                .map_err(TextInjectionError::Adapter)?
+            {
+                if actual != expected {
+                    return Err(TextInjectionError::FocusedTargetChanged);
+                }
+            }
+        }
+        let mut diagnostics = Vec::new();
         match plan.strategy {
             InjectionStrategy::DirectInput => self
                 .adapter
@@ -234,20 +281,54 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
                     .adapter
                     .set_clipboard_text(&request.text)
                     .and_then(|()| self.adapter.paste_from_clipboard());
-                let restore = self.adapter.restore_clipboard();
+                let restore = if self
+                    .adapter
+                    .clipboard_contains_text(&request.text)
+                    .map_err(TextInjectionError::Adapter)?
+                {
+                    self.adapter.restore_clipboard()
+                } else {
+                    diagnostics.push("clipboard changed after paste; restore skipped".into());
+                    Ok(())
+                };
                 if let Err(error) = restore {
                     // Never report success after replacing the user's clipboard. The
                     // restore error is deliberately distinct so callers can warn the
                     // user and avoid retrying destructively.
                     return Err(TextInjectionError::ClipboardRestoreFailed(error));
                 }
-                operation.map_err(TextInjectionError::Adapter)?;
+                if let Err(error) = operation {
+                    if self
+                        .adapter
+                        .clipboard_contains_text(&request.text)
+                        .unwrap_or(false)
+                    {
+                        diagnostics.push(format!(
+                            "paste failed; text remains available in clipboard: {error}"
+                        ));
+                        self.adapter
+                            .release_modifiers()
+                            .map_err(TextInjectionError::Adapter)?;
+                        return Ok(TextInjectionResult {
+                            dry_run_output: None,
+                            plan,
+                            outcome: InjectionOutcome::CopiedFallback,
+                            diagnostics,
+                        });
+                    }
+                    return Err(TextInjectionError::Adapter(error));
+                }
             }
             InjectionStrategy::Unavailable => unreachable!(),
         }
+        self.adapter
+            .release_modifiers()
+            .map_err(TextInjectionError::Adapter)?;
         Ok(TextInjectionResult {
             dry_run_output: None,
             plan,
+            outcome: InjectionOutcome::Inserted,
+            diagnostics,
         })
     }
 }
@@ -296,18 +377,22 @@ pub mod windows {
 
     #[cfg(windows)]
     #[derive(Debug, Default)]
-    pub struct WindowsSendInputAdapter;
+    pub struct WindowsSendInputAdapter {
+        clipboard_snapshot: Option<Vec<u16>>,
+    }
 
     #[cfg(windows)]
     impl WindowsSendInputAdapter {
         pub fn new() -> Self {
-            Self
+            Self {
+                clipboard_snapshot: None,
+            }
         }
 
         /// `SendInput` queues events but cannot prove that the foreground
         /// application accepted or rendered the text.
         pub const fn diagnostic() -> &'static str {
-            "direct UTF-16 SendInput available; focused-target insertion must be observed manually; clipboard fallback, restore, and undo unsupported"
+            "direct UTF-16 SendInput available; clipboard paste fallback available; focused-target insertion remains UNVERIFIED until observed"
         }
     }
 
@@ -365,19 +450,182 @@ pub mod windows {
             }
         }
         fn snapshot_clipboard(&mut self) -> Result<(), String> {
-            Err("Windows clipboard fallback is not wired; direct SendInput only".into())
+            use windows_sys::Win32::System::DataExchange::{
+                CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+            };
+            const CF_UNICODETEXT: u32 = 13;
+            use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+            unsafe {
+                if OpenClipboard(std::ptr::null_mut()) == 0 {
+                    return Err("OpenClipboard failed".into());
+                }
+                let result: Result<Option<Vec<u16>>, String> =
+                    if IsClipboardFormatAvailable(CF_UNICODETEXT) == 0 {
+                        Ok(None)
+                    } else {
+                        let handle = GetClipboardData(CF_UNICODETEXT);
+                        if handle.is_null() {
+                            Err("GetClipboardData failed".into())
+                        } else {
+                            let size = GlobalSize(handle);
+                            let ptr = GlobalLock(handle) as *const u16;
+                            if ptr.is_null() {
+                                Err("GlobalLock failed".into())
+                            } else {
+                                let units = size / 2;
+                                let slice = std::slice::from_raw_parts(ptr, units);
+                                let end = slice.iter().position(|unit| *unit == 0).unwrap_or(units);
+                                let value = slice[..end].to_vec();
+                                GlobalUnlock(handle);
+                                Ok(Some(value))
+                            }
+                        }
+                    };
+                CloseClipboard();
+                self.clipboard_snapshot = result?;
+                Ok(())
+            }
         }
-        fn set_clipboard_text(&mut self, _: &str) -> Result<(), String> {
-            Err("Windows clipboard fallback is not wired; direct SendInput only".into())
+        fn set_clipboard_text(&mut self, text: &str) -> Result<(), String> {
+            use windows_sys::Win32::System::DataExchange::{
+                CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+            };
+            const CF_UNICODETEXT: u32 = 13;
+            use windows_sys::Win32::System::Memory::{
+                GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock,
+            };
+            let value: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+            unsafe {
+                if OpenClipboard(std::ptr::null_mut()) == 0 {
+                    return Err("OpenClipboard failed".into());
+                }
+                if EmptyClipboard() == 0 {
+                    CloseClipboard();
+                    return Err("EmptyClipboard failed".into());
+                }
+                let handle = GlobalAlloc(GMEM_MOVEABLE, value.len() * 2);
+                if handle.is_null() {
+                    CloseClipboard();
+                    return Err("GlobalAlloc failed".into());
+                }
+                let ptr = GlobalLock(handle) as *mut u16;
+                if ptr.is_null() {
+                    CloseClipboard();
+                    return Err("GlobalLock failed".into());
+                }
+                std::ptr::copy_nonoverlapping(value.as_ptr(), ptr, value.len());
+                GlobalUnlock(handle);
+                if SetClipboardData(CF_UNICODETEXT, handle).is_null() {
+                    CloseClipboard();
+                    return Err("SetClipboardData failed".into());
+                }
+                CloseClipboard();
+                Ok(())
+            }
         }
         fn paste_from_clipboard(&mut self) -> Result<(), String> {
-            Err("Windows clipboard fallback is not wired; direct SendInput only".into())
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+                INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_CONTROL,
+                VK_V,
+            };
+            let key = |vk: u16, flags: u32| INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: vk,
+                        wScan: 0,
+                        dwFlags: flags,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            };
+            let inputs = [
+                key(VK_CONTROL as u16, 0),
+                key(VK_V as u16, 0),
+                key(VK_V as u16, KEYEVENTF_KEYUP),
+                key(VK_CONTROL as u16, KEYEVENTF_KEYUP),
+            ];
+            let sent = unsafe {
+                SendInput(
+                    inputs.len() as u32,
+                    inputs.as_ptr(),
+                    std::mem::size_of::<INPUT>() as i32,
+                )
+            };
+            if sent == inputs.len() as u32 {
+                Ok(())
+            } else {
+                Err(format!(
+                    "paste SendInput sent {sent}/{} events",
+                    inputs.len()
+                ))
+            }
         }
         fn restore_clipboard(&mut self) -> Result<(), String> {
-            Err("Windows clipboard fallback is not wired; direct SendInput only".into())
+            let Some(snapshot) = self.clipboard_snapshot.take() else {
+                return Ok(());
+            };
+            self.set_clipboard_text(&String::from_utf16_lossy(&snapshot))
         }
         fn request_undo(&mut self) -> Result<(), String> {
             Err("Windows undo is not wired".into())
+        }
+        fn release_modifiers(&mut self) -> Result<(), String> {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+                INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_CONTROL,
+                VK_LMENU, VK_LSHIFT, VK_LWIN,
+            };
+            let keys = [
+                VK_CONTROL as u16,
+                VK_LSHIFT as u16,
+                VK_LMENU as u16,
+                VK_LWIN as u16,
+            ];
+            let inputs: Vec<INPUT> = keys
+                .into_iter()
+                .map(|vk| INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: vk,
+                            wScan: 0,
+                            dwFlags: KEYEVENTF_KEYUP,
+                            time: 0,
+                            dwExtraInfo: 0,
+                        },
+                    },
+                })
+                .collect();
+            let sent = unsafe {
+                SendInput(
+                    inputs.len() as u32,
+                    inputs.as_ptr(),
+                    std::mem::size_of::<INPUT>() as i32,
+                )
+            };
+            if sent == inputs.len() as u32 {
+                Ok(())
+            } else {
+                Err(format!(
+                    "modifier release sent {sent}/{} events",
+                    inputs.len()
+                ))
+            }
+        }
+        fn focused_target_identity(&mut self) -> Result<Option<String>, String> {
+            use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+            let hwnd = unsafe { GetForegroundWindow() };
+            if hwnd.is_null() {
+                Ok(None)
+            } else {
+                Ok(Some(format!("hwnd:{:x}", hwnd as usize)))
+            }
+        }
+        fn clipboard_contains_text(&mut self, text: &str) -> Result<bool, String> {
+            self.snapshot_clipboard()?;
+            Ok(self.clipboard_snapshot.as_deref()
+                == Some(text.encode_utf16().collect::<Vec<_>>().as_slice()))
         }
     }
 

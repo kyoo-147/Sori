@@ -123,6 +123,8 @@ impl TextInjector for FakeInjector {
         Ok(TextInjectionResult {
             plan: self.plan(target),
             dry_run_output: None,
+            outcome: sori_core::InjectionOutcome::Inserted,
+            diagnostics: Vec::new(),
         })
     }
 }

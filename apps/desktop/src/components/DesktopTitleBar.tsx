@@ -18,7 +18,8 @@ interface DesktopTitleBarProps {
   runtimeError: string | null;
   onTogglePaused: () => void;
   sidebarOpen: boolean;
-  onToggleSidebar: () => void;
+  onToggleMobileSidebar: () => void;
+  onToggleSidebarCollapse: () => void;
   sidebarCollapsed: boolean;
   onNavigate: (screen: ActiveScreen) => void;
 }
@@ -34,7 +35,8 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   runtimeError,
   onTogglePaused,
   sidebarOpen,
-  onToggleSidebar,
+  onToggleMobileSidebar,
+  onToggleSidebarCollapse,
   sidebarCollapsed,
   onNavigate,
 }) => {
@@ -99,14 +101,17 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   };
 
   return (
-    <div data-tauri-drag-region role="toolbar" aria-label="Sori window title bar" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
+    <div role="toolbar" aria-label="Sori window title bar" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
       <button
         type="button"
-        onClick={onToggleSidebar}
+        onClick={onToggleMobileSidebar}
         aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
         className="md:hidden sori-tactile-btn rounded-[9px] p-1.5"
       >
         {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+      </button>
+      <button type="button" onClick={onToggleSidebarCollapse} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={sidebarCollapsed} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} className="sori-titlebar__sidebar-toggle sori-tactile-btn hidden md:inline-flex rounded-[8px] p-1.5">
+        {sidebarCollapsed ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
       </button>
       {/* Left: product command context. The native frame is replaced by this bar. */}
       <div className="min-w-0 flex items-center gap-2.5">
@@ -152,9 +157,6 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
 
       {/* Right: Quick Tools and native window controls */}
       <div className="sori-titlebar__actions flex items-center gap-2">
-        <button type="button" onClick={onToggleSidebar} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={sidebarCollapsed} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} className="sori-titlebar__sidebar-toggle sori-tactile-btn rounded-[8px] p-1.5">
-          {sidebarCollapsed ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
-        </button>
         {/* Tray Toggle */}
         <button
           type="button"
@@ -174,13 +176,13 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
 
 
         <div className="sori-window-controls flex shrink-0 items-center" role="group" aria-label="Window controls">
-          <button type="button" aria-label="Minimize window" title="Minimize" onClick={() => void runWindowAction('minimize')} className="sori-window-control" data-tauri-drag-region="false">
+          <button type="button" aria-label="Minimize window" title="Minimize" onClick={() => void runWindowAction('minimize')} className="sori-window-control">
             <Minus className="h-4 w-4" aria-hidden="true" />
           </button>
-          <button type="button" aria-label={isMaximized ? 'Restore window' : 'Maximize window'} aria-pressed={isMaximized} title={isMaximized ? 'Restore' : 'Maximize'} onClick={() => void runWindowAction('toggle-maximize')} className="sori-window-control" data-tauri-drag-region="false">
+          <button type="button" aria-label={isMaximized ? 'Restore window' : 'Maximize window'} aria-pressed={isMaximized} title={isMaximized ? 'Restore' : 'Maximize'} onClick={() => void runWindowAction('toggle-maximize')} className="sori-window-control">
             {isMaximized ? <Copy className="h-3.5 w-3.5" aria-hidden="true" /> : <Square className="h-3.5 w-3.5" aria-hidden="true" />}
           </button>
-          <button type="button" aria-label="Close window" title="Close" onClick={() => void runWindowAction('close')} className="sori-window-control sori-window-control-close" data-tauri-drag-region="false">
+          <button type="button" aria-label="Close window" title="Close" onClick={() => void runWindowAction('close')} className="sori-window-control sori-window-control-close">
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>

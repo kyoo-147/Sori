@@ -31,8 +31,8 @@ fn enforce_custom_window_frame(_window: &tauri::WebviewWindow) -> tauri::Result<
     Ok(())
 }
 use serde_json::Value;
-use tauri::Manager;
 use sori_ipc::{IpcClient, LocalIpcClient, Request};
+use tauri::Manager;
 
 /// Native command boundary for the UI. The daemon remains the owner of IPC,
 /// permissions, and all runtime capabilities; Tauri only forwards JSON.
@@ -163,6 +163,39 @@ mod titlebar_tests {
         assert_eq!(window["minWidth"], 720);
         assert_eq!(window["minHeight"], 480);
         assert_eq!(window["resizable"], true);
+    }
+
+    #[test]
+    fn main_window_capability_allows_native_shell_actions() {
+        let capability: Value =
+            serde_json::from_str(include_str!("../capabilities/main-window.json")).unwrap();
+        for permission in [
+            "core:window:allow-close",
+            "core:window:allow-minimize",
+            "core:window:allow-maximize",
+            "core:window:allow-unmaximize",
+            "core:window:allow-toggle-maximize",
+            "core:window:allow-start-dragging",
+        ] {
+            assert!(
+                capability["permissions"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|item| item == permission),
+                "missing permission: {permission}"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_titlebar_uses_one_explicit_drag_mechanism() {
+        let source = include_str!("../../src/components/DesktopTitleBar.tsx");
+        assert!(!source.contains("data-tauri-drag-region"));
+        assert!(
+            source.contains("startWindowAction('drag')")
+                || source.contains("runWindowAction('drag')")
+        );
     }
 
     #[test]

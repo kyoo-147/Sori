@@ -33,6 +33,9 @@ export class RuntimeClient {
   async dictationStart() { return this.control('dictation_start'); }
   async dictationStop() { return this.call('dictation_stop', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null); }
   async dictationCancel() { return this.control('dictation_cancel'); }
+  async runBenchmark(model: string, audio: unknown[], reference: string | null, iterations = 5) { return this.call('run_benchmark', (v) => responsePayload(v, 'Benchmark') ?? null, null, { model, audio, reference, iterations }); }
+  async recentBenchmarks(limit = 20) { return this.resource<unknown[]>('benchmarks'); }
+  async applyBenchmarkRecommendation(model: string) { return this.control('apply_benchmark_recommendation', { model }); }
   resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }
   async setResource<T>(name: string, value: T) { return this.call('resource_set', (response) => (responsePayload(response, 'Resource') as { value: T }).value, value, { resource: name }); }
   async pause() { const result = await this.control('pause'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }

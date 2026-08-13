@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use sori_core::{
-    AudioChunk, Event, EventKind, ModelId, PrivacyMode, ProfileMode, Transcript,
+    AudioChunk, BenchmarkResult, Event, EventKind, ModelId, PrivacyMode, ProfileMode, Transcript,
     event::serde_json_like,
 };
 use std::io::{Read, Write};
@@ -35,6 +35,18 @@ pub enum Request {
     Dictation {
         model: ModelId,
         audio: Vec<AudioChunk>,
+    },
+    RunBenchmark {
+        model: ModelId,
+        audio: Vec<AudioChunk>,
+        reference: Option<String>,
+        iterations: u16,
+    },
+    RecentBenchmarks {
+        limit: u16,
+    },
+    ApplyBenchmarkRecommendation {
+        model: ModelId,
     },
     Doctor,
     ConfigSummary,
@@ -71,6 +83,7 @@ pub enum Response {
     Error(IpcErrorResponse),
     Control(ControlResponse),
     Transcript(Transcript),
+    Benchmark(BenchmarkResult),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -479,7 +492,10 @@ impl Transport for MockTransport {
             Request::DictationStart
             | Request::DictationStop
             | Request::DictationCancel
-            | Request::Dictation { .. } => {
+            | Request::Dictation { .. }
+            | Request::RunBenchmark { .. }
+            | Request::RecentBenchmarks { .. }
+            | Request::ApplyBenchmarkRecommendation { .. } => {
                 return Err(IpcError::Transport(
                     "mock transport does not execute dictation".into(),
                 ));

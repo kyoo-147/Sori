@@ -24,8 +24,17 @@ enum Command {
     Status,
     /// Show the effective context defaults.
     Context,
-    /// Print benchmark scaffolding status.
-    Benchmark,
+    /// Run real provider benchmarks through sorid.
+    Benchmark {
+        #[arg(long)]
+        model: String,
+        #[arg(long)]
+        audio: std::path::PathBuf,
+        #[arg(long)]
+        reference: Option<String>,
+        #[arg(long, default_value_t = 5)]
+        iterations: u16,
+    },
     /// Run a deterministic trigger-to-history dictation smoke path.
     Smoke {
         #[command(subcommand)]
@@ -44,7 +53,12 @@ fn main() -> Result<()> {
         Command::Doctor => doctor(),
         Command::Status => status(),
         Command::Context => context(),
-        Command::Benchmark => benchmark(),
+        Command::Benchmark {
+            model,
+            audio,
+            reference,
+            iterations,
+        } => benchmark(model, audio, reference, iterations),
         Command::Smoke {
             command: SmokeCommand::Dictation,
         } => smoke_dictation(),
@@ -99,11 +113,85 @@ fn status() -> Result<()> {
     Ok(())
 }
 
-fn benchmark() -> Result<()> {
-    println!("Sori benchmark");
-    println!("- benchmark runner: not wired yet");
-    println!("- route simulation: scaffold only");
+fn benchmark(
+    model: String,
+    audio_path: std::path::PathBuf,
+    reference: Option<String>,
+    iterations: u16,
+) -> Result<()> {
+    let audio = read_wav(&audio_path)?;
+    let client =
+        LocalIpcClient::connect().map_err(|e| anyhow::anyhow!("daemon IPC unavailable: {e}"))?;
+    match client.request(Request::RunBenchmark {
+        model: ModelId::from(model.as_str()),
+        audio,
+        reference,
+        iterations,
+    })? {
+        Response::Benchmark(result) => println!(
+            "model={} provider={} samples={} cold_ms={:.2} warm_ms={:.2} p50_ms={:.2} p95_ms={:.2} rtf={:.4} wer={} cer={} ram_bytes={}",
+            result.model.0,
+            result.provider,
+            result.samples,
+            result.startup.cold_ms,
+            result.startup.warm_ms,
+            result.latency.p50_ms,
+            result.latency.p95_ms,
+            result.real_time_factor,
+            result
+                .accuracy
+                .as_ref()
+                .and_then(|a| a.wer)
+                .map_or("UNVERIFIED".into(), |v| format!("{v:.4}")),
+            result
+                .accuracy
+                .as_ref()
+                .and_then(|a| a.cer)
+                .map_or("UNVERIFIED".into(), |v| format!("{v:.4}")),
+            result
+                .memory
+                .ram_bytes
+                .map_or("UNVERIFIED".into(), |v| v.to_string())
+        ),
+        Response::Error(error) => anyhow::bail!("benchmark failed: {}", error.detail),
+        other => anyhow::bail!("unexpected benchmark response: {other:?}"),
+    }
     Ok(())
+}
+
+fn read_wav(path: &std::path::Path) -> Result<Vec<AudioChunk>> {
+    let bytes = std::fs::read(path)?;
+    anyhow::ensure!(
+        bytes.len() >= 44 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE",
+        "only RIFF/WAVE audio is supported"
+    );
+    let channels = u16::from_le_bytes([bytes[22], bytes[23]]);
+    let rate = u32::from_le_bytes(bytes[24..28].try_into()?);
+    let bits = u16::from_le_bytes([bytes[34], bytes[35]]);
+    anyhow::ensure!(
+        channels == 1 && bits == 16,
+        "benchmark audio must be mono PCM16 WAV"
+    );
+    let data = bytes
+        .windows(4)
+        .position(|window| window == b"data")
+        .ok_or_else(|| anyhow::anyhow!("WAV data chunk missing"))?
+        + 4;
+    let size = u32::from_le_bytes(bytes[data..data + 4].try_into()?) as usize;
+    let raw = &bytes[data + 4..(data + 4 + size).min(bytes.len())];
+    let samples = raw
+        .chunks_exact(2)
+        .map(|s| i16::from_le_bytes([s[0], s[1]]) as f32 / i16::MAX as f32)
+        .collect();
+    Ok(vec![AudioChunk {
+        captured_at: OffsetDateTime::now_utc(),
+        format: AudioFormat {
+            sample_rate_hz: rate,
+            channels: 1,
+            sample_format: SampleFormat::F32,
+        },
+        samples,
+    }])
 }
 
 fn smoke_dictation() -> Result<()> {

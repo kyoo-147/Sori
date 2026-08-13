@@ -1,8 +1,8 @@
 use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
-    FastIntent, HistoryEntry, HistoryRepository, ModelId, ModelLicense, ModelManifest, ModelRoute,
-    PrivacyMode, ProfileMode,
+    BenchmarkInput, FastIntent, HistoryEntry, HistoryRepository, ModelId, ModelLicense,
+    ModelManifest, ModelRoute, PrivacyMode, ProfileMode, run_benchmark,
 };
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
@@ -151,6 +151,7 @@ async fn main() -> Result<()> {
             Err(error) => (None, format!("unavailable: {error}")),
         };
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
+    let benchmark_provider = whisper_provider.clone();
     if let Some(value) = store.setting("hotkey.binding")? {
         if let Some(binding) = value.as_str() {
             config.hotkey.binding = binding.to_owned();
@@ -277,6 +278,21 @@ async fn main() -> Result<()> {
                     handler_store.try_retain_history(retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?;
                 }
                 Response::Transcript(transcript)
+            }
+            Request::RunBenchmark { model, audio, reference, iterations } => {
+                let provider = benchmark_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("benchmark unavailable: Whisper provider is not ready".into()))?;
+                let result = run_benchmark(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark failed: {e}")))?;
+                handler_store.save_benchmark(&result).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark persistence failed: {e}")))?;
+                Response::Benchmark(result)
+            }
+            Request::RecentBenchmarks { limit } => Response::Resource(sori_ipc::ResourceResponse {
+                resource: "benchmarks".into(),
+                value: serde_json::to_value(handler_store.recent_benchmarks(usize::from(limit)).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?,
+            }),
+            Request::ApplyBenchmarkRecommendation { model } => {
+                let route = serde_json::json!({"provider":"whisper.cpp","model":model,"reason":"recommended by persisted benchmark","fallback":[]});
+                handler_store.save_model_route("recommended", &route).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Control(ControlResponse { accepted: true, detail: format!("benchmark recommendation persisted for {}", model.0) })
             }
             Request::Doctor => {
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);

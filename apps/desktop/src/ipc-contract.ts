@@ -13,7 +13,10 @@ export type IpcRequest =
   | { ResourceSet: { resource: string; value: unknown } }
   | { RecentHistory: { limit: number } }
   | { SetConfig: { key: string; value: unknown } }
-  | { Dictation: { model: string; audio: AudioChunk[] } };
+  | { Dictation: { model: string; audio: AudioChunk[] } }
+  | { RunBenchmark: { model: string; audio: AudioChunk[]; reference: string | null; iterations: number } }
+  | { RecentBenchmarks: { limit: number } }
+  | { ApplyBenchmarkRecommendation: { model: string } };
 export interface StatusResponse { protocol_version: number; daemon_version: string; running: boolean; activity: RuntimeActivity; paused: boolean; hotkey: string; route: RouteSummary; profile: ProfileMode; privacy: PrivacyMode; }
 export interface DoctorCheck { name: string; ok: boolean; detail: string; }
 export interface DoctorResponse { status: StatusResponse; checks: DoctorCheck[]; }
@@ -25,9 +28,9 @@ export interface RecentHistoryResponse { entries: HistoryEntry[]; }
 export interface ControlResponse { accepted: boolean; detail: string; }
 export interface AudioChunk { captured_at: string; format: { sample_rate_hz: number; channels: number; sample_format: 'I16' | 'F32'; }; samples: number[]; }
 export interface TranscriptResponse { language?: string | null; text: string; segments: unknown[]; }
-export interface IpcResponseMap { Status: StatusResponse; Doctor: DoctorResponse; ConfigSummary: ConfigSummaryResponse; RecentEvents: RecentEventsResponse; RecentHistory: RecentHistoryResponse; Resource: ResourceResponse; Control: ControlResponse; Transcript: TranscriptResponse; Error: { code: string; detail: string }; }
+export interface IpcResponseMap { Status: StatusResponse; Doctor: DoctorResponse; ConfigSummary: ConfigSummaryResponse; RecentEvents: RecentEventsResponse; RecentHistory: RecentHistoryResponse; Resource: ResourceResponse; Control: ControlResponse; Transcript: TranscriptResponse; Benchmark: unknown; Error: { code: string; detail: string }; }
 export type IpcResponse = { [K in keyof IpcResponseMap]: { [P in K]: IpcResponseMap[K] } }[keyof IpcResponseMap];
-export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'recent_history' | 'resource_get' | 'resource_set' | 'purge_history' | 'set_config' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'pause' | 'resume';
+export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'recent_history' | 'resource_get' | 'resource_set' | 'purge_history' | 'set_config' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'pause' | 'resume' | 'run_benchmark' | 'recent_benchmarks' | 'apply_benchmark_recommendation';
 export function requestShape(operation: IpcOperation, params: Record<string, unknown> = {}): IpcRequest {
   switch (operation) {
     case 'status': return 'Status'; case 'doctor': return 'Doctor'; case 'config_summary': return 'ConfigSummary';
@@ -37,6 +40,9 @@ export function requestShape(operation: IpcOperation, params: Record<string, unk
     case 'resource_get': return { ResourceGet: { resource: String(params.resource ?? '') } };
     case 'resource_set': return { ResourceSet: { resource: String(params.resource ?? ''), value: params.value } };
     case 'recent_history': return { RecentHistory: { limit: Number(params.limit ?? 20) } };
+    case 'run_benchmark': return { RunBenchmark: { model: String(params.model ?? ''), audio: (params.audio ?? []) as AudioChunk[], reference: typeof params.reference === 'string' ? params.reference : null, iterations: Number(params.iterations ?? 5) } };
+    case 'recent_benchmarks': return { RecentBenchmarks: { limit: Number(params.limit ?? 20) } };
+    case 'apply_benchmark_recommendation': return { ApplyBenchmarkRecommendation: { model: String(params.model ?? '') } };
     case 'set_config': return { SetConfig: { key: String(params.key ?? ''), value: params.value } };
   }
 }

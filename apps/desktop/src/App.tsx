@@ -57,7 +57,7 @@ export default function App() {
   const [snippets, setSnippets] = useState<Snippet[]>(initialSnippets);
   const [extensions, setExtensions] = useState<ExtensionItem[]>(() => readPreference('extensions', initialExtensions));
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [benchmarkResults] = useState<BenchmarkResult[]>(initialBenchmarkResults);
+  const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
   const [assistantVoice, setAssistantVoice] = useState<AssistantVoiceSettings>(defaultAssistantVoice);
 
@@ -102,6 +102,12 @@ export default function App() {
   useEffect(() => {
     refreshRuntime().catch(() => undefined);
   }, [refreshRuntime]);
+  useEffect(() => {
+    runtimeClient.recentBenchmarks(20).then((result) => {
+      if (result.error || !Array.isArray(result.data)) return;
+      setBenchmarkResults(result.data.map((item) => { const value = item as { model?: string; startup?: { cold_ms: number }; latency?: { p50_ms: number }; memory?: { ram_bytes?: number | null }; accuracy?: { wer?: number | null }; real_time_factor?: number }; return { modelId: value.model ?? 'unknown', modelName: value.model ?? 'Unknown model', coldStartMs: value.startup?.cold_ms ?? null, warmLatencyMs: value.latency?.p50_ms ?? null, ramMb: value.memory?.ram_bytes == null ? null : value.memory.ram_bytes / 1_000_000, werPercent: value.accuracy?.wer == null ? null : value.accuracy.wer * 100, rtf: value.real_time_factor ?? null, insertionMs: null, passed: true }; }));
+    }).catch(() => undefined);
+  }, [runtimeClient]);
 
   useEffect(() => {
     writePreference('settings', settings);
@@ -205,18 +211,13 @@ export default function App() {
     if (!result.error && result.data?.text) await refreshRuntime();
   };
 
-  const handleApplyRecommendedPolicy = () => {
-    setRoutes((prev) => [
-      {
-        id: `rule-auto-${Date.now()}`,
-        condition: 'benchmark_latency <= 65ms && language == "en"',
-        targetModel: 'parakeet-v2',
-        enabled: true,
-        priority: 1,
-      },
-      ...prev,
-    ]);
+  const handleApplyRecommendedPolicy = async () => {
+    const model = benchmarkResults[0]?.modelId;
+    if (!model) return;
+    const result = await runtimeClient.applyBenchmarkRecommendation(model);
+    setRuntimeError(result.error ?? (result.data.accepted ? null : result.data.detail));
   };
+  const runBenchmark = async () => 'Needs Wiring: select a real WAV/reference fixture in the desktop runner. No metrics were fabricated.';
 
   return (
     <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
@@ -341,6 +342,7 @@ export default function App() {
               <BenchmarkScreen
                 benchmarkResults={benchmarkResults}
                 onApplyPolicy={handleApplyRecommendedPolicy}
+                onRun={runBenchmark}
               />
             )}
 

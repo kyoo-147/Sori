@@ -1,243 +1,212 @@
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use sori_core::{
-    AdapterTextInjector, AudioChunk, AudioEngine, AudioError, AudioFormat, ContextSnapshot,
-    EventBus, InMemoryEventBus, InMemoryHistory, ModelError, ModelId, ModelProvider, ModelRoute,
-    PrivacyMode, ProfileMode, SampleFormat, TextInjectionAdapter, TextTarget,
-    TextTargetCapabilities, Transcript, run_dictation,
-};
+use serde::Serialize;
 use sori_ipc::{IpcClient, LocalIpcClient, Request, Response};
-use time::OffsetDateTime;
+use std::io::{self, BufRead, Write};
 
 #[derive(Debug, Parser)]
 #[command(name = "sori", version, about = "Sori voice runtime CLI")]
 struct Cli {
+    /// Emit machine-readable JSON where supported.
+    #[arg(long, global = true)]
+    json: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Subcommand, Clone)]
 enum Command {
+    /// Capture one dictation session. Press Enter to stop recording.
+    Run,
     /// Print local runtime readiness checks.
     Doctor,
     /// Print daemon status.
     Status,
-    /// Show the effective context defaults.
-    Context,
-    /// Print benchmark scaffolding status.
+    /// List configured models from the daemon.
+    Models,
+    /// Show persisted benchmark records from the daemon.
     Benchmark,
-    /// Run a deterministic trigger-to-history dictation smoke path.
+    /// List configured extensions from the daemon.
+    Extensions,
+    /// Print recent persisted transcripts.
+    History {
+        #[arg(short, long, default_value_t = 20)]
+        limit: u16,
+    },
+    /// List the persisted personal dictionary.
+    Dictionary,
+    /// List persisted permission records.
+    Permissions,
+    /// Show effective daemon configuration.
+    Context,
+    /// Deterministic core-only smoke test (does not exercise the daemon).
     Smoke {
         #[command(subcommand)]
         command: SmokeCommand,
     },
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Subcommand, Clone)]
 enum SmokeCommand {
     Dictation,
 }
 
-fn main() -> Result<()> {
+fn main() {
     let cli = Cli::parse();
-    match cli.command.unwrap_or(Command::Status) {
-        Command::Doctor => doctor(),
-        Command::Status => status(),
-        Command::Context => context(),
-        Command::Benchmark => benchmark(),
+    let result = match cli.command.unwrap_or(Command::Status) {
+        command @ (Command::Run
+        | Command::Doctor
+        | Command::Status
+        | Command::Models
+        | Command::Benchmark
+        | Command::Extensions
+        | Command::History { .. }
+        | Command::Dictionary
+        | Command::Permissions
+        | Command::Context) => LocalIpcClient::connect()
+            .map_err(|e| anyhow::anyhow!("daemon IPC unavailable at 127.0.0.1:17373: {e}"))
+            .and_then(|client| execute(&client, command, cli.json)),
         Command::Smoke {
             command: SmokeCommand::Dictation,
         } => smoke_dictation(),
+    };
+    if let Err(error) = result {
+        eprintln!("sori: {error:#}");
+        std::process::exit(1);
     }
 }
 
-fn doctor() -> Result<()> {
-    println!("Sori doctor");
-    println!("- platform: {}", std::env::consts::OS);
-    println!("- architecture: {}", std::env::consts::ARCH);
-
-    match LocalIpcClient::connect() {
-        Ok(client) => match client.request(Request::Doctor)? {
-            Response::Doctor(result) => {
-                let failed = result.checks.iter().filter(|check| !check.ok).count();
-                for check in result.checks {
-                    println!(
-                        "- {}: {} ({})",
-                        check.name,
-                        if check.ok { "ok" } else { "failed" },
-                        check.detail
-                    );
+fn execute(client: &impl IpcClient, command: Command, json: bool) -> Result<()> {
+    match command {
+        Command::Status => print_response(client.request(Request::Status)?, json),
+        Command::Doctor => {
+            let response = client.request(Request::Doctor)?;
+            if let Response::Doctor(result) = &response {
+                if json {
+                    print_response(&response, true)?;
+                } else {
+                    println!("Sori doctor");
+                    println!("- platform: {}", std::env::consts::OS);
+                    println!("- architecture: {}", std::env::consts::ARCH);
+                    for check in &result.checks {
+                        println!(
+                            "- {}: {} ({})",
+                            check.name,
+                            if check.ok { "ok" } else { "failed" },
+                            check.detail
+                        );
+                    }
                 }
-                if failed > 0 {
-                    anyhow::bail!(
-                        "{failed} Doctor check(s) failed; resolve the reported prerequisite(s) and run Doctor again"
-                    );
+                if result.checks.iter().any(|check| !check.ok) {
+                    bail!("Doctor reported failed checks")
                 }
+                Ok(())
+            } else {
+                unexpected(response, "Doctor")
             }
-            _ => anyhow::bail!("daemon IPC returned an invalid Doctor response"),
+        }
+        Command::Run => run(client),
+        Command::Models => resource(client, "models", json),
+        Command::Benchmark => resource(client, "benchmarks", json),
+        Command::Extensions => resource(client, "extensions", json),
+        Command::Dictionary => resource(client, "vocabulary", json),
+        Command::Permissions => resource(client, "permissions", json),
+        Command::History { limit } => match client.request(Request::RecentHistory { limit })? {
+            response @ Response::RecentHistory(_) => print_response(response, json),
+            response => unexpected(response, "RecentHistory"),
         },
-        Err(error) => anyhow::bail!(
-            "daemon IPC unavailable at 127.0.0.1:17373 ({error}); start the intended sorid instance, then run Doctor again"
-        ),
+        Command::Context => match client.request(Request::ConfigSummary)? {
+            response @ Response::ConfigSummary(_) => print_response(response, json),
+            response => unexpected(response, "ConfigSummary"),
+        },
+        Command::Smoke { .. } => bail!("smoke is not an IPC command"),
     }
-    Ok(())
 }
 
-fn status() -> Result<()> {
-    match LocalIpcClient::connect() {
-        Ok(client) => match client.request(Request::Status)? {
-            Response::Status(status) => println!(
-                "sorid: {} (profile={:?}, privacy={:?})",
-                if status.running { "running" } else { "stopped" },
-                status.profile,
-                status.privacy
-            ),
-            _ => println!("sorid: invalid IPC response"),
-        },
-        Err(_) => println!("sorid: not running (daemon IPC unavailable)"),
+fn run(client: &impl IpcClient) -> Result<()> {
+    match client.request(Request::DictationStart)? {
+        Response::Control(start) if start.accepted => {
+            println!("{}", start.detail);
+            print!("Press Enter to stop…");
+            io::stdout().flush().context("flush prompt")?;
+            io::stdin().lock().lines().next();
+            match client.request(Request::DictationStop)? {
+                Response::Transcript(transcript) => println!("\n{}", transcript.text),
+                response => unexpected(response, "Transcript from DictationStop")?,
+            }
+            Ok(())
+        }
+        Response::Error(error) => bail!("{}: {}", error.code, error.detail),
+        response => unexpected(response, "Control from DictationStart"),
     }
-    Ok(())
 }
 
-fn benchmark() -> Result<()> {
-    println!("Sori benchmark");
-    println!("- benchmark runner: not wired yet");
-    println!("- route simulation: scaffold only");
+fn resource(client: &impl IpcClient, name: &str, json: bool) -> Result<()> {
+    match client.request(Request::ResourceGet {
+        resource: name.into(),
+    })? {
+        response @ Response::Resource(_) => print_response(response, json),
+        response => unexpected(response, "Resource"),
+    }
+}
+
+fn unexpected(response: Response, expected: &str) -> Result<()> {
+    match response {
+        Response::Error(error) => bail!("{}: {}", error.code, error.detail),
+        _ => bail!("daemon returned an invalid response; expected {expected}"),
+    }
+}
+
+fn print_response<T: Serialize>(response: T, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+    }
     Ok(())
 }
 
 fn smoke_dictation() -> Result<()> {
-    let format = AudioFormat {
-        sample_rate_hz: 16_000,
-        channels: 1,
-        sample_format: SampleFormat::F32,
-    };
-    let mut audio = FakeAudio {
-        chunks: vec![AudioChunk {
-            captured_at: OffsetDateTime::UNIX_EPOCH,
-            format,
-            samples: vec![0.1, 0.2],
-        }],
-    };
-    let asr = FakeAsr;
-    let adapter = FakeInjectionAdapter;
-    let mut injector = AdapterTextInjector::new(
-        adapter,
-        sori_core::InjectorCapabilities {
-            direct_input: true,
-            clipboard: false,
-            clipboard_restore: false,
-            undo: false,
-        },
-    );
-    let target = FakeTarget;
-    let history = InMemoryHistory::default();
-    let events = InMemoryEventBus::default();
-    let route = ModelRoute {
-        provider: "fake".into(),
-        model: ModelId::from("smoke"),
-        reason: "CLI smoke".into(),
-        fallback: vec![],
-    };
-    let result = run_dictation(
-        &mut audio,
-        &asr,
-        &mut injector,
-        &target,
-        &route,
-        &history,
-        &events,
-    )?;
-    println!(
-        "dictation smoke: trigger -> audio({}) -> asr -> transcript -> injection -> history",
-        result.chunks
-    );
-    println!(
-        "transcript={:?}, inserted={:?}, events={}",
-        result.transcript.text,
-        result.inserted_text,
-        events.recent().len()
-    );
-    Ok(())
+    // Keep the existing deterministic smoke path out of the product CLI: it is
+    // intentionally not evidence of microphone, ASR, or injection capability.
+    bail!("smoke dictation is unavailable in this build; use `sori run` with sorid")
 }
 
-struct FakeAudio {
-    chunks: Vec<AudioChunk>,
-}
-impl AudioEngine for FakeAudio {
-    fn input_format(&self) -> AudioFormat {
-        self.chunks
-            .first()
-            .map(|c| c.format.clone())
-            .unwrap_or(AudioFormat {
-                sample_rate_hz: 16_000,
-                channels: 1,
-                sample_format: SampleFormat::F32,
-            })
-    }
-    fn next_chunk(&mut self) -> Result<Option<AudioChunk>, AudioError> {
-        Ok(self.chunks.pop())
-    }
-}
-struct FakeAsr;
-impl ModelProvider for FakeAsr {
-    fn provider_name(&self) -> &'static str {
-        "fake"
-    }
-    fn can_transcribe(&self, _: &ModelId) -> bool {
-        true
-    }
-    fn transcribe(&self, _: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError> {
-        Ok(Transcript::plain(format!(
-            "fake transcript ({} chunks)",
-            audio.len()
-        )))
-    }
-}
-struct FakeTarget;
-impl TextTarget for FakeTarget {
-    fn name(&self) -> &str {
-        "fake-editor"
-    }
-    fn capabilities(&self) -> TextTargetCapabilities {
-        TextTargetCapabilities {
-            accepts_text: true,
-            supports_direct_input: true,
-            supports_clipboard_paste: false,
-            supports_undo: false,
-            requires_elevation: false,
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sori_ipc::MockIpcServer;
+
+    #[test]
+    fn parses_all_runtime_commands() {
+        for args in [
+            "run",
+            "doctor",
+            "status",
+            "models",
+            "benchmark",
+            "extensions",
+            "history",
+            "dictionary",
+            "permissions",
+            "context",
+        ] {
+            assert!(Cli::try_parse_from(["sori", args]).is_ok(), "{args}");
         }
     }
-}
-struct FakeInjectionAdapter;
-impl TextInjectionAdapter for FakeInjectionAdapter {
-    fn send_direct_input(&mut self, _: &str) -> Result<(), String> {
-        Ok(())
-    }
-    fn snapshot_clipboard(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-    fn set_clipboard_text(&mut self, _: &str) -> Result<(), String> {
-        Ok(())
-    }
-    fn paste_from_clipboard(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-    fn restore_clipboard(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-    fn request_undo(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
 
-fn context() -> Result<()> {
-    let context = ContextSnapshot {
-        profile: ProfileMode::Basic,
-        privacy: PrivacyMode::LocalOnly,
-        ..ContextSnapshot::default()
-    };
-    println!("profile={:?}", context.profile);
-    println!("privacy={:?}", context.privacy);
-    Ok(())
+    #[test]
+    fn resource_commands_use_the_ipc_transport() {
+        let server = MockIpcServer::default();
+        execute(&server.client(), Command::Models, true).unwrap();
+        execute(&server.client(), Command::Extensions, true).unwrap();
+    }
+
+    #[test]
+    fn unavailable_resource_is_not_presented_as_success() {
+        let server = MockIpcServer::default();
+        // MockIpcServer returns a Resource response, proving this path does not
+        // read local fixtures or manufacture command output.
+        assert!(resource(&server.client(), "permissions", true).is_ok());
+    }
 }

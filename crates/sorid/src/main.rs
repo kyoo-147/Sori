@@ -544,15 +544,15 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
 
 fn validate_resource(resource: &str) -> Result<(), String> {
     match resource {
-        "vocabulary" | "models" | "benchmarks" | "extensions" | "privacy" | "onboarding"
-        | "route" => Ok(()),
+        "vocabulary" | "models" | "benchmarks" | "extensions" | "permissions" | "privacy"
+        | "onboarding" | "route" => Ok(()),
         _ => Err(format!("unsupported resource: {resource}")),
     }
 }
 
 fn default_resource(resource: &str) -> serde_json::Value {
     match resource {
-        "vocabulary" | "benchmarks" | "extensions" => serde_json::json!([]),
+        "vocabulary" | "benchmarks" | "extensions" | "permissions" => serde_json::json!([]),
         "models" => {
             serde_json::json!([{"id":"whisper.cpp/ggml-base.en","name":"Whisper base.en","provider":"whisper.cpp","location":"local","qualityTier":"standard","recommended":true,"available":false,"unavailableReason":"UNVERIFIED: local model files have not been configured"}])
         }

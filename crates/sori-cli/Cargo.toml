@@ -11,6 +11,8 @@ name = "sori"
 path = "src/main.rs"
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 sori-core = { path = "../sori-core" }

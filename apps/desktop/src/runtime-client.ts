@@ -34,7 +34,11 @@ export class RuntimeClient {
   async dictationStop() { return this.call('dictation_stop', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null); }
   async dictationCancel() { return this.control('dictation_cancel'); }
   resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }
-  async setResource<T>(name: string, value: T) { return this.call('resource_set', (response) => (responsePayload(response, 'Resource') as { value: T }).value, value, { resource: name }); }
+  models<T = unknown>() { return this.resource<T>('models'); }
+  route<T = unknown>() { return this.resource<T>('route'); }
+  setActiveModel(modelId: string) { return this.setResource('route', { activeModelId: modelId }); }
+  setRoutePolicy(policy: 'Performance' | 'Balanced' | 'Battery' | 'Privacy' | 'LocalFirst' | 'CloudAllowed' | 'NeverCloud') { return this.setConfig('route.policy', policy); }
+  async setResource<T>(name: string, value: T) { return this.call('resource_set', (response) => (responsePayload(response, 'Resource') as { value: T }).value, value, { resource: name, value }); }
   async pause() { const result = await this.control('pause'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }
   async resume() { const result = await this.control('resume'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }
   private async control(operation: IpcOperation, params?: Record<string, unknown>): Promise<RuntimeResult<ControlResponse>> { try { const value = await this.transport.request(operation, params); return { data: (responsePayload(value, 'Control') ?? { accepted: false, detail: 'IPC returned no control response' }) as ControlResponse, source: this.transport.source ?? 'backend', error: null }; } catch (error) { return { data: { accepted: false, detail: errorText(error) }, source: 'unavailable', error: errorText(error) }; } }

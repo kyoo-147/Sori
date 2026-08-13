@@ -151,6 +151,11 @@ async fn main() -> Result<()> {
             Err(error) => (None, format!("unavailable: {error}")),
         };
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
+    if let Some(value) = store.setting("route.policy")? {
+        if let Ok(preset) = serde_json::from_value::<sori_core::RoutePreset>(value) {
+            config.route = preset.policy();
+        }
+    }
     if let Some(value) = store.setting("hotkey.binding")? {
         if let Some(binding) = value.as_str() {
             config.hotkey.binding = binding.to_owned();
@@ -177,7 +182,15 @@ async fn main() -> Result<()> {
     daemon.publish_capability("asr", daemon.whisper_available(), whisper_detail.clone());
     let runtime = Arc::new(Mutex::new(daemon));
     let hotkey_runtime = Arc::clone(&runtime);
-    let hotkey_model = ModelId::from(whisper_model.as_str());
+    let hotkey_model = store
+        .setting("resource.route")?
+        .and_then(|value| {
+            value
+                .get("activeModelId")
+                .and_then(|id| id.as_str())
+                .map(ModelId::from)
+        })
+        .unwrap_or_else(|| ModelId::from(whisper_model.as_str()));
     let hotkey = sorid::parse_hotkey_binding(&config.hotkey.binding).map_err(|error| {
         anyhow::anyhow!(
             "invalid configured hotkey `{}`: {error}",
@@ -246,7 +259,10 @@ async fn main() -> Result<()> {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(20) as usize;
                 let chunks = runtime.stop_audio(false).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                let route = ModelRoute { provider: "whisper.cpp".into(), model: ModelId::from(whisper_model.as_str()), reason: "configured local route".into(), fallback: Vec::new() };
+                let route_config = handler_store.setting("resource.route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.unwrap_or_else(|| default_resource("route"));
+                let selected_model = route_config.get("activeModelId").and_then(|id| id.as_str()).unwrap_or(whisper_model.as_str());
+                let fallback = route_config.get("fallbackModelIds").and_then(|ids| ids.as_array()).map(|ids| ids.iter().filter_map(|id| id.as_str().map(ModelId::from)).collect()).unwrap_or_default();
+                let route = ModelRoute { provider: "whisper.cpp".into(), model: ModelId::from(selected_model), reason: format!("{} policy", route_config.get("policy").and_then(|p| p.as_str()).unwrap_or("LocalFirst")), fallback };
                 let mut injector = RuntimeInjector::new();
                 let target = RuntimeTarget;
                 let no_history = NoopHistory;
@@ -373,7 +389,8 @@ async fn main() -> Result<()> {
                 validate_setting(&key, &value).map_err(sori_ipc::IpcError::Transport)?;
                 handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 if key == "hotkey.binding" { handler_config.hotkey.binding = value.as_str().unwrap().to_owned(); }
-                if key == "privacy.mode" { *privacy = serde_json::from_value(value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
+                if key == "privacy.mode" { *privacy = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
+                if key == "route.policy" { let preset: sori_core::RoutePreset = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; handler_config.route = preset.policy(); }
                 Response::Control(ControlResponse { accepted: true, detail: format!("setting {key} persisted") })
             }
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
@@ -472,6 +489,16 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
         "hotkey.binding" if value.as_str().is_some_and(|v| !v.trim().is_empty()) => Ok(()),
         "history.enabled" if value.is_boolean() => Ok(()),
         "history.retention_limit" if value.as_u64().is_some_and(|v| v > 0 && v <= 10_000) => Ok(()),
+        "route.policy"
+            if value
+                .as_str()
+                .and_then(|v| {
+                    serde_json::from_str::<sori_core::RoutePreset>(&format!("\"{v}\"")).ok()
+                })
+                .is_some() =>
+        {
+            Ok(())
+        }
         "privacy.mode"
             if value
                 .as_str()
@@ -485,6 +512,7 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
         "history.retention_limit" => {
             Err("history.retention_limit must be an integer from 1 to 10000".into())
         }
+        "route.policy" => Err("route.policy must be a supported route preset".into()),
         "privacy.mode" => {
             Err("privacy.mode must be Auto, LocalOnly, CloudAllowed, or NeverCloud".into())
         }
@@ -502,7 +530,10 @@ fn validate_resource(resource: &str) -> Result<(), String> {
 
 fn default_resource(resource: &str) -> serde_json::Value {
     match resource {
-        "vocabulary" | "models" | "benchmarks" | "extensions" => serde_json::json!([]),
+        "vocabulary" | "benchmarks" | "extensions" => serde_json::json!([]),
+        "models" => {
+            serde_json::json!([{"id":"whisper.cpp/ggml-base.en","name":"Whisper base.en","provider":"whisper.cpp","location":"local","qualityTier":"standard","recommended":true,"available":false,"unavailableReason":"UNVERIFIED: local model files have not been configured"}])
+        }
         "privacy" => {
             serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
         }
@@ -510,7 +541,7 @@ fn default_resource(resource: &str) -> serde_json::Value {
             serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
         }
         "route" => {
-            serde_json::json!({"prefer_local": true, "allow_cloud": false, "prefer_warm_runtime": false, "optimize_battery": false})
+            serde_json::json!({"activeModelId":"whisper.cpp/ggml-base.en","policy":"LocalFirst","fallbackModelIds":[]})
         }
         _ => serde_json::Value::Null,
     }

@@ -233,6 +233,7 @@ export default function App() {
           runtimeSource={runtimeSource}
           runtimeStatus={runtimeStatus}
           runtimeError={runtimeError}
+          onWindowError={setErrorMessage}
           onTogglePaused={() => setPaused(!runtimeStatus.paused)}
           sidebarOpen={sidebarOpen}
           onToggleMobileSidebar={() => setSidebarOpen((open) => !open)}

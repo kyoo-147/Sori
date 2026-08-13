@@ -28,6 +28,7 @@ interface DesktopTitleBarProps {
   runtimeSource: RuntimeSource;
   runtimeStatus: DaemonStatus;
   runtimeError: string | null;
+  onWindowError: (message: string) => void;
   onTogglePaused: () => void;
   sidebarOpen: boolean;
   onToggleMobileSidebar: () => void;
@@ -45,6 +46,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   runtimeSource,
   runtimeStatus,
   runtimeError,
+  onWindowError,
   onTogglePaused,
   sidebarOpen,
   onToggleMobileSidebar,
@@ -96,13 +98,15 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         refreshMaximizedAfterNativeAction();
       }
     } catch (error) {
-      console.error('[titlebar] native window action failed', {
+      const errorDetails = {
         action,
         window: isTauri ? getCurrentWindow().label : 'browser-preview',
         runtime: runtimeSource,
         timestamp: new Date().toISOString(),
         error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
-      });
+      };
+      onWindowError(`[titlebar:${action}] ${error instanceof Error ? error.message : String(error)}`);
+      console.error('[titlebar] native window action failed', errorDetails);
     }
   };
 

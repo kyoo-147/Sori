@@ -892,6 +892,20 @@ where
     failure.map_or(Ok(()), |error| Err(ModelError::Inference(error)))
 }
 
+struct VocabularyPromptRunner<'a> {
+    prompt: &'a str,
+}
+impl ProcessRunner for VocabularyPromptRunner<'_> {
+    fn run(&self, spec: &ExternalProcessSpec) -> Result<ProcessOutput, ModelError> {
+        let mut prompted = spec.clone();
+        if !self.prompt.trim().is_empty() {
+            prompted
+                .arguments
+                .extend(["--prompt".into(), self.prompt.to_owned()]);
+        }
+        CommandProcessRunner.run(&prompted)
+    }
+}
 impl ModelProvider for WhisperCppProvider {
     fn provider_name(&self) -> &'static str {
         PROVIDER_NAME
@@ -907,6 +921,24 @@ impl ModelProvider for WhisperCppProvider {
             return Err(ModelError::Unsupported(model.clone()));
         }
         self.transcribe_audio(model, audio, OutputFormat::Text, &ProcessOptions::default())
+    }
+    fn transcribe_with_context(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        vocabulary: &sori_core::Vocabulary,
+    ) -> Result<Transcript, ModelError> {
+        if !self.can_transcribe(model) {
+            return Err(ModelError::Unsupported(model.clone()));
+        }
+        let prompt = vocabulary.prompt();
+        self.transcribe_audio_with_runner_options(
+            model,
+            audio,
+            OutputFormat::Text,
+            &VocabularyPromptRunner { prompt: &prompt },
+            &ProcessOptions::default(),
+        )
     }
 }
 

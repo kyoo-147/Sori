@@ -2,7 +2,7 @@ use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
     FastIntent, HistoryEntry, HistoryRepository, ModelId, ModelLicense, ModelManifest, ModelRoute,
-    PrivacyMode, ProfileMode,
+    PrivacyMode, ProfileMode, Vocabulary, VocabularyTerm,
 };
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
@@ -251,7 +251,14 @@ async fn main() -> Result<()> {
                 let target = RuntimeTarget;
                 let no_history = NoopHistory;
                 let history: &dyn HistoryRepository = if history_enabled { handler_store.as_ref() } else { &no_history };
-                let result = runtime.complete_captured_dictation(&route, &mut injector, &target, history)
+                let vocabulary = handler_store.setting("resource.vocabulary").ok().flatten()
+                    .and_then(|value| serde_json::from_value::<Vec<serde_json::Value>>(value).ok())
+                    .map(|items| Vocabulary { terms: items.into_iter().filter_map(|item| Some(VocabularyTerm {
+                        term: item.get("term")?.as_str()?.to_owned(),
+                        pronunciation_hint: item.get("pronunciationHint").and_then(|v| v.as_str()).map(str::to_owned),
+                        correction: item.get("correction").and_then(|v| v.as_str()).map(str::to_owned),
+                    })).collect() }).unwrap_or_default();
+                let result = runtime.complete_captured_dictation_with_vocabulary(&route, &mut injector, &target, history, &vocabulary)
                     .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but canonical dictation pipeline failed: {error}")))?;
                 if history_enabled { handler_store.try_retain_history(history_retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?; }
                 Response::Transcript(result.transcript)

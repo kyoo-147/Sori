@@ -3,6 +3,9 @@
 //! This crate does not link or vendor whisper.cpp. It discovers a separately
 //! installed executable, builds safe argument vectors, and parses the files
 //! produced by the whisper.cpp CLI.
+//! produced by the whisper.cpp CLI.
+
+use sha2::Digest;
 
 use serde_json::Value;
 use sori_core::{
@@ -24,6 +27,7 @@ pub const PROVIDER_NAME: &str = "whisper.cpp";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WhisperLifecycle {
     Unavailable,
+    Downloading,
     Loading,
     Ready,
     Running,
@@ -37,6 +41,7 @@ pub struct WhisperStatus {
     pub model_path: Option<PathBuf>,
     pub latency_ms: Option<f64>,
     pub error: Option<String>,
+    pub progress_percent: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,16 +56,83 @@ pub struct WhisperCppConfig {
     pub model_dir: Option<PathBuf>,
 }
 
+#[derive(Debug, Default)]
+struct WhisperFileConfig {
+    executable: Option<PathBuf>,
+    model_dir: Option<PathBuf>,
+}
+
+fn default_config_path() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(|root| PathBuf::from(root).join("Sori").join("whisper.json"))
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+            .map(|root| root.join("sori").join("whisper.json"))
+    }
+}
+
+fn load_file_config() -> Result<Option<WhisperFileConfig>, ModelError> {
+    let explicit = std::env::var_os("SORI_WHISPER_CONFIG").is_some();
+    let path = std::env::var_os("SORI_WHISPER_CONFIG")
+        .map(PathBuf::from)
+        .or_else(default_config_path);
+    let Some(path) = path else { return Ok(None) };
+    if !path.exists() {
+        return if explicit {
+            Err(ModelError::Inference(format!(
+                "Sori Whisper config does not exist: {}",
+                path.display()
+            )))
+        } else {
+            Ok(None)
+        };
+    }
+    let text = fs::read_to_string(&path).map_err(|error| {
+        ModelError::Inference(format!(
+            "could not read Sori Whisper config ({}): {error}",
+            path.display()
+        ))
+    })?;
+    let value: Value = serde_json::from_str(&text).map_err(|error| {
+        ModelError::Inference(format!(
+            "invalid Sori Whisper config ({}): {error}",
+            path.display()
+        ))
+    })?;
+    let path_field = |key: &str| -> Result<Option<PathBuf>, ModelError> {
+        match value.get(key) {
+            None => Ok(None),
+            Some(Value::String(value)) if !value.trim().is_empty() => {
+                Ok(Some(PathBuf::from(value)))
+            }
+            Some(_) => Err(ModelError::Inference(format!(
+                "Sori Whisper config field `{key}` must be a non-empty string"
+            ))),
+        }
+    };
+    Ok(Some(WhisperFileConfig {
+        executable: path_field("executable")?,
+        model_dir: path_field("model_dir")?,
+    }))
+}
+
 impl WhisperCppConfig {
-    /// Discover the CLI and optional model directory from explicit values or
-    /// `SORI_WHISPER_CPP_BIN` / `WHISPER_CPP_BIN` and `SORI_WHISPER_MODEL_DIR`.
+    /// Discover environment overrides, then restart-persistent Sori config, then PATH.
     pub fn discover() -> Result<Self, ModelError> {
+        let file_config = load_file_config()?;
         let executable = std::env::var_os("SORI_WHISPER_CPP_BIN")
             .or_else(|| std::env::var_os("WHISPER_CPP_BIN"))
             .map(PathBuf::from)
+            .or_else(|| file_config.as_ref().and_then(|config| config.executable.clone()))
             .or_else(|| find_on_path(if cfg!(windows) { "whisper-cli.exe" } else { "whisper-cli" }))
             .or_else(|| find_on_path(if cfg!(windows) { "main.exe" } else { "main" }))
-            .ok_or_else(|| ModelError::Inference("whisper.cpp executable was not found; set SORI_WHISPER_CPP_BIN or install whisper-cli on PATH".into()))?;
+            .ok_or_else(|| ModelError::Inference("whisper.cpp executable was not found; set SORI_WHISPER_CPP_BIN or configure Sori's whisper.json".into()))?;
         if !executable.is_file() {
             return Err(ModelError::Inference(format!(
                 "whisper.cpp executable does not exist: {}",
@@ -69,7 +141,8 @@ impl WhisperCppConfig {
         }
         let model_dir = std::env::var_os("SORI_WHISPER_MODEL_DIR")
             .or_else(|| std::env::var_os("WHISPER_CPP_MODEL_DIR"))
-            .map(PathBuf::from);
+            .map(PathBuf::from)
+            .or_else(|| file_config.and_then(|config| config.model_dir));
         if let Some(dir) = &model_dir {
             if !dir.is_dir() {
                 return Err(ModelError::Inference(format!(
@@ -124,6 +197,7 @@ fn initial_status() -> Arc<Mutex<WhisperStatus>> {
         model_path: None,
         latency_ms: None,
         error: None,
+        progress_percent: None,
     }))
 }
 
@@ -152,6 +226,97 @@ impl WhisperCppProvider {
     }
     pub fn model_dir(&self) -> Option<&Path> {
         self.model_dir.as_deref()
+    }
+
+    /// Install a checked model artifact inside the configured model directory.
+    /// URL fetching stays outside the provider; callers must supply the artifact
+    /// and, for reproducibility, its expected SHA-256.
+    pub fn install_model_from_file(
+        &self,
+        model: &ModelId,
+        source: &Path,
+        expected_sha256: Option<&str>,
+    ) -> Result<PathBuf, ModelError> {
+        self.validate_model_name(model)?;
+        let root = self.model_dir.as_ref().ok_or_else(|| {
+            ModelError::Inference(
+                "cannot install a model without a configured model directory".into(),
+            )
+        })?;
+        if !source.is_file() {
+            return Err(ModelError::Inference(format!(
+                "model artifact does not exist: {}",
+                source.display()
+            )));
+        }
+        if let Ok(mut status) = self.status.lock() {
+            status.model = model.clone();
+            status.lifecycle = WhisperLifecycle::Downloading;
+            status.progress_percent = Some(0);
+            status.error = None;
+        }
+        let result = (|| {
+            let bytes = fs::read(source).map_err(|e| {
+                ModelError::Inference(format!("could not read model artifact: {e}"))
+            })?;
+            if let Some(expected) = expected_sha256 {
+                let actual = format!("{:x}", sha2::Sha256::digest(&bytes));
+                if !actual.eq_ignore_ascii_case(expected.trim()) {
+                    return Err(ModelError::Inference(format!(
+                        "model checksum mismatch: expected {expected}, got {actual}"
+                    )));
+                }
+            }
+            fs::create_dir_all(root).map_err(|e| {
+                ModelError::Inference(format!("could not create model directory: {e}"))
+            })?;
+            let destination = root.join(&model.0);
+            let temporary = destination.with_extension("download");
+            fs::write(&temporary, bytes).map_err(|e| {
+                ModelError::Inference(format!("could not write model artifact: {e}"))
+            })?;
+            fs::rename(&temporary, &destination).map_err(|e| {
+                ModelError::Inference(format!("could not install model atomically: {e}"))
+            })?;
+            Ok(destination)
+        })();
+        match result {
+            Ok(path) => {
+                if let Ok(mut status) = self.status.lock() {
+                    status.lifecycle = WhisperLifecycle::Ready;
+                    status.model_path = Some(path.clone());
+                    status.progress_percent = Some(100);
+                }
+                Ok(path)
+            }
+            Err(error) => {
+                if let Ok(mut status) = self.status.lock() {
+                    status.lifecycle = WhisperLifecycle::Failed;
+                    status.error = Some(error.to_string());
+                    status.progress_percent = None;
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn validate_model_name(&self, model: &ModelId) -> Result<(), ModelError> {
+        let candidate = Path::new(&model.0);
+        if model.0.is_empty()
+            || candidate.is_absolute()
+            || candidate.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir | std::path::Component::Prefix(_)
+                )
+            })
+        {
+            return Err(ModelError::Inference(format!(
+                "invalid whisper.cpp model path: {}",
+                model.0
+            )));
+        }
+        Ok(())
     }
 
     /// Validate everything required before launching the native sidecar.
@@ -230,9 +395,17 @@ impl WhisperCppProvider {
             .clone();
         status.model = model.clone();
         status.model_path = self.verified_model_path(model).ok();
-        if status.error.is_none() && status.model_path.is_some() {
+        if status.error.is_none()
+            && status.model_path.is_some()
+            && matches!(
+                status.lifecycle,
+                WhisperLifecycle::Unavailable | WhisperLifecycle::Ready
+            )
+        {
             status.lifecycle = WhisperLifecycle::Ready;
-        } else if status.error.is_none() {
+        } else if status.error.is_none()
+            && matches!(status.lifecycle, WhisperLifecycle::Unavailable)
+        {
             status.lifecycle = WhisperLifecycle::Unavailable;
         }
         status
@@ -1282,6 +1455,62 @@ mod tests {
             WhisperLifecycle::Ready
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn installs_checksum_verified_model_atomically() {
+        let root =
+            std::env::temp_dir().join(format!("sori-whisper-install-{}", std::process::id()));
+        let source = root.join("source.bin");
+        let model_dir = root.join("models");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&source, b"fixture model").unwrap();
+        let digest = format!("{:x}", sha2::Sha256::digest(b"fixture model"));
+        let provider = WhisperCppProvider::from_config(
+            WhisperCppConfig::new("whisper-cli", Some(model_dir)),
+            vec![manifest("fixture.bin")],
+        );
+        let installed = provider
+            .install_model_from_file(&ModelId::from("fixture.bin"), &source, Some(&digest))
+            .unwrap();
+        assert_eq!(std::fs::read(installed).unwrap(), b"fixture model");
+        assert_eq!(
+            provider.status(&ModelId::from("fixture.bin")).lifecycle,
+            WhisperLifecycle::Ready
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    #[ignore = "requires a real whisper-cli binary, model, and fixture WAV"]
+    fn real_fixture_transcription_smoke() {
+        let binary = std::env::var_os("SORI_WHISPER_CPP_BIN").expect("set SORI_WHISPER_CPP_BIN");
+        let model_dir =
+            std::env::var_os("SORI_WHISPER_MODEL_DIR").expect("set SORI_WHISPER_MODEL_DIR");
+        let model = ModelId::from(
+            std::env::var("SORI_WHISPER_MODEL")
+                .as_deref()
+                .unwrap_or("ggml-base.en.bin"),
+        );
+        let fixture = PathBuf::from(
+            std::env::var_os("SORI_WHISPER_FIXTURE_WAV").expect("set SORI_WHISPER_FIXTURE_WAV"),
+        );
+        let provider = WhisperCppProvider::from_config(
+            WhisperCppConfig::new(binary, Some(model_dir.into())),
+            vec![manifest(&model.0)],
+        );
+        let output = std::env::temp_dir().join("sori-whisper-fixture-smoke");
+        let transcript = provider
+            .transcribe_with_runner(
+                &model,
+                &fixture,
+                &output,
+                OutputFormat::Text,
+                &CommandProcessRunner,
+            )
+            .unwrap();
+        assert!(!transcript.text.trim().is_empty());
+        let _ = std::fs::remove_file(output.with_extension("txt"));
     }
 
     #[test]

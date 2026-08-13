@@ -53,6 +53,24 @@ making Rust builds depend on CMake, CUDA, Metal, or platform toolchains.
 
 ## Manual installation
 
+The provider also reads a restart-persistent JSON configuration file. Set
+`SORI_WHISPER_CONFIG` to an explicit file, or use the Windows default
+`%LOCALAPPDATA%\Sori\whisper.json` (portable/non-Windows default:
+`$XDG_CONFIG_HOME/sori/whisper.json`). The file is user-owned and is never
+created, downloaded, or populated by Sori:
+
+```json
+{
+  "executable": "C:\\Tools\\whisper.cpp\\whisper-cli.exe",
+  "model_dir": "C:\\Users\\me\\Models\\whisper"
+}
+```
+
+Environment variables take precedence over file values, and PATH discovery is
+the final fallback. Missing or malformed explicit configuration fails closed.
+The daemon re-reads this configuration on every restart, so changing the
+installation does not require editing the repository or committing binaries.
+
 The provider expects a separately installed whisper.cpp CLI and model; it never
 vendors either one. Build or download `whisper-cli` (or the legacy `main` binary)
 and verify that it can run from a terminal. Configure the executable with

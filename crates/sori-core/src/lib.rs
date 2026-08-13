@@ -18,6 +18,7 @@ pub mod routing;
 pub mod text_injection;
 pub mod transcript;
 pub mod vocabulary;
+pub mod voice_edit;
 
 pub use audio::{
     AudioCaptureEngine, AudioChunk, AudioDeviceInfo, AudioDeviceProvider, AudioDsp, AudioEngine,
@@ -61,5 +62,5 @@ pub use text_injection::{
     UndoRestoreStatus, select_strategy,
 };
 pub use transcript::{Transcript, TranscriptSegment};
-
 pub use vocabulary::{Vocabulary, VocabularyTerm, normalize_transcript};
+pub use voice_edit::{VoiceEditError, VoiceEditResponse, VoiceEditSelection};

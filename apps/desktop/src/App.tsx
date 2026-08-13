@@ -326,7 +326,7 @@ export default function App() {
               />
             )}
 
-            {activeScreen === 'voice-edit' && <VoiceEditScreen settings={settings} runtimeSource={runtimeSource} />}
+            {activeScreen === 'voice-edit' && <VoiceEditScreen settings={settings} runtimeSource={runtimeSource} runtimeClient={runtimeClient} />}
 
             {activeScreen === 'models' && (
               <ModelManagerScreen

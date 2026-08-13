@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DesktopIpcTransport, NativeIpcTransport, mapHistory, mapStatus, requestShape } from '../apps/desktop/src/runtime-client.js';
+import { DesktopIpcTransport, NativeIpcTransport, RuntimeClient, mapHistory, mapStatus, requestShape } from '../apps/desktop/src/runtime-client.js';
 import { responsePayload, type IpcResponse } from '../apps/desktop/src/ipc-contract.js';
 
 describe('desktop runtime IPC boundary', () => {
@@ -62,3 +62,16 @@ describe('desktop runtime IPC boundary', () => {
     expect(transport.source).toBe('backend');
   });
 });
+  it('exposes canonical model registry and route mutations', async () => {
+    const requests: Array<{ operation: string; params?: Record<string, unknown> }> = [];
+    const transport = { source: 'backend' as const, request: async (operation: string, params?: Record<string, unknown>) => { requests.push({ operation, params }); return { Resource: { resource: String(params?.resource), value: params?.resource === 'models' ? [] : { activeModelId: 'local-whisper', policy: 'LocalFirst', fallbackModelIds: [] } } }; } };
+    const client = new RuntimeClient(transport);
+    await client.models();
+    await client.setActiveModel('local-whisper');
+    await client.setRoutePolicy('NeverCloud');
+    expect(requests).toEqual([
+      { operation: 'resource_get', params: { resource: 'models' } },
+      { operation: 'resource_set', params: { resource: 'route', value: { activeModelId: 'local-whisper' } } },
+      { operation: 'set_config', params: { key: 'route.policy', value: 'NeverCloud' } },
+    ]);
+  });

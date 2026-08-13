@@ -1,36 +1,52 @@
-import React, { useMemo, useState } from 'react';
-import { ChevronRight, CirclePlus, Cloud, Cpu, HardDrive, SlidersHorizontal } from 'lucide-react';
-import { ModelInfo, RouteRule } from '../../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Cloud, Cpu, HardDrive, RefreshCw } from 'lucide-react';
+import type { RuntimeClient } from '../../runtime-client';
+import type { ModelRecord } from '../../types';
 
-interface Props { models: ModelInfo[]; setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>; routes: RouteRule[]; setRoutes: React.Dispatch<React.SetStateAction<RouteRule[]>>; }
-const providers = ['All Models', 'OpenAI', 'Anthropic', 'Gemini', 'Groq', 'Custom'];
-const cloudModels = [
-  { id: 'whisper-large-v3', name: 'Whisper Large v3', provider: 'OpenAI', detail: 'Highest accuracy · Best for general use', tier: 'High Quality' },
-  { id: 'gpt-4o-transcribe', name: 'gpt-4o-transcribe', provider: 'OpenAI', detail: 'Complex audio and diarization', tier: 'Ultra' },
-  { id: 'gemini-1.5-pro-audio', name: 'Gemini 1.5 Pro (Audio)', provider: 'Gemini', detail: 'Multilingual · Strong performance', tier: 'High Quality' },
-  { id: 'claude-3.5-sonnet-audio', name: 'Claude 3.5 Sonnet (Audio)', provider: 'Anthropic', detail: 'Advanced reasoning · Context aware', tier: 'High Quality' },
-];
+type RouteState = { activeModelId: string | null; policy: string; fallbackModelIds: string[] };
+interface Props { runtimeClient: RuntimeClient }
+const policies = ['LocalFirst', 'Balanced', 'Performance', 'Battery', 'Privacy', 'CloudAllowed', 'NeverCloud'] as const;
 
-export const ModelManagerScreen: React.FC<Props> = ({ models, setModels, routes, setRoutes }) => {
-  const [tab, setTab] = useState<'models' | 'routes'>('models');
-  const [location, setLocation] = useState<'cloud' | 'local'>('local');
-  const [provider, setProvider] = useState('All Models');
-  const [selected, setSelected] = useState(models.find((m) => m.isWarm)?.id ?? '');
-  const [details, setDetails] = useState<string | null>(null);
-  const [customOpen, setCustomOpen] = useState(false);
-  const visible = useMemo(() => models.filter((m) => location === 'local' ? m.backend !== 'Cloud API' : false), [models, location]);
-  const selectLocal = (id: string) => { setSelected(id); setModels((current) => current.map((m) => ({ ...m, isWarm: m.id === id }))); };
+export const ModelManagerScreen: React.FC<Props> = ({ runtimeClient }) => {
+  const [models, setModels] = useState<ModelRecord[]>([]);
+  const [route, setRoute] = useState<RouteState | null>(null);
+  const [location, setLocation] = useState<'local' | 'cloud'>('local');
+  const [status, setStatus] = useState<'loading' | 'ready' | 'empty' | 'error'>('loading');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setStatus('loading'); setError(null);
+    const [modelsResult, routeResult] = await Promise.all([runtimeClient.models<ModelRecord[]>(), runtimeClient.route<RouteState>()]);
+    if (modelsResult.error || routeResult.error) { setStatus('error'); setError(modelsResult.error ?? routeResult.error); return; }
+    const nextModels = Array.isArray(modelsResult.data) ? modelsResult.data : [];
+    setModels(nextModels); setRoute(routeResult.data); setStatus(nextModels.length ? 'ready' : 'empty');
+  };
+  useEffect(() => { void load(); }, []);
+  const visible = useMemo(() => models.filter((model) => model.location === location), [models, location]);
+  const selectModel = async (id: string) => {
+    setSaving(true);
+    const result = await runtimeClient.setActiveModel(id);
+    if (result.error) setError(result.error); else setRoute((current) => current ? { ...current, activeModelId: id } : current);
+    setSaving(false);
+  };
+  const selectPolicy = async (policy: typeof policies[number]) => {
+    setSaving(true);
+    const result = await runtimeClient.setRoutePolicy(policy);
+    if (result.error) setError(result.error); else setRoute((current) => current ? { ...current, policy } : current);
+    setSaving(false);
+  };
   return <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-8">
-    <header><h1 className="sori-page-heading">Models &amp; Routing</h1><p className="sori-body-text mt-1">Choose where Sori processes speech and which models power each task.</p></header>
-    <div className="mx-auto flex max-w-xl rounded-2xl bg-[#EEEAE4] p-1.5"><button className={`flex-1 rounded-xl py-2 text-sm ${tab === 'models' ? 'bg-[#FFFDF9] shadow-sm font-semibold' : 'text-[#68635D]'}`} onClick={() => setTab('models')}>Speech &amp; Models</button><button className={`flex-1 rounded-xl py-2 text-sm ${tab === 'routes' ? 'bg-[#FFFDF9] shadow-sm font-semibold' : 'text-[#68635D]'}`} onClick={() => setTab('routes')}>Routes &amp; Triggers</button></div>
-    {tab === 'routes' ? <section className="sori-pane space-y-4 p-5"><div><h2 className="sori-section-heading">Routing rules</h2><p className="sori-body-text mt-1">Rules are currently local UI state. Daemon route mutation is <b>Needs Wiring</b>.</p></div>{routes.map((route) => <div key={route.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E0D9] py-3"><div><div className="text-sm font-medium">{route.condition}</div><div className="sori-meta-text">→ {route.targetModel} · priority {route.priority}</div></div><button className="sori-tactile-btn rounded-lg px-3 py-1.5 text-xs" aria-pressed={route.enabled} onClick={() => setRoutes((current) => current.map((r) => r.id === route.id ? { ...r, enabled: !r.enabled } : r))}>{route.enabled ? 'Enabled' : 'Disabled'}</button></div>)}</section> : <section className="sori-pane space-y-5 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E0D9] pb-4"><div className="flex gap-4"><button className={`border-b-2 pb-2 text-sm ${location === 'cloud' ? 'border-[#6E7A80] font-semibold' : 'border-transparent text-[#68635D]'}`} onClick={() => setLocation('cloud')}><Cloud className="mr-1 inline h-4 w-4"/>Cloud</button><button className={`border-b-2 pb-2 text-sm ${location === 'local' ? 'border-[#6E7A80] font-semibold' : 'border-transparent text-[#68635D]'}`} onClick={() => setLocation('local')}><HardDrive className="mr-1 inline h-4 w-4"/>Local</button></div><button className="sori-tactile-btn rounded-lg px-3 py-2 text-xs" onClick={() => setCustomOpen(true)}><CirclePlus className="mr-1 inline h-4 w-4"/>Add Custom Model</button></div>
-      {location === 'cloud' && <div className="rounded-lg border border-[#EBD9A8] bg-[#FFF7E6] p-3 text-xs text-[#6B552C]">Cloud providers are visible for configuration, but API key and model selection IPC are <b>Unavailable</b>. No cloud request will be sent.</div>}
-      <div className="flex flex-wrap gap-2">{providers.map((p) => <button key={p} className={`rounded-full border px-3 py-1.5 text-xs ${provider === p ? 'bg-[#ECEEEB] border-[#B9C0BF] font-medium' : 'border-[#E5E0D9] text-[#68635D]'}`} onClick={() => setProvider(p)}>{p}</button>)}</div>
-      <div className="space-y-2">{(location === 'local' ? visible : cloudModels).filter((m: any) => provider === 'All Models' || m.provider === provider).map((m: any) => { const active = selected === m.id; return <div key={m.id} className={`flex items-center gap-3 rounded-xl border p-3.5 ${active ? 'bg-[#F2EEE8] border-[#C9C1B7]' : 'border-[#E5E0D9]'}`}><button aria-label={`Select ${m.name}`} aria-pressed={active} onClick={() => location === 'local' ? selectLocal(m.id) : setDetails(m.id)} className={`h-5 w-5 rounded-full border-2 ${active ? 'border-[#6E7A80] bg-[#6E7A80] shadow-[inset_0_0_0_3px_#FFFDF9]' : 'border-[#C9C1B7]'}`}/><Cpu className="h-8 w-8 rounded-lg bg-[#FFFDF9] p-2 text-[#6E7A80]"/><div className="min-w-0 flex-1"><div className="text-sm font-medium">{m.name} {m.recommended && <span className="ml-2 rounded-full bg-[#ECEEEB] px-2 py-0.5 text-[10px]">Recommended</span>}</div><div className="sori-meta-text">{m.provider ?? m.backend} · {m.detail ?? m.description}</div></div><span className="rounded-full border border-[#E5E0D9] px-2.5 py-1 text-[11px]">{m.tier ?? m.speedRating}</span><button aria-label={`View details for ${m.name}`} onClick={() => setDetails(m.id)}><ChevronRight className="h-4 w-4 text-[#98928A]"/></button></div>})}</div>
-      {location === 'local' && visible.length === 0 && <div className="p-8 text-center text-sm text-[#68635D]">No local models available. Check Diagnostics or add a custom model.</div>}
-    </section>}
-    {details && <div className="sori-overlay fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true"><div className="w-full max-w-md rounded-2xl bg-[#FFFDF9] p-6"><h2 className="sori-section-heading">Model details</h2><p className="sori-body-text mt-2">{details}</p><p className="mt-4 text-xs text-[#9A7442]">Selection persistence is Needs Wiring until the canonical model IPC operation exists.</p><button className="sori-tactile-btn mt-6 rounded-lg px-4 py-2 text-sm" onClick={() => setDetails(null)}>Close</button></div></div>}
-    {customOpen && <div className="sori-overlay fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog"><form className="w-full max-w-md rounded-2xl bg-[#FFFDF9] p-6" onSubmit={(e) => { e.preventDefault(); setCustomOpen(false); }}><h2 className="sori-section-heading">Add custom model</h2><label className="mt-4 block text-xs font-medium">Model name<input required className="sori-control mt-1 w-full rounded-lg p-2" placeholder="e.g. Whisper Large v3 local"/></label><p className="mt-3 text-xs text-[#9A7442]">This form is a local preview. Model repository and download IPC are <b>Needs Wiring</b>.</p><div className="mt-5 flex justify-end gap-2"><button type="button" className="px-3 py-2 text-sm" onClick={() => setCustomOpen(false)}>Cancel</button><button className="sori-tactile-btn rounded-lg px-4 py-2 text-sm">Save preview</button></div></form></div>}
+    <header><h1 className="sori-page-heading">Models &amp; Routing</h1><p className="sori-body-text mt-1">Choose a canonical runtime route. Sori persists changes in the daemon, not browser state.</p></header>
+    <section className="sori-pane space-y-5 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E0D9] pb-4"><div><h2 className="sori-section-heading">Active route</h2><p className="sori-meta-text mt-1">{route ? `${route.policy} · ${route.activeModelId ?? 'No model selected'}` : 'Loading route…'}</p></div><button className="sori-tactile-btn rounded-lg px-3 py-2 text-xs" onClick={() => void load()} disabled={status === 'loading'}><RefreshCw className="mr-1 inline h-4 w-4"/>Refresh</button></div>
+      <div className="flex flex-wrap gap-2">{policies.map((policy) => <button key={policy} className={`rounded-full border px-3 py-1.5 text-xs ${route?.policy === policy ? 'bg-[#ECEEEB] border-[#B9C0BF] font-medium' : 'border-[#E5E0D9] text-[#68635D]'}`} disabled={saving} onClick={() => void selectPolicy(policy)}>{policy}</button>)}</div>
+      <div className="flex gap-4 border-b border-[#E5E0D9]"><button className={`border-b-2 pb-2 text-sm ${location === 'local' ? 'border-[#6E7A80] font-semibold' : 'border-transparent text-[#68635D]'}`} onClick={() => setLocation('local')}><HardDrive className="mr-1 inline h-4 w-4"/>Local</button><button className={`border-b-2 pb-2 text-sm ${location === 'cloud' ? 'border-[#6E7A80] font-semibold' : 'border-transparent text-[#68635D]'}`} onClick={() => setLocation('cloud')}><Cloud className="mr-1 inline h-4 w-4"/>Cloud</button></div>
+      {status === 'loading' && <div className="p-8 text-center text-sm text-[#68635D]">Loading the daemon model registry…</div>}
+      {status === 'error' && <div className="rounded-lg border border-[#EBD9A8] bg-[#FFF7E6] p-4 text-sm text-[#6B552C]">{error ?? 'Model registry unavailable.'} <button className="ml-2 underline" onClick={() => void load()}>Retry</button></div>}
+      {status === 'empty' && <div className="p-8 text-center text-sm text-[#68635D]">No models are registered by sorid. Model installation is Unavailable until a provider registry is configured.</div>}
+      {status === 'ready' && !visible.length && <div className="p-8 text-center text-sm text-[#68635D]">No {location} models are registered. Cloud routing does not send requests without a configured provider.</div>}
+      <div className="space-y-2">{visible.map((model) => { const active = route?.activeModelId === model.id; return <div key={model.id} className={`flex items-center gap-3 rounded-xl border p-3.5 ${active ? 'bg-[#F2EEE8] border-[#C9C1B7]' : 'border-[#E5E0D9]'}`}><button aria-label={`Select ${model.name}`} aria-pressed={active} disabled={!model.available || saving} onClick={() => void selectModel(model.id)} className={`h-5 w-5 rounded-full border-2 ${active ? 'border-[#6E7A80] bg-[#6E7A80] shadow-[inset_0_0_0_3px_#FFFDF9]' : 'border-[#C9C1B7]'}`}/><Cpu className="h-8 w-8 rounded-lg bg-[#FFFDF9] p-2 text-[#6E7A80]"/><div className="min-w-0 flex-1"><div className="text-sm font-medium">{model.name} {model.recommended && <span className="ml-2 rounded-full bg-[#ECEEEB] px-2 py-0.5 text-[10px]">Recommended</span>}</div><div className="sori-meta-text">{model.provider} · {model.available ? 'Available' : model.unavailableReason ?? 'Unavailable'}</div></div><span className="rounded-full border border-[#E5E0D9] px-2.5 py-1 text-[11px]">{model.qualityTier}</span></div>; })}</div>
+    </section>
   </div>;
 };

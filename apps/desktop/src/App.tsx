@@ -330,10 +330,7 @@ export default function App() {
 
             {activeScreen === 'models' && (
               <ModelManagerScreen
-                models={models}
-                setModels={setModels}
-                routes={routes}
-                setRoutes={setRoutes}
+                runtimeClient={runtimeClient}
               />
             )}
 

@@ -6,8 +6,9 @@ use sori_core::{
 };
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
-    IpcEvent, LocalIpcServer, PROTOCOL_VERSION, RecentEventsResponse, RecentHistoryResponse,
-    Request, Response, RouteSummary, RuntimeActivity, StatusResponse,
+    ExtensionManifest, ExtensionRecord, ExtensionsResponse, IpcEvent, LocalIpcServer,
+    PROTOCOL_VERSION, RecentEventsResponse, RecentHistoryResponse, Request, Response, RouteSummary,
+    RuntimeActivity, StatusResponse,
 };
 use sori_persistence::SqliteStore;
 use sori_provider_whisper::{WhisperCppConfig, WhisperCppProvider};
@@ -229,6 +230,26 @@ async fn main() -> Result<()> {
             .lock()
             .map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))?;
         let response = match request {
+            Request::ExtensionsList => Response::Extensions(ExtensionsResponse {
+                extensions: handler_store.extensions().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.into_iter().map(extension_record).collect(),
+            }),
+            Request::ExtensionInstall { manifest } => {
+                validate_extension_manifest(&manifest).map_err(sori_ipc::IpcError::Transport)?;
+                let value = serde_json::to_value(&manifest).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                handler_store.save_extension(&manifest.id, &value, "disabled", None).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Control(ControlResponse { accepted: true, detail: format!("extension {} installed and disabled; execution requires the sandbox host", manifest.id) })
+            }
+            Request::ExtensionEnable { id } => extension_state(&handler_store, &id, "enabled")?,
+            Request::ExtensionDisable { id } => extension_state(&handler_store, &id, "disabled")?,
+            Request::ExtensionUninstall { id } => {
+                let removed = handler_store.delete_extension(&id).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if removed { Response::Control(ControlResponse { accepted: true, detail: format!("extension {id} uninstalled") }) }
+                else { Response::Error(sori_ipc::IpcErrorResponse { code: "not_found".into(), detail: format!("extension {id} is not installed") }) }
+            }
+            Request::ExtensionInvoke { id, command, .. } => Response::Error(sori_ipc::IpcErrorResponse {
+                code: "execution_unavailable".into(),
+                detail: format!("extension {id} command {command} was not executed: isolated extension host is not installed"),
+            }),
             Request::Status => Response::Status(status_response(&runtime, &handler_config, *privacy)),
             Request::DictationStart => {
                 runtime.start_audio().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -425,6 +446,89 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+fn validate_extension_manifest(manifest: &ExtensionManifest) -> std::result::Result<(), String> {
+    let id_ok = !manifest.id.is_empty()
+        && manifest.id.len() <= 64
+        && manifest
+            .id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+    if !id_ok {
+        return Err(
+            "extension id must be lowercase ASCII and contain only letters, digits, '-' or '_'"
+                .into(),
+        );
+    }
+    if manifest.name.trim().is_empty() || manifest.version.trim().is_empty() {
+        return Err("extension name and version are required".into());
+    }
+    if manifest.entrypoint.is_empty()
+        || std::path::Path::new(&manifest.entrypoint).is_absolute()
+        || manifest
+            .entrypoint
+            .split(['/', '\\'])
+            .any(|part| part == "..")
+    {
+        return Err("entrypoint must be a relative path without traversal".into());
+    }
+    const ALLOWED: &[&str] = &[
+        "network",
+        "filesystem.read",
+        "filesystem.write",
+        "shell",
+        "dictation",
+        "events",
+    ];
+    if let Some(permission) = manifest
+        .permissions
+        .iter()
+        .find(|permission| !ALLOWED.contains(&permission.as_str()))
+    {
+        return Err(format!("unsupported extension permission: {permission}"));
+    }
+    if manifest.license.trim().is_empty() {
+        return Err("license evidence is required".into());
+    }
+    Ok(())
+}
+
+fn extension_record(
+    row: (String, serde_json::Value, String, i64, i64, Option<String>),
+) -> ExtensionRecord {
+    let (_id, manifest, state, installed_at, updated_at, last_error) = row;
+    ExtensionRecord {
+        manifest: serde_json::from_value(manifest).expect("validated extension manifest in SQLite"),
+        state,
+        installed_at,
+        updated_at,
+        last_error,
+    }
+}
+
+fn extension_state(
+    store: &SqliteStore,
+    id: &str,
+    state: &str,
+) -> std::result::Result<Response, sori_ipc::IpcError> {
+    let Some((manifest, _, _, _, _)) = store
+        .extension(id)
+        .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+    else {
+        return Ok(Response::Error(sori_ipc::IpcErrorResponse {
+            code: "not_found".into(),
+            detail: format!("extension {id} is not installed"),
+        }));
+    };
+    store
+        .save_extension(id, &manifest, state, None)
+        .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+    Ok(Response::Control(ControlResponse {
+        accepted: true,
+        detail: format!("extension {id} {state}"),
+    }))
+}
+
+#[cfg(windows)]
 #[cfg(windows)]
 fn native_text_injection_detail() -> &'static str {
     sori_core::WindowsSendInputAdapter::diagnostic()

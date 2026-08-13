@@ -13,7 +13,15 @@ export type IpcRequest =
   | { ResourceSet: { resource: string; value: unknown } }
   | { RecentHistory: { limit: number } }
   | { SetConfig: { key: string; value: unknown } }
-  | { Dictation: { model: string; audio: AudioChunk[] } };
+  | { Dictation: { model: string; audio: AudioChunk[] } }
+  | 'ExtensionsList'
+  | { ExtensionInstall: { manifest: ExtensionManifest } }
+  | { ExtensionEnable: { id: string } }
+  | { ExtensionDisable: { id: string } }
+  | { ExtensionUninstall: { id: string } }
+  | { ExtensionInvoke: { id: string; command: string; input: unknown } };
+export interface ExtensionManifest { id: string; name: string; version: string; description: string; entrypoint: string; permissions: string[]; license: string; license_url?: string | null; package_sha256?: string | null; }
+export interface ExtensionRecord { manifest: ExtensionManifest; state: 'enabled' | 'disabled' | 'error'; installed_at: number; updated_at: number; last_error?: string | null; }
 export interface StatusResponse { protocol_version: number; daemon_version: string; running: boolean; activity: RuntimeActivity; paused: boolean; hotkey: string; route: RouteSummary; profile: ProfileMode; privacy: PrivacyMode; }
 export interface DoctorCheck { name: string; ok: boolean; detail: string; }
 export interface DoctorResponse { status: StatusResponse; checks: DoctorCheck[]; }
@@ -25,9 +33,9 @@ export interface RecentHistoryResponse { entries: HistoryEntry[]; }
 export interface ControlResponse { accepted: boolean; detail: string; }
 export interface AudioChunk { captured_at: string; format: { sample_rate_hz: number; channels: number; sample_format: 'I16' | 'F32'; }; samples: number[]; }
 export interface TranscriptResponse { language?: string | null; text: string; segments: unknown[]; }
-export interface IpcResponseMap { Status: StatusResponse; Doctor: DoctorResponse; ConfigSummary: ConfigSummaryResponse; RecentEvents: RecentEventsResponse; RecentHistory: RecentHistoryResponse; Resource: ResourceResponse; Control: ControlResponse; Transcript: TranscriptResponse; Error: { code: string; detail: string }; }
+export interface IpcResponseMap { Status: StatusResponse; Doctor: DoctorResponse; ConfigSummary: ConfigSummaryResponse; RecentEvents: RecentEventsResponse; RecentHistory: RecentHistoryResponse; Resource: ResourceResponse; Control: ControlResponse; Transcript: TranscriptResponse; Extensions: { extensions: ExtensionRecord[] }; Error: { code: string; detail: string }; }
 export type IpcResponse = { [K in keyof IpcResponseMap]: { [P in K]: IpcResponseMap[K] } }[keyof IpcResponseMap];
-export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'recent_history' | 'resource_get' | 'resource_set' | 'purge_history' | 'set_config' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'pause' | 'resume';
+export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'recent_history' | 'resource_get' | 'resource_set' | 'purge_history' | 'set_config' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'pause' | 'resume' | 'extensions_list' | 'extension_install' | 'extension_enable' | 'extension_disable' | 'extension_uninstall' | 'extension_invoke';
 export function requestShape(operation: IpcOperation, params: Record<string, unknown> = {}): IpcRequest {
   switch (operation) {
     case 'status': return 'Status'; case 'doctor': return 'Doctor'; case 'config_summary': return 'ConfigSummary';
@@ -38,6 +46,13 @@ export function requestShape(operation: IpcOperation, params: Record<string, unk
     case 'resource_set': return { ResourceSet: { resource: String(params.resource ?? ''), value: params.value } };
     case 'recent_history': return { RecentHistory: { limit: Number(params.limit ?? 20) } };
     case 'set_config': return { SetConfig: { key: String(params.key ?? ''), value: params.value } };
+    case 'set_config': return { SetConfig: { key: String(params.key ?? ''), value: params.value } };
+    case 'extensions_list': return 'ExtensionsList';
+    case 'extension_install': return { ExtensionInstall: { manifest: params.manifest as ExtensionManifest } };
+    case 'extension_enable': return { ExtensionEnable: { id: String(params.id ?? '') } };
+    case 'extension_disable': return { ExtensionDisable: { id: String(params.id ?? '') } };
+    case 'extension_uninstall': return { ExtensionUninstall: { id: String(params.id ?? '') } };
+    case 'extension_invoke': return { ExtensionInvoke: { id: String(params.id ?? ''), command: String(params.command ?? ''), input: params.input } };
   }
 }
 export function responsePayload<K extends keyof IpcResponseMap>(value: unknown, variant: K): IpcResponseMap[K] | undefined {

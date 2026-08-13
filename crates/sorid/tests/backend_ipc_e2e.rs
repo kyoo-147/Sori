@@ -247,6 +247,15 @@ async fn canonical_ipc_exercises_success_cancellation_and_injection_fallback() {
                 .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Ok(Response::Transcript(result.transcript))
             }
+            Request::PurgeHistory => {
+                h.store
+                    .try_purge_history()
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Ok(Response::Control(sori_ipc::ControlResponse {
+                    accepted: true,
+                    detail: "history purged from SQLite".into(),
+                }))
+            }
             Request::RecentEvents { limit } => {
                 Ok(Response::RecentEvents(sori_ipc::RecentEventsResponse {
                     events: h
@@ -348,6 +357,10 @@ async fn canonical_ipc_exercises_success_cancellation_and_injection_fallback() {
     let history = store.try_recent_history(10).unwrap();
     assert_eq!(history.len(), 2);
     assert_eq!(history[0].inserted_text, None);
+    assert!(
+        matches!(request(Request::PurgeHistory).await.unwrap().unwrap(), Response::Control(c) if c.accepted)
+    );
+    assert!(store.try_recent_history(10).unwrap().is_empty());
     assert!(
         store
             .try_recent_events()

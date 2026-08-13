@@ -61,6 +61,14 @@ describe('desktop runtime IPC boundary', () => {
     expect(await transport.request('status')).toEqual({ Status: { running: true } });
     expect(transport.source).toBe('backend');
   });
+  it('routes destructive privacy mutations through canonical IPC and preserves errors', async () => {
+    const requests: Array<{ operation: string; params?: Record<string, unknown> }> = [];
+    const transport = { source: 'backend' as const, request: async (operation: string, params?: Record<string, unknown>) => { requests.push({ operation, params }); if (operation === 'purge_history') return { Control: { accepted: true, detail: 'history purged from SQLite' } }; return { Control: { accepted: false, detail: 'history store unavailable' } }; } };
+    const client = new RuntimeClient(transport);
+    expect((await client.purgeHistory()).data.accepted).toBe(true);
+    expect((await client.setConfig('history.enabled', false)).data.accepted).toBe(false);
+    expect(requests).toEqual([{ operation: 'purge_history' }, { operation: 'set_config', params: { key: 'history.enabled', value: false } }]);
+  });
 });
   it('exposes canonical model registry and route mutations', async () => {
     const requests: Array<{ operation: string; params?: Record<string, unknown> }> = [];

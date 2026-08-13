@@ -26,14 +26,16 @@ export class RuntimeClient {
   doctor() { return this.call('doctor', mapDoctor, []); }
   modelReadiness() { return this.doctor().then((result) => ({ ...result, data: result.data.find((check) => check.name === 'whisper') ?? { name: 'whisper', ok: false, detail: 'UNVERIFIED: model readiness was not reported by sorid' } })); }
   configSummary() { return this.call('config_summary', (v) => unwrap(v, 'config_summary') as unknown as ConfigSummaryResponse, null); }
-  history(limit = 20) { return this.call('recent_history', mapHistory, []); }
+  history(limit = 20) { return this.call('recent_history', mapHistory, [], { limit }); }
   async purgeHistory() { return this.control('purge_history'); }
   async setConfig(key: string, value: unknown) { return this.control('set_config', { key, value }); }
   async dictationStart() { return this.control('dictation_start'); }
   async dictationStop() { return this.call('dictation_stop', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null); }
   async dictationCancel() { return this.control('dictation_cancel'); }
+  resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }
+  async setResource<T>(name: string, value: T) { return this.call('resource_set', (response) => (responsePayload(response, 'Resource') as { value: T }).value, value, { resource: name }); }
   async pause() { const result = await this.control('pause'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }
   async resume() { const result = await this.control('resume'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }
   private async control(operation: IpcOperation, params?: Record<string, unknown>): Promise<RuntimeResult<ControlResponse>> { try { const value = await this.transport.request(operation, params); return { data: (responsePayload(value, 'Control') ?? { accepted: false, detail: 'IPC returned no control response' }) as ControlResponse, source: this.transport.source ?? 'backend', error: null }; } catch (error) { return { data: { accepted: false, detail: errorText(error) }, source: 'unavailable', error: errorText(error) }; } }
-  private async call<T>(operation: IpcOperation, mapper: (value: unknown) => T, fallback: T): Promise<RuntimeResult<T>> { try { return { data: mapper(await this.transport.request(operation)), source: this.transport.source ?? 'backend', error: null }; } catch (error) { return { data: fallback, source: 'unavailable', error: errorText(error) }; } }
+  private async call<T>(operation: IpcOperation, mapper: (value: unknown) => T, fallback: T, params?: Record<string, unknown>): Promise<RuntimeResult<T>> { try { return { data: mapper(await this.transport.request(operation, params)), source: this.transport.source ?? 'backend', error: null }; } catch (error) { return { data: fallback, source: 'unavailable', error: errorText(error) }; } }
 }

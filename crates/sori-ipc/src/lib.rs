@@ -43,6 +43,13 @@ pub enum Request {
         key: String,
         value: serde_json::Value,
     },
+    ResourceGet {
+        resource: String,
+    },
+    ResourceSet {
+        resource: String,
+        value: serde_json::Value,
+    },
     RecentEvents {
         limit: u16,
     },
@@ -56,6 +63,7 @@ pub enum Response {
     Doctor(DoctorResponse),
     ConfigSummary(ConfigSummaryResponse),
     RecentEvents(RecentEventsResponse),
+    Resource(ResourceResponse),
     RecentHistory(RecentHistoryResponse),
     Error(IpcErrorResponse),
     Control(ControlResponse),
@@ -123,6 +131,12 @@ pub struct RecentEventsResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecentHistoryResponse {
     pub entries: Vec<sori_core::HistoryEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResourceResponse {
+    pub resource: String,
+    pub value: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -461,6 +475,13 @@ impl Transport for MockTransport {
                 checks: state.checks.clone(),
             }),
             Request::ConfigSummary => Response::ConfigSummary(state.config.clone()),
+            Request::ResourceGet { resource } => Response::Resource(ResourceResponse {
+                resource,
+                value: serde_json::json!([]),
+            }),
+            Request::ResourceSet { resource, value } => {
+                Response::Resource(ResourceResponse { resource, value })
+            }
             Request::RecentHistory { .. } | Request::PurgeHistory | Request::SetConfig { .. } => {
                 return Err(IpcError::Transport(
                     "mock transport does not persist history/config".into(),
@@ -477,7 +498,6 @@ impl Transport for MockTransport {
             }),
             request @ (Request::Pause | Request::Resume) => {
                 let paused = matches!(request, Request::Pause);
-                // Keep the mock's status contract aligned with the real daemon.
                 state.status.paused = paused;
                 state.status.activity = if paused {
                     RuntimeActivity::Paused

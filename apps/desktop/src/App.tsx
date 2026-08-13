@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ActiveScreen,
   AppSettings,
@@ -69,6 +69,7 @@ export default function App() {
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
+  const dictionaryHydrated = useRef(false);
 
   const refreshRuntime = useCallback(async () => {
     const [statusResult, doctorResult, historyResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50)]);
@@ -99,6 +100,19 @@ export default function App() {
   }, [settings]);
 
   useEffect(() => {
+    runtimeClient.resource<Array<{ id: string; term: string; pronunciationHint?: string | null; category?: string }>>('vocabulary').then((result) => {
+      if (result.error || !Array.isArray(result.data)) return;
+      setDictionary(result.data.map((item) => ({ id: item.id, term: item.term, pronunciation: item.pronunciationHint ?? undefined, category: (item.category === 'library_framework' ? 'code' : item.category ?? 'custom') as DictionaryTerm['category'] })));
+      dictionaryHydrated.current = true;
+    }).catch(() => undefined);
+  }, [runtimeClient]);
+
+  useEffect(() => {
+    if (!dictionaryHydrated.current) return;
+    void runtimeClient.setResource('vocabulary', dictionary.map((item) => ({ id: item.id, term: item.term, pronunciationHint: item.pronunciation ?? null, category: item.category, language: 'en', createdAt: new Date().toISOString() })));
+  }, [dictionary, runtimeClient]);
+
+  useEffect(() => {
     writePreference('extensions', extensions);
   }, [extensions]);
 
@@ -112,75 +126,25 @@ export default function App() {
   // Active warm model
   const activeWarmModel = models.find((m) => m.isWarm && m.isInstalled) || models[0];
 
-  // Speech Recognition setup (Web Speech API with graceful fallback)
-  useEffect(() => {
-    let recognition: any = null;
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (isListening && SpeechRecognition) {
-      try {
-        recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = settings.activeProfile === 'Vietnamese' ? 'vi-VN' : 'en-US';
-
-        recognition.onresult = (event: any) => {
-          let interim = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-              const text = event.results[i][0].transcript;
-              setHistory((prev) => [
-                {
-                  id: `hist-${Date.now()}`,
-                  timestamp: 'Just now',
-                  rawTranscript: text,
-                  processedText: text,
-                  activeApp: 'VS Code',
-                  mode: 'dictation',
-                  latencyMs: activeWarmModel.latencyMs,
-                  modelUsed: activeWarmModel.name,
-                },
-                ...prev,
-              ]);
-            } else {
-              interim += event.results[i][0].transcript;
-            }
-          }
-          setInterimTranscript(interim);
-        };
-
-        recognition.onerror = (err: any) => {
-          console.warn('Speech recognition notice:', err);
-        };
-
-        recognition.start();
-      } catch (e) {
-        console.warn('Speech recognition init fallback:', e);
-      }
-    }
-
-    return () => {
-      if (recognition) {
-        try {
-          recognition.stop();
-        } catch (_) {}
-      }
-    };
-  }, [isListening, settings.activeProfile, activeWarmModel]);
-
-  // Toggle speech simulation/listening
-  const toggleListening = () => {
+  // Capture and ASR are owned by sorid. The UI never fabricates transcript success.
+  const toggleListening = async () => {
     if (!isListening) {
-      setIsListening(true);
-      setInterimTranscript('Listening for speech audio...');
-      setTimeout(() => {
-        setInterimTranscript('Short, friendly email to my team asking if we can review the new PR today.');
-      }, 1000);
-    } else {
-      setIsListening(false);
-      setInterimTranscript('');
+      const result = await runtimeClient.dictationStart();
+      setRuntimeSource(result.source);
+      setRuntimeError(result.error);
+      if (!result.error && result.data.accepted) {
+        setIsListening(true);
+        setInterimTranscript('Capturing microphone audio…');
+      }
+      return;
     }
+
+    const result = await runtimeClient.dictationStop();
+    setRuntimeSource(result.source);
+    setRuntimeError(result.error);
+    setIsListening(false);
+    setInterimTranscript('');
+    if (!result.error && result.data?.text) await refreshRuntime();
   };
 
   const handleApplyRecommendedPolicy = () => {

@@ -9,6 +9,8 @@ export type IpcValue = 'Null' | { Bool: boolean } | { Number: number } | { Strin
 export type IpcRequest =
   | 'Status' | 'Doctor' | 'ConfigSummary' | 'DictationStart' | 'DictationStop' | 'DictationCancel' | 'PurgeHistory' | 'Pause' | 'Resume'
   | { RecentEvents: { limit: number } }
+  | { ResourceGet: { resource: string } }
+  | { ResourceSet: { resource: string; value: unknown } }
   | { RecentHistory: { limit: number } }
   | { SetConfig: { key: string; value: unknown } }
   | { Dictation: { model: string; audio: AudioChunk[] } };
@@ -17,20 +19,23 @@ export interface DoctorCheck { name: string; ok: boolean; detail: string; }
 export interface DoctorResponse { status: StatusResponse; checks: DoctorCheck[]; }
 export interface ConfigSummaryResponse { profile: ProfileMode; privacy: PrivacyMode; history_enabled: boolean; hotkey: string; route: RouteSummary; }
 export interface RecentEventsResponse { events: IpcEvent[]; }
+export interface ResourceResponse { resource: string; value: unknown; }
 export interface HistoryEntry { id: string; at: string; active_app: string | null; transcript: TranscriptResponse; intent: unknown; route: unknown; inserted_text: string | null; }
 export interface RecentHistoryResponse { entries: HistoryEntry[]; }
 export interface ControlResponse { accepted: boolean; detail: string; }
 export interface AudioChunk { captured_at: string; format: { sample_rate_hz: number; channels: number; sample_format: 'I16' | 'F32'; }; samples: number[]; }
 export interface TranscriptResponse { language?: string | null; text: string; segments: unknown[]; }
-export interface IpcResponseMap { Status: StatusResponse; Doctor: DoctorResponse; ConfigSummary: ConfigSummaryResponse; RecentEvents: RecentEventsResponse; RecentHistory: RecentHistoryResponse; Control: ControlResponse; Transcript: TranscriptResponse; Error: { code: string; detail: string }; }
+export interface IpcResponseMap { Status: StatusResponse; Doctor: DoctorResponse; ConfigSummary: ConfigSummaryResponse; RecentEvents: RecentEventsResponse; RecentHistory: RecentHistoryResponse; Resource: ResourceResponse; Control: ControlResponse; Transcript: TranscriptResponse; Error: { code: string; detail: string }; }
 export type IpcResponse = { [K in keyof IpcResponseMap]: { [P in K]: IpcResponseMap[K] } }[keyof IpcResponseMap];
-export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'recent_history' | 'purge_history' | 'set_config' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'pause' | 'resume';
+export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'recent_history' | 'resource_get' | 'resource_set' | 'purge_history' | 'set_config' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'pause' | 'resume';
 export function requestShape(operation: IpcOperation, params: Record<string, unknown> = {}): IpcRequest {
   switch (operation) {
     case 'status': return 'Status'; case 'doctor': return 'Doctor'; case 'config_summary': return 'ConfigSummary';
     case 'dictation_start': return 'DictationStart'; case 'dictation_stop': return 'DictationStop'; case 'dictation_cancel': return 'DictationCancel';
     case 'purge_history': return 'PurgeHistory'; case 'pause': return 'Pause'; case 'resume': return 'Resume';
     case 'recent_events': return { RecentEvents: { limit: Number(params.limit ?? 20) } };
+    case 'resource_get': return { ResourceGet: { resource: String(params.resource ?? '') } };
+    case 'resource_set': return { ResourceSet: { resource: String(params.resource ?? ''), value: params.value } };
     case 'recent_history': return { RecentHistory: { limit: Number(params.limit ?? 20) } };
     case 'set_config': return { SetConfig: { key: String(params.key ?? ''), value: params.value } };
   }
@@ -39,4 +44,4 @@ export function responsePayload<K extends keyof IpcResponseMap>(value: unknown, 
   if (!value || typeof value !== 'object') return undefined;
   return (value as Record<string, unknown>)[variant] as IpcResponseMap[K] | undefined;
 }
-export function isIpcResponse(value: unknown): value is IpcResponse { return !!value && typeof value === 'object' && ['Status', 'Doctor', 'ConfigSummary', 'RecentEvents', 'RecentHistory', 'Control', 'Transcript', 'Error'].some((variant) => variant in (value as object)); }
+export function isIpcResponse(value: unknown): value is IpcResponse { return !!value && typeof value === 'object' && ['Status', 'Doctor', 'ConfigSummary', 'RecentEvents', 'RecentHistory', 'Resource', 'Control', 'Transcript', 'Error'].some((variant) => variant in (value as object)); }

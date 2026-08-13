@@ -168,11 +168,23 @@ async fn main() -> Result<()> {
                 let _ = runtime.take_captured_audio();
                 Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") })
             }
-            Request::Dictation { model, audio } => Response::Transcript(
-                runtime
+            Request::Dictation { model, audio } => {
+                let transcript = runtime
                     .transcribe(&model, &audio)
-                    .map_err(|error| sori_ipc::IpcError::Transport(error.to_string()))?,
-            ),
+                    .map_err(|error| sori_ipc::IpcError::Transport(error.to_string()))?;
+                let history_enabled = handler_store
+                    .setting("history.enabled")
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                if history_enabled {
+                    let entry = HistoryEntry { id: uuid::Uuid::new_v4(), at: time::OffsetDateTime::now_utc(), active_app: None, transcript: transcript.clone(), intent: FastIntent::Dictation { text: transcript.text.clone() }, route: None, inserted_text: None };
+                    handler_store.try_push_history(&entry).map_err(|e| sori_ipc::IpcError::Transport(format!("transcript produced but history persistence failed: {e}")))?;
+                    let retention = handler_store.setting("history.retention_limit").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+                    handler_store.try_retain_history(retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?;
+                }
+                Response::Transcript(transcript)
+            }
             Request::Doctor => {
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);
                 Response::Doctor(DoctorResponse {
@@ -246,6 +258,21 @@ async fn main() -> Result<()> {
             Request::RecentHistory { limit } => Response::RecentHistory(RecentHistoryResponse {
                 entries: handler_store.try_recent_history(usize::from(limit)).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?,
             }),
+            Request::ResourceGet { resource } => {
+                validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
+                let value = handler_store
+                    .setting(&format!("resource.{resource}"))
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .unwrap_or_else(|| default_resource(&resource));
+                Response::Resource(sori_ipc::ResourceResponse { resource, value })
+            }
+            Request::ResourceSet { resource, value } => {
+                validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
+                handler_store
+                    .set_setting(&format!("resource.{resource}"), &value)
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Resource(sori_ipc::ResourceResponse { resource, value })
+            }
             Request::PurgeHistory => {
                 handler_store.try_purge_history().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Response::Control(ControlResponse { accepted: true, detail: "history purged from SQLite".into() })
@@ -370,5 +397,29 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
             Err("privacy.mode must be Auto, LocalOnly, CloudAllowed, or NeverCloud".into())
         }
         _ => Err(format!("unsupported setting: {key}")),
+    }
+}
+
+fn validate_resource(resource: &str) -> Result<(), String> {
+    match resource {
+        "vocabulary" | "models" | "benchmarks" | "extensions" | "privacy" | "onboarding"
+        | "route" => Ok(()),
+        _ => Err(format!("unsupported resource: {resource}")),
+    }
+}
+
+fn default_resource(resource: &str) -> serde_json::Value {
+    match resource {
+        "vocabulary" | "models" | "benchmarks" | "extensions" => serde_json::json!([]),
+        "privacy" => {
+            serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
+        }
+        "onboarding" => {
+            serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
+        }
+        "route" => {
+            serde_json::json!({"prefer_local": true, "allow_cloud": false, "prefer_warm_runtime": false, "optimize_battery": false})
+        }
+        _ => serde_json::Value::Null,
     }
 }

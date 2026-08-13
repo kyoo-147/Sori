@@ -10,6 +10,23 @@ use sori_core::{
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use time::OffsetDateTime;
+/// Native capture lifecycle. `Recording` is only entered after CPAL accepts
+/// `Stream::play`; a device is never reported as ready before that point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureState {
+    Idle,
+    Starting,
+    Recording,
+    Stopping,
+}
+
+/// Identity for one capture attempt. Generation IDs make stale worker output
+/// distinguishable from the current recording without changing core IPC.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureSession {
+    pub generation: u64,
+    pub device: AudioDeviceInfo,
+}
 
 pub struct CpalAudioDeviceProvider {
     host: Host,
@@ -113,7 +130,7 @@ pub struct CpalAudioEngine {
     input_format: AudioFormat,
     stream: Option<Stream>,
     packets: Option<Receiver<Packet>>,
-    errors: Option<Receiver<String>>,
+    errors: Option<Receiver<AudioError>>,
     pending: VecDeque<f32>,
 }
 
@@ -231,7 +248,7 @@ impl AudioEngine for CpalAudioEngine {
         while self.pending.len() < self.config.chunk_size_samples as usize {
             if let Some(errors) = &self.errors {
                 if let Ok(error) = errors.try_recv() {
-                    return Err(AudioError::Pipeline(error));
+                    return Err(error);
                 }
             }
             match packets.recv_timeout(std::time::Duration::from_millis(100)) {
@@ -260,6 +277,9 @@ pub struct CpalAudioController {
     commands: Option<mpsc::Sender<()>>,
     chunks: Option<Receiver<Result<AudioChunk, AudioError>>>,
     worker: Option<std::thread::JoinHandle<()>>,
+    state: CaptureState,
+    next_generation: u64,
+    session: Option<CaptureSession>,
 }
 
 impl CpalAudioController {
@@ -271,7 +291,22 @@ impl CpalAudioController {
             commands: None,
             chunks: None,
             worker: None,
+            state: CaptureState::Idle,
+            next_generation: 0,
+            session: None,
         })
+    }
+    pub fn state(&self) -> CaptureState {
+        self.state
+    }
+
+    pub fn session(&self) -> Option<&CaptureSession> {
+        self.session.as_ref()
+    }
+
+    /// Cancellation is intentionally equivalent to stop: both are idempotent.
+    pub fn cancel_capture(&mut self) {
+        self.stop_capture();
     }
 }
 
@@ -294,9 +329,12 @@ impl AudioEngine for CpalAudioController {
 
 impl AudioCaptureEngine for CpalAudioController {
     fn start_capture(&mut self) -> Result<AudioDeviceInfo, AudioError> {
-        if self.worker.is_some() {
+        if self.state != CaptureState::Idle {
             return Err(AudioError::Pipeline("capture is already running".into()));
         }
+        self.state = CaptureState::Starting;
+        self.next_generation = self.next_generation.wrapping_add(1);
+        let generation = self.next_generation;
         let config = self.config.clone();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let (command_tx, command_rx) = mpsc::channel();
@@ -337,17 +375,38 @@ impl AudioCaptureEngine for CpalAudioController {
             }
             engine.stop();
         });
-        let (device, format) = ready_rx
-            .recv()
-            .map_err(|_| AudioError::Pipeline("audio worker failed to start".into()))??;
+        let (device, format) = match ready_rx.recv() {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => {
+                self.state = CaptureState::Idle;
+                let _ = worker.join();
+                return Err(error);
+            }
+            Err(_) => {
+                self.state = CaptureState::Idle;
+                let _ = worker.join();
+                return Err(AudioError::DeviceUnavailable(
+                    "audio worker failed to become ready".into(),
+                ));
+            }
+        };
         self.commands = Some(command_tx);
         self.chunks = Some(chunk_rx);
         self.worker = Some(worker);
         self.format = format;
+        self.session = Some(CaptureSession {
+            generation,
+            device: device.clone(),
+        });
+        self.state = CaptureState::Recording;
         Ok(device)
     }
 
     fn stop_capture(&mut self) {
+        if self.state == CaptureState::Idle {
+            return;
+        }
+        self.state = CaptureState::Stopping;
         if let Some(command) = self.commands.take() {
             let _ = command.send(());
         }
@@ -355,10 +414,12 @@ impl AudioCaptureEngine for CpalAudioController {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+        self.session = None;
+        self.state = CaptureState::Idle;
     }
 
     fn is_running(&self) -> bool {
-        self.worker.is_some()
+        self.state == CaptureState::Recording
     }
 }
 
@@ -367,6 +428,13 @@ fn classify_stream_error(error: impl ToString) -> AudioError {
     let lower = message.to_ascii_lowercase();
     if lower.contains("access is denied") || lower.contains("permission") {
         AudioError::MissingPermission
+    } else if lower.contains("disconnect")
+        || lower.contains("device not available")
+        || lower.contains("device unavailable")
+        || lower.contains("device has been removed")
+        || (lower.contains("input stream") && lower.contains("lost"))
+    {
+        AudioError::DeviceUnavailable(message)
     } else {
         AudioError::Pipeline(message)
     }
@@ -376,7 +444,7 @@ fn build_stream_f32(
     device: &Device,
     config: &StreamConfig,
     tx: SyncSender<Packet>,
-    errors: SyncSender<String>,
+    errors: SyncSender<AudioError>,
     channels: usize,
 ) -> Result<Stream, AudioError> {
     device
@@ -384,7 +452,7 @@ fn build_stream_f32(
             config,
             move |data: &[f32], _| send_samples(data, &tx, channels),
             move |error| {
-                let _ = errors.try_send(error.to_string());
+                let _ = errors.try_send(classify_stream_error(error));
             },
             None,
         )
@@ -394,7 +462,7 @@ fn build_stream_i16(
     device: &Device,
     config: &StreamConfig,
     tx: SyncSender<Packet>,
-    errors: SyncSender<String>,
+    errors: SyncSender<AudioError>,
     channels: usize,
 ) -> Result<Stream, AudioError> {
     device
@@ -408,7 +476,7 @@ fn build_stream_i16(
                 )
             },
             move |error| {
-                let _ = errors.try_send(error.to_string());
+                let _ = errors.try_send(classify_stream_error(error));
             },
             None,
         )
@@ -418,7 +486,7 @@ fn build_stream_u16(
     device: &Device,
     config: &StreamConfig,
     tx: SyncSender<Packet>,
-    errors: SyncSender<String>,
+    errors: SyncSender<AudioError>,
     channels: usize,
 ) -> Result<Stream, AudioError> {
     device
@@ -435,7 +503,7 @@ fn build_stream_u16(
                 )
             },
             move |error| {
-                let _ = errors.try_send(error.to_string());
+                let _ = errors.try_send(classify_stream_error(error));
             },
             None,
         )
@@ -471,5 +539,41 @@ mod tests {
         send_samples(&[1.0], &tx, 1);
         send_samples(&[2.0], &tx, 1);
         assert_eq!(rx.recv().unwrap(), vec![1.0]);
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn controller_starts_idle_and_stop_is_idempotent() {
+        let mut controller = CpalAudioController::new(CaptureConfig::default()).unwrap();
+        assert_eq!(controller.state(), CaptureState::Idle);
+        assert!(controller.session().is_none());
+        controller.stop_capture();
+        controller.cancel_capture();
+        assert_eq!(controller.state(), CaptureState::Idle);
+    }
+
+    #[test]
+    fn missing_device_returns_truthful_error_and_resets_starting_state() {
+        let config = CaptureConfig {
+            device_id: Some("__sori_missing_input_device__".into()),
+            ..CaptureConfig::default()
+        };
+        let mut controller = CpalAudioController::new(config).unwrap();
+        let error = controller.start_capture().unwrap_err();
+        assert!(matches!(error, AudioError::DeviceUnavailable(_)));
+        assert_eq!(controller.state(), CaptureState::Idle);
+        assert!(controller.session().is_none());
+    }
+
+    #[test]
+    fn native_disconnect_errors_are_not_reported_as_pipeline_success() {
+        assert!(matches!(
+            classify_stream_error("input device disconnected"),
+            AudioError::DeviceUnavailable(_)
+        ));
     }
 }

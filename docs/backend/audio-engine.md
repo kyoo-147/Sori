@@ -17,14 +17,22 @@ requested format and chunk size.
 The `sori-audio` crate contains the CPAL adapter. It translates native device
 and stream errors to `AudioError` and keeps CPAL types out of `sori-core`.
 `CpalAudioEngine::start` selects the configured device (or the OS default),
-starts a callback-backed bounded channel, and `stop` drops the stream. The
-callback uses `try_send`, so a slow consumer drops packets rather than blocking
-the audio thread. `next_chunk` drains the channel into the VAD-ready `f32`
-chunk shape; native channel layouts are mixed to mono for now. Resampling and
-production DSP remain future work.
+starts a callback-backed bounded channel, and `stop` drops the stream.
+`CpalAudioController` owns the CPAL stream on a worker thread and exposes an
+`Idle -> Starting -> Recording -> Stopping` lifecycle. Each successful capture
+has a monotonically increasing generation/session ID; stop and cancel are
+idempotent. The callback uses `try_send`, so a slow consumer drops packets
+rather than blocking the audio thread. Native stream disconnects are surfaced
+as `DeviceUnavailable` rather than a fabricated success.
 
-The core contracts and adapter conversion tests are hardware-independent. No
-microphone is opened during `cargo test`.
+`next_chunk` drains the channel into the VAD-ready `f32` chunk shape; native
+channel layouts are mixed to mono for now. Resampling and production DSP remain
+future work. The core contracts and adapter conversion tests are
+hardware-independent. No microphone is opened during `cargo test`.
+
+Physical microphone, permission, hot-plug, and Windows CPAL readiness remain
+**UNVERIFIED** in automated validation; the manual checks below require a real
+machine and microphone.
 
 ## Manual microphone testing plan
 

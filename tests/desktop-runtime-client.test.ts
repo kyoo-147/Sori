@@ -47,8 +47,15 @@ describe('desktop runtime IPC boundary', () => {
     expect(calls).toEqual([['sori_ipc', { request: 'Status' }]]);
   });
 
-  it('falls back from native to loopback HTTP', async () => {
-    const native = new NativeIpcTransport(async () => { throw new Error('not native'); }, () => true);
+  it('does not hide a native daemon error behind a sequential HTTP retry', async () => {
+    const native = new NativeIpcTransport(async () => { throw new Error('daemon unavailable'); }, () => true);
+    const http = { source: 'backend' as const, request: async () => ({ Status: { running: true } }) };
+    const transport = new DesktopIpcTransport(native, http);
+    await expect(transport.request('status')).rejects.toThrow('daemon unavailable');
+  });
+
+  it('uses HTTP directly when the native runtime is absent', async () => {
+    const native = new NativeIpcTransport(async <T>() => ({ Status: { running: true } } as T), () => false);
     const http = { source: 'backend' as const, request: async () => ({ Status: { running: true } }) };
     const transport = new DesktopIpcTransport(native, http);
     expect(await transport.request('status')).toEqual({ Status: { running: true } });

@@ -39,13 +39,29 @@ use tauri::Manager;
 mod commands {
     use super::*;
 
-    #[tauri::command(rename = "sori_ipc")]
-    pub fn sori_ipc(request: Value) -> Result<Value, String> {
-        let request: Request =
-            serde_json::from_value(request).map_err(|error| error.to_string())?;
-        let client = LocalIpcClient::connect().map_err(|error| error.to_string())?;
-        let response = client.request(request).map_err(|error| error.to_string())?;
+    const IPC_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+    async fn forward_ipc(request: Value) -> Result<Value, String> {
+        let request: Request = serde_json::from_value(request).map_err(|error| error.to_string())?;
+        let response = tokio::time::timeout(
+            IPC_REQUEST_TIMEOUT,
+            tauri::async_runtime::spawn_blocking(move || {
+                let client = LocalIpcClient::connect().map_err(|error| error.to_string())?;
+                client.request(request).map_err(|error| error.to_string())
+            }),
+        ).await
+            .map_err(|_| format!("IPC request timed out after {:?}", IPC_REQUEST_TIMEOUT))?
+            .map_err(|error| format!("IPC worker failed: {error}"))??;
         serde_json::to_value(response).map_err(|error| error.to_string())
+    }
+
+    #[tauri::command(rename = "sori_ipc")]
+    pub async fn sori_ipc(request: Value) -> Result<Value, String> {
+        let started = std::time::Instant::now();
+        let result = forward_ipc(request).await;
+        #[cfg(debug_assertions)]
+        eprintln!("[sori_ipc] completed in {:?}: {}", started.elapsed(), if result.is_ok() { "ok" } else { "error" });
+        result
     }
 
     fn window_error(action: &str, error: impl std::fmt::Display) -> String {

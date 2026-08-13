@@ -1,8 +1,9 @@
 //! Non-blocking daemon lifecycle state machine.
 
 use sori_core::{
-    AudioCaptureEngine, AudioChunk, AudioError, EnergyVadStub, EventBus, EventKind, ModelError,
-    ModelId, ModelProvider, Transcript, VoiceActivity, VoiceActivityDetector,
+    AudioCaptureEngine, AudioChunk, AudioError, EnergyVadStub, EventBus, EventKind,
+    HistoryRepository, ModelError, ModelId, ModelProvider, ModelRoute, TextInjector, TextTarget,
+    Transcript, VoiceActivity, VoiceActivityDetector, complete_dictation,
     event::serde_json_like::Value,
 };
 use std::sync::Arc;
@@ -214,6 +215,30 @@ impl<B: EventBus> DaemonRuntime<B> {
                 Err(error)
             }
         }
+    }
+
+    pub fn complete_captured_dictation(
+        &mut self,
+        route: &ModelRoute,
+        injector: &mut dyn TextInjector,
+        target: &dyn TextTarget,
+        history: &dyn HistoryRepository,
+    ) -> Result<sori_core::DictationResult, sori_core::PipelineError> {
+        let audio = self.take_captured_audio();
+        let provider = self.provider.as_deref().ok_or_else(|| {
+            sori_core::PipelineError::Asr(ModelError::Inference(
+                "no model provider is configured".into(),
+            ))
+        })?;
+        complete_dictation(
+            audio,
+            provider,
+            injector,
+            target,
+            route,
+            history,
+            &self.events,
+        )
     }
 
     pub fn handle_hotkey(&mut self, event: sori_core::HotkeyEvent, model: &ModelId) {

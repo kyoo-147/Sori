@@ -13,12 +13,37 @@ use sori_core::{
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
 use time::Duration;
 
 pub const PROVIDER_NAME: &str = "whisper.cpp";
+
+/// Truthful lifecycle for the external whisper.cpp sidecar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WhisperLifecycle {
+    Unavailable,
+    Loading,
+    Ready,
+    Running,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhisperStatus {
+    pub model: ModelId,
+    pub lifecycle: WhisperLifecycle,
+    pub model_path: Option<PathBuf>,
+    pub latency_ms: Option<f64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TranscriptionResult {
+    pub transcript: Transcript,
+    pub latency_ms: f64,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WhisperCppConfig {
@@ -89,6 +114,17 @@ pub struct WhisperCppProvider {
     executable: PathBuf,
     model_dir: Option<PathBuf>,
     manifests: Vec<ModelManifest>,
+    status: Arc<Mutex<WhisperStatus>>,
+}
+
+fn initial_status() -> Arc<Mutex<WhisperStatus>> {
+    Arc::new(Mutex::new(WhisperStatus {
+        model: ModelId::from(""),
+        lifecycle: WhisperLifecycle::Unavailable,
+        model_path: None,
+        latency_ms: None,
+        error: None,
+    }))
 }
 
 impl WhisperCppProvider {
@@ -98,6 +134,7 @@ impl WhisperCppProvider {
             executable: executable.into(),
             model_dir: None,
             manifests,
+            status: initial_status(),
         }
     }
 
@@ -106,6 +143,7 @@ impl WhisperCppProvider {
             executable: config.executable,
             model_dir: config.model_dir,
             manifests,
+            status: initial_status(),
         }
     }
 
@@ -124,13 +162,7 @@ impl WhisperCppProvider {
                 self.executable.display()
             )));
         }
-        let model_path = self.model_path(model);
-        if !model_path.is_file() {
-            return Err(ModelError::Inference(format!(
-                "whisper.cpp model file does not exist: {}",
-                model_path.display()
-            )));
-        }
+        self.verified_model_path(model)?;
         Ok(())
     }
 
@@ -141,6 +173,112 @@ impl WhisperCppProvider {
             .unwrap_or_else(|| PathBuf::from(&model.0))
     }
 
+    /// Resolve a model only if it stays inside the configured model directory.
+    pub fn verified_model_path(&self, model: &ModelId) -> Result<PathBuf, ModelError> {
+        let candidate = Path::new(&model.0);
+        if model.0.is_empty()
+            || candidate.is_absolute()
+            || candidate.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir | std::path::Component::Prefix(_)
+                )
+            })
+        {
+            return Err(ModelError::Inference(format!(
+                "invalid whisper.cpp model path: {}",
+                model.0
+            )));
+        }
+        let path = self.model_path(model);
+        if let Some(dir) = &self.model_dir {
+            let root = fs::canonicalize(dir).map_err(|e| {
+                ModelError::Inference(format!(
+                    "whisper.cpp model directory is unavailable ({}): {e}",
+                    dir.display()
+                ))
+            })?;
+            let file = fs::canonicalize(&path).map_err(|e| {
+                ModelError::Inference(format!(
+                    "whisper.cpp model file is unavailable ({}): {e}",
+                    path.display()
+                ))
+            })?;
+            if !file.starts_with(&root) {
+                return Err(ModelError::Inference(
+                    "whisper.cpp model path escapes model directory".into(),
+                ));
+            }
+            Ok(file)
+        } else if path.is_file() {
+            fs::canonicalize(&path).map_err(|e| {
+                ModelError::Inference(format!("could not verify whisper.cpp model path: {e}"))
+            })
+        } else {
+            Err(ModelError::Inference(format!(
+                "whisper.cpp model file does not exist: {}",
+                path.display()
+            )))
+        }
+    }
+
+    pub fn status(&self, model: &ModelId) -> WhisperStatus {
+        let mut status = self
+            .status
+            .lock()
+            .expect("whisper status lock poisoned")
+            .clone();
+        status.model = model.clone();
+        status.model_path = self.verified_model_path(model).ok();
+        if status.error.is_none() && status.model_path.is_some() {
+            status.lifecycle = WhisperLifecycle::Ready;
+        } else if status.error.is_none() {
+            status.lifecycle = WhisperLifecycle::Unavailable;
+        }
+        status
+    }
+
+    /// Discover real model files; no manifest is emitted for a missing file.
+    pub fn discover_models(&self) -> Result<Vec<ModelManifest>, ModelError> {
+        let dir = self.model_dir.as_ref().ok_or_else(|| {
+            ModelError::Inference("whisper.cpp model directory is not configured".into())
+        })?;
+        let mut models = Vec::new();
+        for entry in fs::read_dir(dir).map_err(|e| {
+            ModelError::Inference(format!(
+                "could not scan whisper.cpp model directory ({}): {e}",
+                dir.display()
+            ))
+        })? {
+            let path = entry
+                .map_err(|e| {
+                    ModelError::Inference(format!(
+                        "could not inspect whisper.cpp model directory: {e}"
+                    ))
+                })?
+                .path();
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "bin") {
+                let id = path.file_name().unwrap().to_string_lossy().into_owned();
+                let size = fs::metadata(&path).ok().map(|m| m.len());
+                models.push(ModelManifest {
+                    id: ModelId::from(id.as_str()),
+                    display_name: id,
+                    language: "unknown".into(),
+                    backend: PROVIDER_NAME.into(),
+                    quantization: None,
+                    disk_size_bytes: size,
+                    ram_bytes: None,
+                    license: sori_core::ModelLicense {
+                        name: "whisper.cpp model license".into(),
+                        url: None,
+                        attribution: None,
+                    },
+                });
+            }
+        }
+        models.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(models)
+    }
     pub fn process_spec_with_format(
         &self,
         model: &ModelId,
@@ -152,6 +290,20 @@ impl WhisperCppProvider {
             return Err(ModelError::Unsupported(model.clone()));
         }
         let model_path = self.model_path(model);
+        let candidate = Path::new(&model.0);
+        if candidate.is_absolute()
+            || candidate.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir | std::path::Component::Prefix(_)
+                )
+            })
+        {
+            return Err(ModelError::Inference(format!(
+                "invalid whisper.cpp model path: {}",
+                model.0
+            )));
+        }
         if self.model_dir.is_some() && !model_path.is_file() {
             return Err(ModelError::Inference(format!(
                 "whisper.cpp model file does not exist: {}",
@@ -234,6 +386,28 @@ impl WhisperCppProvider {
         runner: &R,
         options: &ProcessOptions,
     ) -> Result<Transcript, ModelError> {
+        Ok(self
+            .transcribe_audio_with_runner_options_timed(model, audio, format, runner, options)?
+            .transcript)
+    }
+
+    pub fn transcribe_audio_with_runner_options_timed<R: ProcessRunner>(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        format: OutputFormat,
+        runner: &R,
+        options: &ProcessOptions,
+    ) -> Result<TranscriptionResult, ModelError> {
+        let started = std::time::Instant::now();
+        if let Ok(mut status) = self.status.lock() {
+            status.model = model.clone();
+            status.lifecycle = WhisperLifecycle::Loading;
+            status.error = None;
+        }
+        if let Ok(mut status) = self.status.lock() {
+            status.lifecycle = WhisperLifecycle::Running;
+        }
         let base = unique_temp_path("sori-whisper");
         let input = base.with_extension("wav");
         let output = base.clone();
@@ -252,12 +426,29 @@ impl WhisperCppProvider {
             output_with_extension(&output, format.arguments().1).as_path(),
         ]);
         match (result, cleanup) {
-            (Err(error), Ok(())) => Err(error),
+            (Err(error), Ok(())) => {
+                if let Ok(mut status) = self.status.lock() {
+                    status.lifecycle = WhisperLifecycle::Failed;
+                    status.error = Some(error.to_string());
+                }
+                Err(error)
+            }
             (Err(error), Err(cleanup)) => Err(ModelError::Inference(format!(
                 "{error}; temporary-file cleanup also failed: {cleanup}"
             ))),
             (Ok(_), Err(error)) => Err(error),
-            (Ok(transcript), Ok(())) => Ok(transcript),
+            (Ok(transcript), Ok(())) => {
+                let latency_ms = started.elapsed().as_secs_f64() * 1000.0;
+                if let Ok(mut status) = self.status.lock() {
+                    status.lifecycle = WhisperLifecycle::Ready;
+                    status.latency_ms = Some(latency_ms);
+                    status.error = None;
+                }
+                Ok(TranscriptionResult {
+                    transcript,
+                    latency_ms,
+                })
+            }
         }
     }
 
@@ -1048,6 +1239,49 @@ mod tests {
             },
             samples: vec![0.0],
         }
+    }
+
+    #[test]
+    fn discovers_only_real_models_and_rejects_path_escape() {
+        let root =
+            std::env::temp_dir().join(format!("sori-whisper-discovery-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("ggml-base.en.bin"), b"model").unwrap();
+        std::fs::write(root.join("readme.txt"), b"not a model").unwrap();
+        let provider = WhisperCppProvider::from_config(
+            WhisperCppConfig::new("missing", Some(root.clone())),
+            vec![],
+        );
+        let models = provider.discover_models().unwrap();
+        assert_eq!(
+            models.iter().map(|m| &m.id).collect::<Vec<_>>(),
+            vec![&ModelId::from("ggml-base.en.bin")]
+        );
+        let error = provider
+            .verified_model_path(&ModelId::from("../outside.bin"))
+            .unwrap_err();
+        assert!(error.to_string().contains("invalid whisper.cpp model path"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn status_reports_unavailable_until_verified_model_exists() {
+        let root = std::env::temp_dir().join(format!("sori-whisper-status-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let provider = WhisperCppProvider::from_config(
+            WhisperCppConfig::new("missing", Some(root.clone())),
+            vec![manifest("model.bin")],
+        );
+        assert_eq!(
+            provider.status(&ModelId::from("model.bin")).lifecycle,
+            WhisperLifecycle::Unavailable
+        );
+        std::fs::write(root.join("model.bin"), b"model").unwrap();
+        assert_eq!(
+            provider.status(&ModelId::from("model.bin")).lifecycle,
+            WhisperLifecycle::Ready
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

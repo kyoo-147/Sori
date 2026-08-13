@@ -111,6 +111,61 @@ impl SqliteStore {
             .transpose()
     }
 
+    pub fn save_extension(
+        &self,
+        id: &str,
+        manifest: &serde_json::Value,
+        state: &str,
+        last_error: Option<&str>,
+    ) -> Result<()> {
+        let now = unix_timestamp();
+        self.connection()?.execute(
+            "INSERT INTO extensions (id, manifest_json, state, installed_at, updated_at, last_error) VALUES (?1, ?2, ?3, ?4, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET manifest_json=excluded.manifest_json, state=excluded.state, updated_at=excluded.updated_at, last_error=excluded.last_error",
+            params![id, serde_json::to_string(manifest)?, state, now, last_error],
+        )?;
+        Ok(())
+    }
+
+    pub fn extension(
+        &self,
+        id: &str,
+    ) -> Result<Option<(serde_json::Value, String, i64, i64, Option<String>)>> {
+        let connection = self.connection()?;
+        connection.query_row("SELECT manifest_json, state, installed_at, updated_at, last_error FROM extensions WHERE id=?1", [id], |row| {
+            let manifest: serde_json::Value = serde_json::from_str(&row.get::<_, String>(0)?).map_err(to_sqlite_error)?;
+            Ok((manifest, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        }).optional().map_err(Into::into)
+    }
+
+    pub fn extensions(
+        &self,
+    ) -> Result<Vec<(String, serde_json::Value, String, i64, i64, Option<String>)>> {
+        let connection = self.connection()?;
+        let mut statement = connection.prepare("SELECT id, manifest_json, state, installed_at, updated_at, last_error FROM extensions ORDER BY id")?;
+        let rows = statement.query_map([], |row| {
+            let manifest: serde_json::Value =
+                serde_json::from_str(&row.get::<_, String>(1)?).map_err(to_sqlite_error)?;
+            Ok((
+                row.get(0)?,
+                manifest,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn delete_extension(&self, id: &str) -> Result<bool> {
+        Ok(self
+            .connection()?
+            .execute("DELETE FROM extensions WHERE id=?1", [id])?
+            == 1)
+    }
+
     pub fn save_model_manifest(&self, id: &str, manifest: &serde_json::Value) -> Result<()> {
         self.connection()?.execute(
             "INSERT INTO model_manifests (id, manifest_json, updated_at) VALUES (?1, ?2, ?3)

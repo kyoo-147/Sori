@@ -63,6 +63,24 @@ pub enum Request {
     },
     Pause,
     Resume,
+    ExtensionsList,
+    ExtensionInstall {
+        manifest: ExtensionManifest,
+    },
+    ExtensionEnable {
+        id: String,
+    },
+    ExtensionDisable {
+        id: String,
+    },
+    ExtensionUninstall {
+        id: String,
+    },
+    ExtensionInvoke {
+        id: String,
+        command: String,
+        input: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -77,6 +95,7 @@ pub enum Response {
     Control(ControlResponse),
     Transcript(Transcript),
     VoiceEdit(sori_core::VoiceEditResponse),
+    Extensions(ExtensionsResponse),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,6 +176,33 @@ pub struct IpcErrorResponse {
 pub struct ControlResponse {
     pub accepted: bool,
     pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionManifest {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub entrypoint: String,
+    pub permissions: Vec<String>,
+    pub license: String,
+    pub license_url: Option<String>,
+    pub package_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionRecord {
+    pub manifest: ExtensionManifest,
+    pub state: String,
+    pub installed_at: i64,
+    pub updated_at: i64,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionsResponse {
+    pub extensions: Vec<ExtensionRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -490,12 +536,20 @@ impl Transport for MockTransport {
                     "mock transport does not execute dictation".into(),
                 ));
             }
+<<<<<<< HEAD
             Request::VoiceEdit { .. } => {
                 return Err(IpcError::Transport(
-                    "mock transport does not execute Voice Edit; connect sorid for selection and injection evidence".into(),
+            Request::VoiceEdit { .. }
+            | Request::ExtensionsList
+            | Request::ExtensionInstall { .. }
+            | Request::ExtensionEnable { .. }
+            | Request::ExtensionDisable { .. }
+            | Request::ExtensionUninstall { .. }
+            | Request::ExtensionInvoke { .. } => {
+                return Err(IpcError::Transport(
+                    "mock transport does not execute Voice Edit or manage extensions; connect sorid for canonical evidence".into(),
                 ));
             }
-            Request::Doctor => Response::Doctor(DoctorResponse {
                 status: state.status.clone(),
                 checks: state.checks.clone(),
             }),

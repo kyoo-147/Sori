@@ -110,6 +110,14 @@ pub trait ModelProvider: Send + Sync {
     }
     fn can_transcribe(&self, model: &ModelId) -> bool;
     fn transcribe(&self, model: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError>;
+    fn transcribe_with_context(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        _vocabulary: &crate::Vocabulary,
+    ) -> Result<Transcript, ModelError> {
+        self.transcribe(model, audio)
+    }
 }
 
 pub trait ExternalProcessProvider: ModelProvider {

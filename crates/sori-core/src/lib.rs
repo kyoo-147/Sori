@@ -17,6 +17,7 @@ pub mod pipeline;
 pub mod routing;
 pub mod text_injection;
 pub mod transcript;
+pub mod vocabulary;
 
 pub use audio::{
     AudioCaptureEngine, AudioChunk, AudioDeviceInfo, AudioDeviceProvider, AudioEngine, AudioError,
@@ -44,7 +45,8 @@ pub use model::{
 };
 pub use permission::{ActionRisk, PermissionDecision, PermissionRequest};
 pub use pipeline::{
-    DictationResult, PipelineError, PipelinePlan, PipelineStage, complete_dictation, run_dictation,
+    DictationResult, PipelineError, PipelinePlan, PipelineStage, complete_dictation,
+    complete_dictation_with_vocabulary, run_dictation,
 };
 pub use routing::{
     RouteExplanation, RoutePolicy, RoutePreset, RouteSimulatorInput, RouteTarget, explain_route,
@@ -59,3 +61,5 @@ pub use text_injection::{
     UndoRestoreStatus, select_strategy,
 };
 pub use transcript::{Transcript, TranscriptSegment};
+
+pub use vocabulary::{Vocabulary, VocabularyTerm, normalize_transcript};

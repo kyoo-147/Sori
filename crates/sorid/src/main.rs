@@ -92,9 +92,15 @@ async fn main() -> Result<()> {
     let runtime = Arc::new(Mutex::new(daemon));
     let hotkey_runtime = Arc::clone(&runtime);
     let hotkey_model = ModelId::from(whisper_model.as_str());
+    let hotkey = sorid::parse_hotkey_binding(&config.hotkey.binding).map_err(|error| {
+        anyhow::anyhow!(
+            "invalid configured hotkey `{}`: {error}",
+            config.hotkey.binding
+        )
+    })?;
     let hotkey_result: Result<(HotkeyService, HotkeyServiceStatus), _> = start_hotkey_service(
         Arc::new(events.clone()),
-        sori_core::HotkeyCombination::new(1, 0x20),
+        hotkey,
         Arc::new(move |event| {
             if let Ok(mut runtime) = hotkey_runtime.lock() {
                 runtime.handle_hotkey(event, &hotkey_model);

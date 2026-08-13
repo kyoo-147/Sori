@@ -378,7 +378,9 @@ pub mod windows {
     #[cfg(windows)]
     #[derive(Debug, Default)]
     pub struct WindowsSendInputAdapter {
-        clipboard_snapshot: Option<Vec<u16>>,
+        // `Some(None)` represents an empty/non-text clipboard and must still be
+        // restored. `None` means no transaction is currently open.
+        clipboard_snapshot: Option<Option<Vec<u16>>>,
     }
 
     #[cfg(windows)]
@@ -392,7 +394,7 @@ pub mod windows {
         /// `SendInput` queues events but cannot prove that the foreground
         /// application accepted or rendered the text.
         pub const fn diagnostic() -> &'static str {
-            "direct UTF-16 SendInput available; clipboard paste fallback available; focused-target insertion remains UNVERIFIED until observed"
+            "direct UTF-16 SendInput available; clipboard paste fallback available for CF_UNICODETEXT; focused-target insertion remains UNVERIFIED until observed"
         }
     }
 
@@ -482,7 +484,7 @@ pub mod windows {
                         }
                     };
                 CloseClipboard();
-                self.clipboard_snapshot = result?;
+                self.clipboard_snapshot = Some(result?);
                 Ok(())
             }
         }
@@ -566,7 +568,26 @@ pub mod windows {
             let Some(snapshot) = self.clipboard_snapshot.take() else {
                 return Ok(());
             };
-            self.set_clipboard_text(&String::from_utf16_lossy(&snapshot))
+            match snapshot {
+                Some(snapshot) => self.set_clipboard_text(&String::from_utf16_lossy(&snapshot)),
+                None => {
+                    use windows_sys::Win32::System::DataExchange::{
+                        CloseClipboard, EmptyClipboard, OpenClipboard,
+                    };
+                    unsafe {
+                        if OpenClipboard(std::ptr::null_mut()) == 0 {
+                            return Err("OpenClipboard failed while restoring clipboard".into());
+                        }
+                        let result = if EmptyClipboard() == 0 {
+                            Err("EmptyClipboard failed while restoring clipboard".into())
+                        } else {
+                            Ok(())
+                        };
+                        CloseClipboard();
+                        result
+                    }
+                }
+            }
         }
         fn request_undo(&mut self) -> Result<(), String> {
             Err("Windows undo is not wired".into())
@@ -609,18 +630,57 @@ pub mod windows {
             }
         }
         fn focused_target_identity(&mut self) -> Result<Option<String>, String> {
-            use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+            use windows_sys::Win32::UI::WindowsAndMessaging::{
+                GetForegroundWindow, GetWindowThreadProcessId,
+            };
             let hwnd = unsafe { GetForegroundWindow() };
             if hwnd.is_null() {
                 Ok(None)
             } else {
-                Ok(Some(format!("hwnd:{:x}", hwnd as usize)))
+                let mut pid = 0;
+                unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+                if pid == 0 {
+                    Err("GetWindowThreadProcessId returned no process".into())
+                } else {
+                    Ok(Some(format!("pid:{pid};hwnd:{:x}", hwnd as usize)))
+                }
             }
         }
         fn clipboard_contains_text(&mut self, text: &str) -> Result<bool, String> {
-            self.snapshot_clipboard()?;
-            Ok(self.clipboard_snapshot.as_deref()
-                == Some(text.encode_utf16().collect::<Vec<_>>().as_slice()))
+            // Query without touching `clipboard_snapshot`: replacing the saved
+            // transaction here would make restore put Sori's payload back.
+            use windows_sys::Win32::System::DataExchange::{
+                CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+            };
+            use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+            const CF_UNICODETEXT: u32 = 13;
+            unsafe {
+                if OpenClipboard(std::ptr::null_mut()) == 0 {
+                    return Err("OpenClipboard failed while checking payload".into());
+                }
+                let result = if IsClipboardFormatAvailable(CF_UNICODETEXT) == 0 {
+                    Ok(false)
+                } else {
+                    let handle = GetClipboardData(CF_UNICODETEXT);
+                    if handle.is_null() {
+                        Err("GetClipboardData failed while checking payload".into())
+                    } else {
+                        let units = GlobalSize(handle) / 2;
+                        let ptr = GlobalLock(handle) as *const u16;
+                        if ptr.is_null() {
+                            Err("GlobalLock failed while checking payload".into())
+                        } else {
+                            let slice = std::slice::from_raw_parts(ptr, units);
+                            let end = slice.iter().position(|unit| *unit == 0).unwrap_or(units);
+                            let actual = String::from_utf16_lossy(&slice[..end]);
+                            GlobalUnlock(handle);
+                            Ok(actual == text)
+                        }
+                    }
+                };
+                CloseClipboard();
+                result
+            }
         }
     }
 
@@ -631,8 +691,8 @@ pub mod windows {
                 WindowsSendInputAdapter::new(),
                 InjectorCapabilities {
                     direct_input: true,
-                    clipboard: false,
-                    clipboard_restore: false,
+                    clipboard: true,
+                    clipboard_restore: true,
                     undo: false,
                 },
             )
@@ -676,6 +736,19 @@ mod tests {
         }
         fn capabilities(&self) -> TextTargetCapabilities {
             self.0
+        }
+    }
+
+    struct IdentityTarget(&'static str);
+    impl TextTarget for IdentityTarget {
+        fn name(&self) -> &str {
+            "identity-target"
+        }
+        fn capabilities(&self) -> TextTargetCapabilities {
+            TARGET
+        }
+        fn identity(&self) -> Option<&str> {
+            Some(self.0)
         }
     }
     struct Noop;
@@ -759,6 +832,7 @@ mod tests {
     #[derive(Default)]
     struct FakeAdapter {
         restore_error: Option<String>,
+        focused_identity: Option<String>,
         calls: Vec<&'static str>,
     }
 
@@ -787,6 +861,33 @@ mod tests {
             self.calls.push("undo");
             Ok(())
         }
+        fn focused_target_identity(&mut self) -> Result<Option<String>, String> {
+            Ok(self.focused_identity.clone())
+        }
+    }
+
+    #[test]
+    fn rejects_changed_foreground_before_input() {
+        let mut injector = AdapterTextInjector::new(
+            FakeAdapter {
+                focused_identity: Some("pid:2;hwnd:20".into()),
+                ..Default::default()
+            },
+            InjectorCapabilities {
+                direct_input: true,
+                clipboard: false,
+                clipboard_restore: false,
+                undo: false,
+            },
+        );
+        let result = injector.inject(
+            &IdentityTarget("pid:1;hwnd:10"),
+            &TextInjectionRequest {
+                text: "must not leak".into(),
+                dry_run: false,
+            },
+        );
+        assert_eq!(result, Err(TextInjectionError::FocusedTargetChanged));
     }
 
     #[test]

@@ -4,6 +4,9 @@ import type { DaemonStatus, RuntimeSource } from '../runtime-client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Mic, Flame, Command, CircleDot, Menu, X, Minus, Square, Copy, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { performWindowAction, tauriWindowControls, type WindowAction } from '../window-controls';
+export const isTitlebarInteractiveTarget = (target: EventTarget | null) =>
+  typeof Element !== 'undefined' && target instanceof Element && Boolean(target.closest('[data-sori-no-drag], button, a, input, select, textarea'));
+
 
 interface DesktopTitleBarProps {
   settings: AppSettings;
@@ -84,12 +87,17 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
         refreshMaximizedAfterNativeAction();
       }
     } catch (error) {
-      console.warn(`Window action ${action} failed:`, error);
+      console.error('[titlebar] native window action failed', {
+        action,
+        window: isTauri ? getCurrentWindow().label : 'browser-preview',
+        runtime: runtimeSource,
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+      });
     }
   };
 
-  const isInteractiveTarget = (target: EventTarget | null) =>
-    target instanceof HTMLElement && Boolean(target.closest('button, a, input, select, textarea'));
+  const isInteractiveTarget = isTitlebarInteractiveTarget;
 
   const handleTitlebarMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || isInteractiveTarget(event.target)) return;
@@ -102,7 +110,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
 
   return (
     <div role="toolbar" aria-label="Sori window title bar" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 select-none text-[13px] text-[#68635D]">
-      <button
+      <button data-sori-no-drag
         type="button"
         onClick={onToggleMobileSidebar}
         aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
@@ -131,7 +139,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
       </div>
 
       {/* Center: local preview action and runtime status */}
-      <div className="sori-titlebar__center-actions flex items-center gap-2.5 min-w-0">
+      <div data-sori-no-drag className="sori-titlebar__center-actions flex items-center gap-2.5 min-w-0">
         <button
           onClick={toggleListening}
           title="Browser preview only — daemon microphone capture is not connected"
@@ -156,7 +164,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
       </div>
 
       {/* Right: Quick Tools and native window controls */}
-      <div className="sori-titlebar__actions flex items-center gap-2">
+      <div data-sori-no-drag className="sori-titlebar__actions flex items-center gap-2">
         {/* Tray Toggle */}
         <button
           type="button"

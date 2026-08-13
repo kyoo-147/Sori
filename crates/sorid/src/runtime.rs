@@ -1,9 +1,9 @@
 //! Non-blocking daemon lifecycle state machine.
 
 use sori_core::{
-    AudioCaptureEngine, AudioChunk, AudioError, EnergyVadStub, EventBus, EventKind,
-    HistoryRepository, ModelError, ModelId, ModelProvider, ModelRoute, TextInjector, TextTarget,
-    Transcript, Vocabulary, VoiceActivity, VoiceActivityDetector, complete_dictation,
+    AudioCaptureEngine, AudioChunk, AudioError, EnergyVad, EventBus, EventKind, HistoryRepository,
+    ModelError, ModelId, ModelProvider, ModelRoute, TextInjector, TextTarget, Transcript,
+    Vocabulary, VoiceActivity, VoiceActivityDetector, complete_dictation,
     complete_dictation_with_vocabulary, event::serde_json_like::Value,
 };
 use std::sync::Arc;
@@ -36,7 +36,7 @@ pub struct DaemonRuntime<B> {
 }
 
 struct AudioSession {
-    vad: EnergyVadStub,
+    vad: EnergyVad,
     chunks: usize,
 }
 
@@ -121,14 +121,14 @@ impl<B: EventBus> DaemonRuntime<B> {
             }
         };
         self.audio_session = Some(AudioSession {
-            vad: EnergyVadStub::new(0.02),
+            vad: EnergyVad::new(0.02, 1),
             chunks: 0,
         });
         self.publish(EventKind::AudioStarted, Value::String(device.name));
         Ok(())
     }
 
-    /// Consume at most 64 chunks; ASR and insertion intentionally remain separate.
+    /// Drain the completed capture; ASR and insertion intentionally remain separate.
     pub fn stop_audio(&mut self, cancelled: bool) -> Result<usize, AudioError> {
         let mut session = self
             .audio_session
@@ -136,7 +136,13 @@ impl<B: EventBus> DaemonRuntime<B> {
             .ok_or_else(|| AudioError::Pipeline("no dictation session is running".into()))?;
         let mut captured = Vec::new();
         let result: Result<usize, AudioError> = (|| {
-            for _ in 0..64 {
+            self.audio
+                .as_mut()
+                .ok_or_else(|| {
+                    AudioError::BackendUnavailable("microphone capture is unavailable".into())
+                })?
+                .stop_capture();
+            loop {
                 let next = self
                     .audio
                     .as_mut()

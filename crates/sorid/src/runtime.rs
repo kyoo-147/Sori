@@ -91,6 +91,15 @@ impl<B: EventBus> DaemonRuntime<B> {
         self.audio.is_some()
     }
 
+    pub fn audio_readiness(&self) -> Result<(), AudioError> {
+        self.audio
+            .as_ref()
+            .ok_or_else(|| {
+                AudioError::BackendUnavailable("microphone capture is unavailable".into())
+            })?
+            .readiness()
+    }
+
     /// Start the real input stream. Success is reported only after CPAL starts it.
     pub fn start_audio(&mut self) -> Result<(), AudioError> {
         if self.audio_session.is_some() {

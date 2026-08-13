@@ -314,11 +314,10 @@ async fn main() -> Result<()> {
                         },
                         DoctorCheck {
                             name: "audio".into(),
-                            ok: runtime.audio_available(),
-                            detail: if runtime.audio_available() {
-                                "CPAL adapter configured; permission and device are verified when a session starts".into()
-                            } else {
-                                "unavailable: CPAL microphone adapter could not be configured".into()
+                            ok: runtime.audio_readiness().is_ok(),
+                            detail: match runtime.audio_readiness() {
+                                Ok(()) => "CPAL input device discovered and native input configuration is available; stream start remains a separate session check".into(),
+                                Err(error) => format!("unavailable: {error}"),
                             },
                         },
                         DoctorCheck {

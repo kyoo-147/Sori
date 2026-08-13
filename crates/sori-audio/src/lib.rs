@@ -224,6 +224,41 @@ impl CpalAudioEngine {
         self.pending.clear();
     }
 
+    /// Assemble one chunk while also honoring the controller's stop command.
+    fn next_chunk_until_stopped(
+        &mut self,
+        stop: &Receiver<()>,
+    ) -> Result<Option<AudioChunk>, AudioError> {
+        let packets = match self.packets.as_ref() {
+            Some(packets) => packets,
+            None => return Ok(None),
+        };
+        while self.pending.len() < self.config.chunk_size_samples as usize {
+            if stop.try_recv().is_ok() {
+                return Ok(None);
+            }
+            if let Some(errors) = &self.errors {
+                if let Ok(error) = errors.try_recv() {
+                    return Err(error);
+                }
+            }
+            match packets.recv_timeout(std::time::Duration::from_millis(10)) {
+                Ok(packet) => self.pending.extend(packet),
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => return Ok(None),
+            }
+        }
+        let samples = self
+            .pending
+            .drain(..self.config.chunk_size_samples as usize)
+            .collect();
+        Ok(Some(AudioChunk {
+            captured_at: OffsetDateTime::now_utc(),
+            format: self.input_format(),
+            samples,
+        }))
+    }
+
     pub fn is_running(&self) -> bool {
         self.stream.is_some()
     }
@@ -320,10 +355,21 @@ impl AudioEngine for CpalAudioController {
             Some(chunks) => chunks,
             None => return Ok(None),
         };
-        chunks
+        let result = chunks
             .recv()
             .map(|chunk| chunk.map(Some))
-            .map_err(|_| AudioError::Pipeline("audio worker stopped".into()))?
+            .map_err(|_| AudioError::Pipeline("audio worker stopped".into()));
+        if result.as_ref().is_ok_and(|item| item.is_err()) || result.is_err() {
+            self.state = CaptureState::Stopping;
+            self.commands.take();
+            self.chunks.take();
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+            self.session = None;
+            self.state = CaptureState::Idle;
+        }
+        result?
     }
 }
 
@@ -360,7 +406,7 @@ impl AudioCaptureEngine for CpalAudioController {
                 if command_rx.try_recv().is_ok() {
                     break;
                 }
-                match engine.next_chunk() {
+                match engine.next_chunk_until_stopped(&command_rx) {
                     Ok(Some(chunk)) => {
                         if chunk_tx.send(Ok(chunk)).is_err() {
                             break;
@@ -420,6 +466,18 @@ impl AudioCaptureEngine for CpalAudioController {
 
     fn is_running(&self) -> bool {
         self.state == CaptureState::Recording
+    }
+
+    fn readiness(&self) -> Result<(), AudioError> {
+        let provider = CpalAudioDeviceProvider::new();
+        let (_, device) = match self.config.device_id.as_deref() {
+            Some(id) => provider.device_by_id(id)?,
+            None => provider.default_input()?,
+        };
+        device
+            .default_input_config()
+            .map(|_| ())
+            .map_err(|error| AudioError::DeviceUnavailable(error.to_string()))
     }
 }
 
@@ -567,6 +625,27 @@ mod lifecycle_tests {
         assert!(matches!(error, AudioError::DeviceUnavailable(_)));
         assert_eq!(controller.state(), CaptureState::Idle);
         assert!(controller.session().is_none());
+    }
+
+    #[test]
+    fn stop_command_interrupts_silent_chunk_assembly() {
+        let config = CaptureConfig::default();
+        let (packet_tx, packet_rx) = mpsc::sync_channel(1);
+        let (error_tx, error_rx) = mpsc::sync_channel(1);
+        let (stop_tx, stop_rx) = mpsc::channel();
+        stop_tx.send(()).unwrap();
+        let mut engine = CpalAudioEngine {
+            provider: CpalAudioDeviceProvider::new(),
+            input_format: config.format.clone(),
+            config,
+            stream: None,
+            packets: Some(packet_rx),
+            errors: Some(error_rx),
+            pending: VecDeque::new(),
+        };
+        drop(packet_tx);
+        drop(error_tx);
+        assert!(engine.next_chunk_until_stopped(&stop_rx).unwrap().is_none());
     }
 
     #[test]

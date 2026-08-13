@@ -174,6 +174,11 @@ pub trait AudioCaptureEngine: AudioEngine + Send {
     fn start_capture(&mut self) -> Result<AudioDeviceInfo, AudioError>;
     fn stop_capture(&mut self);
     fn is_running(&self) -> bool;
+    /// Check configured-device discovery and native input configuration without
+    /// claiming that a recording stream has been started.
+    fn readiness(&self) -> Result<(), AudioError> {
+        Ok(())
+    }
 }
 
 pub trait AudioEngine {

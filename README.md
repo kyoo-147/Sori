@@ -730,7 +730,7 @@ npm run e2e:desktop-native
 
 To launch the native Windows desktop during development, start `sorid` first, then run `npm --prefix apps/desktop exec tauri dev`. The Tauri configuration starts the Vite frontend on port `1420`. For a local Whisper setup, configure `SORI_WHISPER_CPP_BIN` and `SORI_WHISPER_MODEL_DIR`, or use the restart-persistent Windows config at `%LOCALAPPDATA%\Sori\whisper.json`; see [`docs/backend/whisper-provider.md`](docs/backend/whisper-provider.md).
 
-Native validation must refuse a stale daemon on `127.0.0.1:17373`. The native shell E2E verifies real window geometry and shell controls, but does not by itself prove microphone capture, ASR from speech, or focused-app injection.
+Native validation must refuse a stale daemon on `127.0.0.1:17373`. The native shell E2E launches the real Tauri executable and uses foreground-PID-guarded mouse input to verify maximize/restore/minimize, nested SVG button routing, collapse, live sidebar resize, and close when Windows focus policy permits it. Focus/overlay conflicts are recorded as explicit `SKIP`; this does not prove microphone capture, ASR from speech, or focused-app injection.
 
 The current required local gate is:
 

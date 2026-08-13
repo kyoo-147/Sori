@@ -303,6 +303,13 @@ async fn main() -> Result<()> {
                         .map_err(|error| sori_ipc::IpcError::Transport(format!("capture diagnostics WAV write failed ({}): {error}", path.to_string_lossy())))?;
                     info!(path = %path.to_string_lossy(), "wrote captured audio diagnostics WAV");
                 }
+                if peak < 0.005 {
+                    tracing::warn!(sample_count, sample_rate, peak, rms, "captured signal is below audibility diagnostic threshold");
+                    Ok(Response::Error(sori_ipc::IpcErrorResponse {
+                        code: "capture_signal_unavailable".into(),
+                        detail: format!("captured signal is below audibility threshold: samples={sample_count}, rate={sample_rate}, peak={peak:.9}, rms={rms:.9}; verify the selected microphone and Windows permission"),
+                    }))
+                } else {
                 let route_config = handler_store.setting("resource.route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.unwrap_or_else(|| default_resource("route"));
                 let selected_model = route_config.get("activeModelId").and_then(|id| id.as_str()).unwrap_or(whisper_model.as_str());
                 let selected_model = selected_model.strip_prefix("whisper.cpp/").unwrap_or(selected_model);
@@ -324,6 +331,7 @@ async fn main() -> Result<()> {
                     .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but canonical dictation pipeline failed: {error}")))?;
                 if history_enabled { handler_store.try_retain_history(history_retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?; }
                 Ok(Response::Transcript(result.transcript))
+                }
                 })();
                 handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                 operation?

@@ -201,8 +201,18 @@ impl CpalAudioEngine {
             channels: supported.channels(),
             sample_format: SampleFormat::F32,
         };
-        self.input_format = self.config.format.clone();
         let stream_config: StreamConfig = supported.config();
+        tracing::info!(
+            device = %info.name,
+            native_sample_format = ?supported.sample_format(),
+            native_sample_rate = supported.sample_rate().0,
+            native_channels = supported.channels(),
+            configured_sample_rate = self.config.format.sample_rate_hz,
+            configured_channels = self.config.format.channels,
+            configured_sample_format = ?self.config.format.sample_format,
+            chunk_size_samples = self.config.chunk_size_samples,
+            "CPAL input configured"
+        );
         let (tx, rx) = mpsc::sync_channel(8);
         let (error_tx, error_rx) = mpsc::sync_channel(1);
         let channels = stream_config.channels as usize;
@@ -421,12 +431,16 @@ impl AudioCaptureEngine for CpalAudioController {
             };
             let format = engine.input_format();
             let _ = ready_tx.send(Ok((device, format)));
+            let mut emitted_chunks = 0usize;
+            let mut emitted_samples = 0usize;
             loop {
                 if command_rx.try_recv().is_ok() {
                     break;
                 }
                 match engine.next_chunk_until_stopped(&command_rx) {
                     Ok(Some(chunk)) => {
+                        emitted_chunks += 1;
+                        emitted_samples += chunk.samples.len();
                         if chunk_tx.send(Ok(chunk)).is_err() {
                             break;
                         }
@@ -440,7 +454,12 @@ impl AudioCaptureEngine for CpalAudioController {
                 }
             }
             engine.stop();
-            tracing::debug!(generation, "capture worker stopped");
+            tracing::debug!(
+                generation,
+                emitted_chunks,
+                emitted_samples,
+                "capture worker stopped"
+            );
         });
         let (device, format) = match ready_rx.recv() {
             Ok(Ok(value)) => value,
@@ -597,7 +616,10 @@ fn send_samples(data: &[f32], tx: &SyncSender<Packet>, channels: usize) {
             .collect()
     };
     let _ = tx.try_send(mono).map_err(|error| match error {
-        TrySendError::Full(_) | TrySendError::Disconnected(_) => {}
+        TrySendError::Full(_) => {
+            tracing::warn!("CPAL callback packet queue is full; dropping input packet")
+        }
+        TrySendError::Disconnected(_) => tracing::debug!("CPAL callback packet queue disconnected"),
     });
 }
 

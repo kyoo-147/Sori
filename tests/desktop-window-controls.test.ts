@@ -1,4 +1,4 @@
-import { isTitlebarInteractiveTarget } from '../apps/desktop/src/components/DesktopTitleBar.js';
+import { handleTitlebarMouseDownBoundary } from '../apps/desktop/src/components/DesktopTitleBar.js';
 describe('nested SVG titlebar event boundary', () => {
   it('does not start dragging when a nested Lucide SVG path activates an interactive control', async () => {
     class SvgPathElementLike {
@@ -21,12 +21,8 @@ describe('nested SVG titlebar event boundary', () => {
         startDragging: async () => void calls.push('drag'),
       };
 
-      expect(isTitlebarInteractiveTarget(target as unknown as EventTarget)).toBe(true);
-      if (!isTitlebarInteractiveTarget(target as unknown as EventTarget)) {
-        await performWindowAction(api, 'drag');
-      } else {
-        await performWindowAction(api, 'close');
-      }
+      handleTitlebarMouseDownBoundary(target as unknown as EventTarget, 0, () => void performWindowAction(api, 'drag'));
+      await performWindowAction(api, 'close');
 
       expect(calls).toEqual(['close']);
       expect(calls).not.toContain('drag');

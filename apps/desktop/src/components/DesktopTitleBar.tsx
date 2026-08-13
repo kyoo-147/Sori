@@ -7,6 +7,15 @@ import { performWindowAction, tauriWindowControls, type WindowAction } from '../
 export const isTitlebarInteractiveTarget = (target: EventTarget | null) =>
   typeof Element !== 'undefined' && target instanceof Element && Boolean(target.closest('[data-sori-no-drag], button, a, input, select, textarea'));
 
+export const handleTitlebarMouseDownBoundary = (
+  target: EventTarget | null,
+  button: number,
+  startDragging: () => void,
+) => {
+  if (button !== 0 || isTitlebarInteractiveTarget(target)) return;
+  startDragging();
+};
+
 
 interface DesktopTitleBarProps {
   settings: AppSettings;
@@ -100,8 +109,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   const isInteractiveTarget = isTitlebarInteractiveTarget;
 
   const handleTitlebarMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || isInteractiveTarget(event.target)) return;
-    void runWindowAction('drag');
+    handleTitlebarMouseDownBoundary(event.target, event.button, () => void runWindowAction('drag'));
   };
 
   const handleTitlebarDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {

@@ -1,3 +1,4 @@
+import { applySidebarLiveWidth } from '../apps/desktop/src/App.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -34,6 +35,9 @@ describe('desktop shell and truthful preview contracts', () => {
     expect(app).toContain('window.cancelAnimationFrame(resizeFrame.current)');
     expect(app).toContain('setSidebarWidth(resizeWidth.current);');
     expect(app).toContain('applyLiveWidth();');
+    expect(app).toContain('applyLiveWidth();');
+    expect(app).toContain('shellRef.current');
+    expect(app).not.toContain("document.documentElement.style.setProperty('--sori-sidebar-width-live'");
   });
 
   it('keeps the primary navigation labels explicit and stable', () => {
@@ -63,5 +67,14 @@ describe('desktop shell and truthful preview contracts', () => {
     expect(onboarding).not.toContain('successfully injected text');
     expect(runtime).toContain("this.control('dictation_start')");
     expect(runtime).toContain("this.call('dictation_stop'");
+  });
+  it('writes the live width to the shell ref before pointerup commits React state', () => {
+    const values = new Map<string, string>();
+    const sequence: string[] = [];
+    const shell = { style: { setProperty: (name: string, value: string) => { values.set(name, value); sequence.push('shell-style'); } } };
+    applySidebarLiveWidth(shell, 312);
+    sequence.push('pointerup');
+    expect(values.get('--sori-sidebar-width-live')).toBe('312px');
+    expect(sequence).toEqual(['shell-style', 'pointerup']);
   });
 });

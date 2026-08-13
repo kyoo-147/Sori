@@ -51,3 +51,9 @@ Additional validation:
 - `npm run e2e:desktop-native` — `SKIP`; the script built the real Tauri executable, then refused to attach because `127.0.0.1:17373` was already owned by an unknown daemon: `loopback IPC 127.0.0.1:17373 is already owned by a daemon; refusing to attach to an unknown process`.
 
 No native controls or resize interaction are claimed verified. The native script's executable build succeeded, but its guarded runtime evidence is SKIP due to endpoint ownership.
+
+## P0.2 correction
+
+The initial fallback integrator patch incorrectly wrote the live CSS variable on `document.documentElement`, while the shell owns the inline variable. The corrected implementation uses `shellRef` on `.sori-shell` and writes through `shellRef.current.style` in both RAF and stop paths. Duplicate document-level writes were removed.
+
+Regression coverage now invokes the exported live-width writer against a shell-like ref and records that the shell style mutation occurs before the simulated `pointerup` marker. The titlebar regression invokes the extracted production mouse-down boundary with a nested SVG-like target, asserting the drag callback is not called before the intended action.

@@ -6,7 +6,7 @@ use sori_core::{
     Vocabulary, VoiceActivity, VoiceActivityDetector, complete_dictation,
     complete_dictation_with_vocabulary, event::serde_json_like::Value,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,9 +30,10 @@ pub struct DaemonRuntime<B> {
     state: RuntimeState,
     events: B,
     provider: Option<Arc<dyn ModelProvider>>,
-    audio: Option<Box<dyn AudioCaptureEngine>>,
+    audio: Option<Arc<Mutex<Box<dyn AudioCaptureEngine>>>>,
     audio_session: Option<AudioSession>,
     captured_audio: Vec<AudioChunk>,
+    // Capture hardware is independently locked so status snapshots never wait on CPAL.
 }
 
 struct AudioSession {
@@ -68,7 +69,7 @@ impl<B: EventBus> DaemonRuntime<B> {
     }
 
     pub fn set_audio_engine(&mut self, engine: Box<dyn AudioCaptureEngine>) {
-        self.audio = Some(engine);
+        self.audio = Some(Arc::new(Mutex::new(engine)));
         self.publish_capability(
             "audio",
             true,
@@ -92,11 +93,12 @@ impl<B: EventBus> DaemonRuntime<B> {
     }
 
     pub fn audio_readiness(&self) -> Result<(), AudioError> {
-        self.audio
-            .as_ref()
-            .ok_or_else(|| {
-                AudioError::BackendUnavailable("microphone capture is unavailable".into())
-            })?
+        let audio = self.audio.as_ref().ok_or_else(|| {
+            AudioError::BackendUnavailable("microphone capture is unavailable".into())
+        })?;
+        audio
+            .lock()
+            .map_err(|_| AudioError::Pipeline("audio lock poisoned".into()))?
             .readiness()
     }
 
@@ -112,7 +114,10 @@ impl<B: EventBus> DaemonRuntime<B> {
             self.publish_capability("audio", false, error.to_string());
             return Err(error);
         }
-        let engine = self.audio.as_mut().expect("audio presence checked");
+        let audio = Arc::clone(self.audio.as_ref().expect("audio presence checked"));
+        let mut engine = audio
+            .lock()
+            .map_err(|_| AudioError::Pipeline("audio lock poisoned".into()))?;
         let device = match engine.start_capture() {
             Ok(device) => device,
             Err(error) => {
@@ -134,23 +139,16 @@ impl<B: EventBus> DaemonRuntime<B> {
             .audio_session
             .take()
             .ok_or_else(|| AudioError::Pipeline("no dictation session is running".into()))?;
+        let audio = self.audio.as_ref().map(Arc::clone).ok_or_else(|| {
+            AudioError::BackendUnavailable("microphone capture is unavailable".into())
+        })?;
+        let mut engine = audio
+            .lock()
+            .map_err(|_| AudioError::Pipeline("audio lock poisoned".into()))?;
         let mut captured = Vec::new();
         let result: Result<usize, AudioError> = (|| {
-            self.audio
-                .as_mut()
-                .ok_or_else(|| {
-                    AudioError::BackendUnavailable("microphone capture is unavailable".into())
-                })?
-                .stop_capture();
-            loop {
-                let next = self
-                    .audio
-                    .as_mut()
-                    .ok_or_else(|| {
-                        AudioError::BackendUnavailable("microphone capture is unavailable".into())
-                    })?
-                    .next_chunk()?;
-                let Some(chunk) = next else { break };
+            engine.stop_capture();
+            while let Some(chunk) = engine.next_chunk()? {
                 session.chunks += 1;
                 captured.push(chunk.clone());
                 self.publish(
@@ -168,18 +166,15 @@ impl<B: EventBus> DaemonRuntime<B> {
                     VoiceActivity::Silence | VoiceActivity::SpeechContinues => {}
                 }
             }
-            if let Some(engine) = self.audio.as_mut() {
-                engine.stop_capture();
-            }
+            engine.stop_capture();
             self.captured_audio = captured;
             Ok(session.chunks)
         })();
         if let Err(error) = &result {
-            if let Some(engine) = self.audio.as_mut() {
-                engine.stop_capture();
-            }
+            engine.stop_capture();
             self.publish(EventKind::AudioError, Value::String(error.to_string()));
         }
+        drop(engine);
         if cancelled {
             self.publish(EventKind::DictationCancelled, Value::Null);
         }

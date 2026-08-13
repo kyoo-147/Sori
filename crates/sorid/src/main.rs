@@ -182,7 +182,7 @@ async fn main() -> Result<()> {
         Err(error) => info!(detail = %error, "microphone adapter unavailable"),
     }
     daemon.publish_capability("asr", daemon.whisper_available(), whisper_detail.clone());
-    let runtime = Arc::new(Mutex::new(daemon));
+    let runtime = Arc::new(Mutex::new(Some(daemon)));
     let hotkey_runtime = Arc::clone(&runtime);
     let hotkey_model = store
         .setting("resource.route")?
@@ -203,8 +203,14 @@ async fn main() -> Result<()> {
         Arc::new(events.clone()),
         hotkey,
         Arc::new(move |event| {
-            if let Ok(mut runtime) = hotkey_runtime.lock() {
-                runtime.handle_hotkey(event, &hotkey_model);
+            if let Ok(mut slot) = hotkey_runtime.lock() {
+                if let Some(mut runtime) = slot.take() {
+                    drop(slot);
+                    runtime.handle_hotkey(event, &hotkey_model);
+                    if let Ok(mut slot) = hotkey_runtime.lock() {
+                        *slot = Some(runtime);
+                    }
+                }
             }
         }),
     );
@@ -234,13 +240,11 @@ async fn main() -> Result<()> {
     let handler_config = Arc::new(Mutex::new(config.clone()));
     let handler_privacy = Arc::new(Mutex::new(privacy_mode));
     let server_task = server.serve(move |request| {
-        let mut handler_config = handler_config
+        let config_snapshot = handler_config
             .lock()
-            .map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?;
-        let mut runtime = handler_runtime
-            .lock()
-            .map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
-        let mut privacy = handler_privacy
+            .map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?
+            .clone();
+        let privacy = *handler_privacy
             .lock()
             .map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))?;
         let response = match request {
@@ -264,12 +268,21 @@ async fn main() -> Result<()> {
                 code: "execution_unavailable".into(),
                 detail: format!("extension {id} command {command} was not executed: isolated extension host is not installed"),
             }),
-            Request::Status => Response::Status(status_response(&runtime, &handler_config, *privacy)),
+            Request::Status => {
+                let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                Response::Status(slot.as_ref().map(|runtime| status_response(runtime, &config_snapshot, privacy)).unwrap_or_else(|| busy_status_response(&config_snapshot, privacy)))
+            }
             Request::DictationStart => {
+                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let runtime = slot.as_mut().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 runtime.start_audio().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Response::Control(ControlResponse { accepted: true, detail: "microphone capture started".into() })
             }
             Request::DictationStop => {
+                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let mut runtime = slot.take().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
+                drop(slot);
+                let operation: std::result::Result<Response, sori_ipc::IpcError> = (|| {
                 let history_enabled = handler_store
                     .setting("history.enabled")
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
@@ -299,7 +312,10 @@ async fn main() -> Result<()> {
                 let result = runtime.complete_captured_dictation_with_vocabulary(&route, &mut injector, &target, history, &vocabulary)
                     .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but canonical dictation pipeline failed: {error}")))?;
                 if history_enabled { handler_store.try_retain_history(history_retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?; }
-                Response::Transcript(result.transcript)
+                Ok(Response::Transcript(result.transcript))
+                })();
+                handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
+                operation?
             }
             Request::VoiceEdit { selection, instruction, approved } => {
                 if !approved {
@@ -314,11 +330,20 @@ async fn main() -> Result<()> {
                 }
             }
             Request::DictationCancel => {
-                let chunks = runtime.stop_audio(true).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                let _ = runtime.take_captured_audio();
-                Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") })
+                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let mut runtime = slot.take().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
+                drop(slot);
+                let operation = (|| {
+                    let chunks = runtime.stop_audio(true).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                    let _ = runtime.take_captured_audio();
+                    Ok::<Response, sori_ipc::IpcError>(Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") }))
+                })();
+                handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
+                operation?
             }
             Request::Dictation { model, audio } => {
+                let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let runtime = slot.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 let transcript = runtime
                     .transcribe(&model, &audio)
                     .map_err(|error| sori_ipc::IpcError::Transport(error.to_string()))?;
@@ -351,9 +376,11 @@ async fn main() -> Result<()> {
                 Response::Control(ControlResponse { accepted: true, detail: format!("benchmark recommendation persisted for {}", model.0) })
             }
             Request::Doctor => {
+                let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let runtime = slot.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);
                 Response::Doctor(DoctorResponse {
-                    status: status_response(&runtime, &handler_config, *privacy),
+                    status: status_response(runtime, &config_snapshot, privacy),
                     checks: vec![
                         DoctorCheck {
                             name: "daemon".into(),
@@ -413,10 +440,10 @@ async fn main() -> Result<()> {
                     .unwrap_or(true);
                 Response::ConfigSummary(ConfigSummaryResponse {
                 profile: ProfileMode::Basic,
-                privacy: *privacy,
+                privacy,
                 history_enabled,
-                hotkey: handler_config.hotkey.binding.clone(),
-                route: route_summary(&handler_config),
+                hotkey: config_snapshot.hotkey.binding.clone(),
+                route: route_summary(&config_snapshot),
                 })
             }
             Request::RecentHistory { limit } => Response::RecentHistory(RecentHistoryResponse {
@@ -444,9 +471,9 @@ async fn main() -> Result<()> {
             Request::SetConfig { key, value } => {
                 validate_setting(&key, &value).map_err(sori_ipc::IpcError::Transport)?;
                 handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                if key == "hotkey.binding" { handler_config.hotkey.binding = value.as_str().unwrap().to_owned(); }
-                if key == "privacy.mode" { *privacy = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
-                if key == "route.policy" { let preset: sori_core::RoutePreset = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; handler_config.route = preset.policy(); }
+                if key == "hotkey.binding" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.hotkey.binding = value.as_str().unwrap().to_owned(); }
+                if key == "privacy.mode" { *handler_privacy.lock().map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))? = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
+                if key == "route.policy" { let preset: sori_core::RoutePreset = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.route = preset.policy(); }
                 Response::Control(ControlResponse { accepted: true, detail: format!("setting {key} persisted") })
             }
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
@@ -459,6 +486,8 @@ async fn main() -> Result<()> {
                     .collect(),
             }),
             Request::Pause => {
+                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let runtime = slot.as_mut().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 runtime
                     .pause()
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -468,6 +497,8 @@ async fn main() -> Result<()> {
                 })
             }
             Request::Resume => {
+                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                let runtime = slot.as_mut().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 runtime
                     .resume()
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -485,9 +516,12 @@ async fn main() -> Result<()> {
         signal = tokio::signal::ctrl_c() => { signal?; Ok(()) }
     };
     // Cleanup is deliberately performed even when the IPC server exits with an error.
-    let mut runtime = runtime
+    let mut runtime_slot = runtime
         .lock()
         .map_err(|_| anyhow::anyhow!("runtime lock poisoned"))?;
+    let runtime = runtime_slot
+        .as_mut()
+        .ok_or_else(|| anyhow::anyhow!("runtime operation still active"))?;
     if !matches!(runtime.state(), RuntimeState::ShuttingDown) {
         runtime.shutdown()?;
     }
@@ -596,6 +630,20 @@ fn route_summary(config: &DaemonConfig) -> RouteSummary {
         allow_cloud: config.route.allow_cloud,
         prefer_warm_runtime: config.route.prefer_warm_runtime,
         optimize_battery: config.route.optimize_battery,
+    }
+}
+
+fn busy_status_response(config: &DaemonConfig, privacy: PrivacyMode) -> StatusResponse {
+    StatusResponse {
+        protocol_version: PROTOCOL_VERSION,
+        daemon_version: env!("CARGO_PKG_VERSION").into(),
+        running: true,
+        activity: RuntimeActivity::Idle,
+        paused: false,
+        hotkey: config.hotkey.binding.clone(),
+        route: route_summary(config),
+        profile: ProfileMode::Basic,
+        privacy,
     }
 }
 

@@ -44,7 +44,16 @@ impl DaemonSupervisor {
             eprintln!("[sori] sorid is not bundled or configured at {}; desktop remains offline", path.display());
             return Ok(());
         }
-        let child = Command::new(&path)
+        let bundled_whisper = path
+            .parent()
+            .map(|parent| parent.join("whisper-runtime").join("whisper-cli.exe"));
+        let mut command = Command::new(&path);
+        if std::env::var_os("SORI_WHISPER_CPP_BIN").is_none() {
+            if let Some(executable) = bundled_whisper.filter(|candidate| candidate.is_file()) {
+                command.env("SORI_WHISPER_CPP_BIN", executable);
+            }
+        }
+        let child = command
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())

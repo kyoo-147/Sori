@@ -44,7 +44,7 @@ describe('desktop runtime IPC boundary', () => {
       return { Status: { running: true } } as T;
     }, () => true);
     await transport.request('status');
-    expect(calls).toEqual([['sori_ipc', { request: 'Status' }]]);
+    expect(calls).toEqual([['sori_ipc', { request: 'Status', request_id: 'ui-1' }]]);
   });
 
   it('does not hide a native daemon error behind a sequential HTTP retry', async () => {

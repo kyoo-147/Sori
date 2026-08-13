@@ -32,6 +32,11 @@ fn enforce_custom_window_frame(_window: &tauri::WebviewWindow) -> tauri::Result<
 }
 use serde_json::Value;
 use sori_ipc::{IpcClient, LocalIpcClient, Request};
+use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc, Mutex,
+};
 use tauri::Manager;
 
 /// Native command boundary for the UI. The daemon remains the owner of IPC,
@@ -40,28 +45,100 @@ mod commands {
     use super::*;
 
     const IPC_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+    const IPC_MAX_IN_FLIGHT: usize = 4;
+    static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
-    async fn forward_ipc(request: Value) -> Result<Value, String> {
-        let request: Request = serde_json::from_value(request).map_err(|error| error.to_string())?;
+    pub struct IpcRuntime {
+        permits: Arc<tokio::sync::Semaphore>,
+        cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    }
+
+    impl Default for IpcRuntime {
+        fn default() -> Self {
+            Self {
+                permits: Arc::new(tokio::sync::Semaphore::new(IPC_MAX_IN_FLIGHT)),
+                cancellations: Mutex::new(HashMap::new()),
+            }
+        }
+    }
+
+    fn normalize_request_id(value: Option<String>) -> String {
+        let value = value.unwrap_or_default();
+        if value.is_empty() {
+            format!("ipc-{}", NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed))
+        } else {
+            value.chars().take(128).collect()
+        }
+    }
+
+    async fn forward_ipc(request: Value, id: &str, runtime: &IpcRuntime) -> Result<Value, String> {
+        let request: Request =
+            serde_json::from_value(request).map_err(|error| error.to_string())?;
+        let permit = runtime
+            .permits
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "IPC busy: maximum concurrent requests reached".to_string())?;
+        let cancelled = Arc::new(AtomicBool::new(false));
+        runtime
+            .cancellations
+            .lock()
+            .map_err(|_| "IPC cancellation registry is unavailable".to_string())?
+            .insert(id.to_owned(), Arc::clone(&cancelled));
         let response = tokio::time::timeout(
             IPC_REQUEST_TIMEOUT,
             tauri::async_runtime::spawn_blocking(move || {
+                let _permit = permit;
+                if cancelled.load(Ordering::Acquire) {
+                    return Err("IPC request cancelled".to_string());
+                }
                 let client = LocalIpcClient::connect().map_err(|error| error.to_string())?;
                 client.request(request).map_err(|error| error.to_string())
             }),
-        ).await
-            .map_err(|_| format!("IPC request timed out after {:?}", IPC_REQUEST_TIMEOUT))?
-            .map_err(|error| format!("IPC worker failed: {error}"))??;
+        )
+        .await
+        .map_err(|_| format!("IPC request {id} timed out after {:?}", IPC_REQUEST_TIMEOUT))?
+        .map_err(|error| format!("IPC worker failed: {error}"))??;
         serde_json::to_value(response).map_err(|error| error.to_string())
     }
 
     #[tauri::command(rename = "sori_ipc")]
-    pub async fn sori_ipc(request: Value) -> Result<Value, String> {
+    pub async fn sori_ipc(
+        request: Value,
+        request_id: Option<String>,
+        state: tauri::State<'_, IpcRuntime>,
+    ) -> Result<Value, String> {
+        let id = normalize_request_id(request_id);
         let started = std::time::Instant::now();
-        let result = forward_ipc(request).await;
+        let result = forward_ipc(request, &id, &state).await;
+        if let Ok(mut active) = state.cancellations.lock() {
+            active.remove(&id);
+        }
         #[cfg(debug_assertions)]
-        eprintln!("[sori_ipc] completed in {:?}: {}", started.elapsed(), if result.is_ok() { "ok" } else { "error" });
+        eprintln!(
+            "[sori_ipc] request_id={id} completed_ms={} outcome={}",
+            started.elapsed().as_millis(),
+            if result.is_ok() { "ok" } else { "error" }
+        );
         result
+    }
+
+    #[tauri::command(rename = "sori_ipc_cancel")]
+    pub fn sori_ipc_cancel(
+        request_id: String,
+        state: tauri::State<'_, IpcRuntime>,
+    ) -> Result<bool, String> {
+        let active = state
+            .cancellations
+            .lock()
+            .map_err(|_| "IPC cancellation registry is unavailable".to_string())?;
+        Ok(active
+            .get(&request_id)
+            .map(|flag| {
+                flag.store(true, Ordering::Release);
+                true
+            })
+            .unwrap_or(false))
     }
 
     fn window_error(action: &str, error: impl std::fmt::Display) -> String {
@@ -141,8 +218,10 @@ pub fn run() {
             window.set_focus()?;
             Ok(())
         })
+        .manage(commands::IpcRuntime::default())
         .invoke_handler(tauri::generate_handler![
             commands::sori_ipc,
+            commands::sori_ipc_cancel,
             commands::window_minimize,
             commands::window_maximize,
             commands::window_restore,

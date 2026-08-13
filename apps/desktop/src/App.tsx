@@ -350,7 +350,7 @@ export default function App() {
             )}
 
             {(activeScreen === 'studio' || activeScreen === 'settings') && (
-              <StudioSettingsScreen settings={settings} setSettings={setSettings} />
+              <StudioSettingsScreen settings={settings} setSettings={setSettings} runtimeClient={runtimeClient} />
             )}
 
             {(activeScreen === 'dictionary' || activeScreen === 'snippets' || activeScreen === 'vocabulary') && (
@@ -364,7 +364,7 @@ export default function App() {
             )}
 
             {activeScreen === 'extensions' && (
-              <ExtensionsSandboxScreen extensions={extensions} setExtensions={setExtensions} />
+              <ExtensionsSandboxScreen runtimeClient={runtimeClient} />
             )}
 
             {(activeScreen === 'voice-id' || activeScreen === 'privacy') && (
@@ -402,7 +402,7 @@ export default function App() {
       {isSettingsModalOpen && (
           <div className="fixed inset-0 z-50 bg-[#1C1B1A]/20 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="w-full max-w-3xl relative animate-in fade-in zoom-in-95 duration-200">
-              <StudioSettingsScreen settings={settings} setSettings={setSettings} />
+              <StudioSettingsScreen settings={settings} setSettings={setSettings} runtimeClient={runtimeClient} />
               <button
                 type="button"
                 aria-label="Close settings"

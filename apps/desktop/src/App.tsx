@@ -78,7 +78,6 @@ export default function App() {
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
-  const dictionaryHydrated = useRef(false);
 
   const refreshRuntime = useCallback(async () => {
     const [statusResult, doctorResult, historyResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50)]);
@@ -120,14 +119,9 @@ export default function App() {
     runtimeClient.resource<Array<{ id: string; term: string; pronunciationHint?: string | null; category?: string }>>('vocabulary').then((result) => {
       if (result.error || !Array.isArray(result.data)) return;
       setDictionary(result.data.map((item) => ({ id: item.id, term: item.term, pronunciation: item.pronunciationHint ?? undefined, category: (item.category === 'library_framework' ? 'code' : item.category ?? 'custom') as DictionaryTerm['category'] })));
-      dictionaryHydrated.current = true;
     }).catch(() => undefined);
   }, [runtimeClient]);
 
-  useEffect(() => {
-    if (!dictionaryHydrated.current) return;
-    void runtimeClient.setResource('vocabulary', dictionary.map((item) => ({ id: item.id, term: item.term, pronunciationHint: item.pronunciation ?? null, category: item.category, language: 'en', createdAt: new Date().toISOString() })));
-  }, [dictionary, runtimeClient]);
 
   useEffect(() => {
     window.localStorage.setItem('sori.sidebar.collapsed', String(sidebarCollapsed));
@@ -365,6 +359,7 @@ export default function App() {
                 setDictionary={setDictionary}
                 snippets={snippets}
                 setSnippets={setSnippets}
+                runtimeClient={runtimeClient}
               />
             )}
 

@@ -27,7 +27,7 @@ pub struct StartupMetrics {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ReliabilityMetrics {
     pub failure_rate: f64,
-    pub fallback_rate: f64,
+    pub fallback_rate: Option<f64>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BenchmarkResult {
@@ -60,7 +60,9 @@ pub fn run_benchmark(
     input: &BenchmarkInput,
 ) -> Result<BenchmarkResult, ModelError> {
     let iterations = input.iterations.max(2);
-    let mut elapsed = Vec::with_capacity(iterations);
+    // Keep invocation order for cold/warm semantics; derive sorted samples only
+    // for order-independent percentile metrics.
+    let mut invocation_elapsed = Vec::with_capacity(iterations);
     let mut failures = 0usize;
     let mut transcript = None;
     for _ in 0..iterations {
@@ -68,22 +70,25 @@ pub fn run_benchmark(
         match provider.transcribe(&input.model, &input.audio) {
             Ok(value) => {
                 transcript = Some(value);
-                elapsed.push(started.elapsed().as_secs_f64() * 1000.0);
+                invocation_elapsed.push(started.elapsed().as_secs_f64() * 1000.0);
             }
             Err(_error) => failures += 1,
         }
     }
-    if elapsed.is_empty() {
+    if invocation_elapsed.is_empty() {
         return Err(ModelError::Inference("all benchmark samples failed".into()));
     }
-    elapsed.sort_by(f64::total_cmp);
+    let successful_samples = invocation_elapsed.len();
+    let mut sorted_elapsed = invocation_elapsed.clone();
+    sorted_elapsed.sort_by(f64::total_cmp);
     let percentile = |p: f64| {
-        elapsed[((p * (elapsed.len() - 1) as f64).round() as usize).min(elapsed.len() - 1)]
+        sorted_elapsed
+            [((p * (successful_samples - 1) as f64).round() as usize).min(successful_samples - 1)]
     };
-    let warm = if elapsed.len() > 1 {
-        &elapsed[1..]
+    let warm = if invocation_elapsed.len() > 1 {
+        &invocation_elapsed[1..]
     } else {
-        &elapsed[..]
+        &invocation_elapsed[..]
     };
     let warm_ms = warm.iter().sum::<f64>() / warm.len() as f64;
     let audio_seconds = input
@@ -94,7 +99,7 @@ pub fn run_benchmark(
                 / (chunk.format.sample_rate_hz as f64 * chunk.format.channels as f64)
         })
         .sum::<f64>();
-    let rtf = (elapsed.iter().sum::<f64>() / elapsed.len() as f64 / 1000.0)
+    let rtf = (invocation_elapsed.iter().sum::<f64>() / successful_samples as f64 / 1000.0)
         / audio_seconds.max(f64::MIN_POSITIVE);
     let accuracy = input.reference.as_deref().map(|reference| {
         let actual = transcript.as_ref().map(|t| t.text.as_str()).unwrap_or("");
@@ -106,7 +111,7 @@ pub fn run_benchmark(
     Ok(BenchmarkResult {
         model: input.model.clone(),
         provider: provider.provider_name().into(),
-        samples: elapsed.len(),
+        samples: successful_samples,
         latency: LatencyMetrics {
             p50_ms: percentile(0.50),
             p95_ms: percentile(0.95),
@@ -118,12 +123,14 @@ pub fn run_benchmark(
         },
         accuracy,
         startup: StartupMetrics {
-            cold_ms: elapsed[0],
+            cold_ms: invocation_elapsed[0],
             warm_ms,
         },
         reliability: ReliabilityMetrics {
+            // Failures use all attempted invocations as their denominator;
+            // percentile metrics use successful invocations only.
             failure_rate: failures as f64 / iterations as f64,
-            fallback_rate: 0.0,
+            fallback_rate: None,
         },
     })
 }
@@ -166,6 +173,44 @@ mod tests {
         fn transcribe(&self, _: &ModelId, _: &[AudioChunk]) -> Result<Transcript, ModelError> {
             Ok(Transcript::plain("hello world"))
         }
+    }
+    struct InvocationOrderedProvider {
+        calls: std::sync::atomic::AtomicUsize,
+    }
+    impl ModelProvider for InvocationOrderedProvider {
+        fn provider_name(&self) -> &'static str {
+            "ordered-test"
+        }
+        fn can_transcribe(&self, _: &ModelId) -> bool {
+            true
+        }
+        fn transcribe(&self, _: &ModelId, _: &[AudioChunk]) -> Result<Transcript, ModelError> {
+            let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if call == 0 {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            Ok(Transcript::plain("hello world"))
+        }
+    }
+    #[test]
+    fn cold_is_first_successful_invocation_not_fastest_sample() {
+        let r = run_benchmark(
+            &InvocationOrderedProvider {
+                calls: std::sync::atomic::AtomicUsize::new(0),
+            },
+            &BenchmarkInput {
+                model: ModelId::from("x"),
+                audio: audio(),
+                reference: None,
+                iterations: 3,
+            },
+        )
+        .unwrap();
+
+        assert!(r.startup.cold_ms > r.startup.warm_ms);
+        assert!(r.startup.cold_ms > r.latency.p50_ms);
     }
     fn audio() -> Vec<AudioChunk> {
         vec![AudioChunk {

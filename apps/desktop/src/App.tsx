@@ -79,6 +79,22 @@ export default function App() {
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
 
+  const refreshHistory = useCallback(async () => {
+    const result = await runtimeClient.history(50);
+    if (result.error !== null) return false;
+    setHistory(result.data.map((entry) => ({
+      id: entry.id,
+      timestamp: entry.at,
+      rawTranscript: entry.transcript.text,
+      processedText: entry.transcript.text,
+      activeApp: entry.active_app ?? 'Unknown target',
+      mode: 'dictation' as const,
+      latencyMs: 0,
+      modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
+    })));
+    return true;
+  }, [runtimeClient]);
+
   const refreshRuntime = useCallback(async () => {
     const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
     setRuntimeStatus(statusResult.data);
@@ -325,7 +341,7 @@ export default function App() {
             )}
 
             {activeScreen === 'transcripts' && (
-              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} />
+              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} />
             )}
 
             {activeScreen === 'onboarding' && (

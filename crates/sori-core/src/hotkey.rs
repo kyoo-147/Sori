@@ -378,11 +378,6 @@ impl<R: HotkeyRegistration> WindowsHotkeyBackend<R> {
         {
             return Ok(None);
         }
-        if message != windows_sys::Win32::UI::WindowsAndMessaging::WM_HOTKEY
-            || wparam != self.registration_id() as usize
-        {
-            return Ok(None);
-        }
         let packed = _lparam as u32;
         if (packed & 0xffff) != self.hotkey.modifiers
             || ((packed >> 16) & 0xffff) != self.hotkey.virtual_key
@@ -390,6 +385,10 @@ impl<R: HotkeyRegistration> WindowsHotkeyBackend<R> {
             return Ok(None);
         }
         self.handle_input(HotkeyInput::Pressed)
+    }
+
+    pub fn active_hotkey(&self) -> HotkeyCombination {
+        self.hotkey
     }
 
     fn registration_id(&self) -> i32 {
@@ -424,6 +423,15 @@ impl<R: HotkeyRegistration> HotkeyBackend for WindowsHotkeyBackend<R> {
         self.running = false;
         self.state = HotkeyStateMachine::new();
         Ok(())
+    }
+
+    fn recover(&mut self) -> Result<(), HotkeyError> {
+        // A stale owner may already have disappeared; recovery must not
+        // depend on UnregisterHotKey succeeding first.
+        let _ = self.registration.unregister();
+        self.running = false;
+        self.state = HotkeyStateMachine::new();
+        self.start()
     }
 }
 

@@ -21,7 +21,35 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tracing::info;
-struct RuntimeTarget;
+struct RuntimeTarget {
+    identity: Option<String>,
+}
+impl RuntimeTarget {
+    fn capture() -> Result<Self, String> {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{
+                GetForegroundWindow, GetWindowThreadProcessId,
+            };
+            let hwnd = unsafe { GetForegroundWindow() };
+            if hwnd.is_null() {
+                return Err("no foreground window is available for text insertion".into());
+            }
+            let mut pid = 0;
+            unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+            if pid == 0 {
+                return Err("foreground window has no owning process".into());
+            }
+            return Ok(Self {
+                identity: Some(format!("pid:{pid};hwnd:{:x}", hwnd as usize)),
+            });
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(Self { identity: None })
+        }
+    }
+}
 impl sori_core::TextTarget for RuntimeTarget {
     fn name(&self) -> &str {
         "foreground application"
@@ -34,6 +62,9 @@ impl sori_core::TextTarget for RuntimeTarget {
             supports_undo: false,
             requires_elevation: false,
         }
+    }
+    fn identity(&self) -> Option<&str> {
+        self.identity.as_deref()
     }
 }
 #[cfg(not(windows))]
@@ -421,7 +452,8 @@ async fn main() -> Result<()> {
                 let fallback = route_config.get("fallbackModelIds").and_then(|ids| ids.as_array()).map(|ids| ids.iter().filter_map(|id| id.as_str().map(|id| ModelId::from(id.strip_prefix("whisper.cpp/").unwrap_or(id)))).collect()).unwrap_or_default();
                 let route = ModelRoute { provider: "whisper.cpp".into(), model: ModelId::from(selected_model), reason: format!("{} policy", route_config.get("policy").and_then(|p| p.as_str()).unwrap_or("LocalFirst")), fallback };
                 let mut injector = RuntimeInjector::new();
-                let target = RuntimeTarget;
+                let target = RuntimeTarget::capture()
+                    .map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
                 let no_history = NoopHistory;
                 let history: &dyn HistoryRepository = if history_enabled { handler_store.as_ref() } else { &no_history };
                 let vocabulary = handler_store.setting("resource.vocabulary").ok().flatten()
@@ -579,9 +611,10 @@ async fn main() -> Result<()> {
                         },
                         DoctorCheck {
                             name: "hotkey".into(),
-                            ok: matches!(hotkey_status, HotkeyServiceStatus::Running),
+                            ok: matches!(hotkey_status, HotkeyServiceStatus::Running | HotkeyServiceStatus::RunningWithFallback),
                             detail: match &hotkey_status {
                                 HotkeyServiceStatus::Running => "Windows global hotkey listener registered; physical key proof requires a machine test".into(),
+                                HotkeyServiceStatus::RunningWithFallback => "requested global hotkey conflicted; fallback Ctrl+Alt+Space is registered; physical key proof requires a machine test".into(),
                                 HotkeyServiceStatus::Unsupported => "unsupported: native global hotkey adapter requires Windows".into(),
                                 HotkeyServiceStatus::Unavailable(detail) => format!("unavailable: {detail}"),
                             },

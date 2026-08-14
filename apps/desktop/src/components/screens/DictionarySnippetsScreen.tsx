@@ -1,13 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { DictionaryTerm, Snippet } from '../../types';
 import { RuntimeClient } from '../../runtime-client';
+import { DictionaryTerm } from '../../types';
 import { Check, ChevronDown, FileUp, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 
 interface DictionarySnippetsScreenProps {
   dictionary: DictionaryTerm[];
   setDictionary: React.Dispatch<React.SetStateAction<DictionaryTerm[]>>;
-  snippets: Snippet[];
-  setSnippets: React.Dispatch<React.SetStateAction<Snippet[]>>;
   runtimeClient: RuntimeClient;
 }
 type Category = DictionaryTerm['category'];

@@ -1057,6 +1057,29 @@ impl ModelProvider for WhisperCppProvider {
         };
         self.transcribe_audio(model, audio, OutputFormat::Text, &options)
     }
+    fn transcribe_with_context_and_cancellation(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        vocabulary: &sori_core::Vocabulary,
+        cancellation: &CancellationToken,
+    ) -> Result<Transcript, ModelError> {
+        if !self.can_transcribe(model) {
+            return Err(ModelError::Unsupported(model.clone()));
+        }
+        let prompt = vocabulary.prompt();
+        let options = ProcessOptions {
+            timeout: None,
+            cancelled: cancellation.flag(),
+        };
+        self.transcribe_audio_with_runner_options(
+            model,
+            audio,
+            OutputFormat::Text,
+            &VocabularyPromptRunner { prompt: &prompt },
+            &options,
+        )
+    }
     fn transcribe_with_context(
         &self,
         model: &ModelId,

@@ -49,7 +49,7 @@ pub use model::{
 pub use permission::{ActionRisk, PermissionDecision, PermissionRequest};
 pub use pipeline::{
     DictationResult, PipelineError, PipelinePlan, PipelineStage, complete_dictation,
-    complete_dictation_with_vocabulary, run_dictation,
+    complete_dictation_with_vocabulary, complete_dictation_with_vocabulary_options, run_dictation,
 };
 pub use routing::{
     RouteExplanation, RoutePolicy, RoutePreset, RouteSimulatorInput, RouteTarget, explain_route,

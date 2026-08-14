@@ -15,11 +15,11 @@ impl Default for DaemonSupervisor {
 }
 
 impl DaemonSupervisor {
-    fn whisper_runtime_diagnostic(configured: bool, bundled: bool) -> Option<&'static str> {
-        if configured || bundled {
+    fn whisper_runtime_diagnostic(configured: bool) -> Option<&'static str> {
+        if configured {
             None
         } else {
-            Some("optional Whisper runtime unavailable; configure SORI_WHISPER_CPP_BIN with a user-owned whisper-cli executable")
+            Some("Whisper runtime is external and user-owned; configure SORI_WHISPER_CPP_BIN or Sori's whisper.json when voice is required")
         }
     }
     fn daemon_path() -> PathBuf {
@@ -64,24 +64,11 @@ impl DaemonSupervisor {
             );
             return Ok(());
         }
-        let bundled_whisper = path
-            .parent()
-            .map(|parent| parent.join("whisper-runtime").join("whisper-cli.exe"));
         let configured_whisper = std::env::var_os("SORI_WHISPER_CPP_BIN").is_some();
-        let bundled_whisper_available = bundled_whisper
-            .as_ref()
-            .is_some_and(|candidate| candidate.is_file());
-        if let Some(message) =
-            Self::whisper_runtime_diagnostic(configured_whisper, bundled_whisper_available)
-        {
+        if let Some(message) = Self::whisper_runtime_diagnostic(configured_whisper) {
             eprintln!("[sori] {message}");
         }
         let mut command = Command::new(&path);
-        if std::env::var_os("SORI_WHISPER_CPP_BIN").is_none() {
-            if let Some(executable) = bundled_whisper.filter(|candidate| candidate.is_file()) {
-                command.env("SORI_WHISPER_CPP_BIN", executable);
-            }
-        }
         let child = command
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
@@ -429,9 +416,8 @@ mod titlebar_tests {
     }
     #[test]
     fn optional_whisper_runtime_never_blocks_desktop_startup() {
-        assert!(super::DaemonSupervisor::whisper_runtime_diagnostic(false, false).is_some());
-        assert!(super::DaemonSupervisor::whisper_runtime_diagnostic(true, false).is_none());
-        assert!(super::DaemonSupervisor::whisper_runtime_diagnostic(false, true).is_none());
+        assert!(super::DaemonSupervisor::whisper_runtime_diagnostic(false).is_some());
+        assert!(super::DaemonSupervisor::whisper_runtime_diagnostic(true).is_none());
     }
 
     #[test]

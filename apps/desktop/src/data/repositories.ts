@@ -41,7 +41,7 @@ export interface VocabularyRepository {
 }
 export interface ModelRepository {
   list(options?: ListOptions): Promise<DataState<ModelRecord[]>>;
-  select(id: string): Promise<DataState<{ modelId: string }>>;
+  select(id: string): Promise<DataState<{ activeModelId: string | null }>>;
 }
 export interface BenchmarkRepository { list(options?: ListOptions): Promise<DataState<BenchmarkResult[]>> }
 export interface ExtensionRepository { list(options?: ListOptions): Promise<DataState<ExtensionRecord[]>>; enable(id: string): Promise<DataState<ExtensionRecord>> }

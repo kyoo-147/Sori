@@ -12,7 +12,7 @@ export function createMockRepositories(): SoriRepositories {
     status: { get: (o) => state(fixtureStatus, o) },
     transcripts: { list: async (o = {}) => state(o.mode === 'ugly-data' ? [uglyTranscript] : filtered(fixtureTranscripts, o, (v) => `${v.appName} ${v.processedText ?? ''}`), o), get: async (id, o = {}) => state(fixtureTranscripts.find((v) => v.id === id) ?? fixtureTranscripts[0], o) },
     vocabulary: { list: async (o = {}) => state(filtered(terms, o, (v) => `${v.term} ${v.category}`), o), create: async (input) => { const created: VocabularyTerm = { ...input, id: `voc_${Date.now()}`, createdAt: new Date().toISOString() }; terms = [created, ...terms]; return state(created); }, remove: async (id) => { terms = terms.filter((v) => v.id !== id); return state({ id }); } },
-    models: { list: (o) => state(fixtureModels, o), select: async (id) => state({ modelId: id }) },
+    models: { list: (o) => state(fixtureModels, o), select: async (id) => state({ activeModelId: id }) },
     benchmarks: { list: (o) => state(fixtureBenchmarks, o) },
     extensions: { list: (o) => state(extensions, o), enable: async (id) => { const item = extensions.find((v) => v.id === id); if (!item) return { status: 'error', data: null, error: { code: 'not-found', message: 'Extension not found.', retryable: false }, source: 'mock' }; const next = { ...item, status: 'connected' as const }; extensions = extensions.map((v) => v.id === id ? next : v); return state(next); } },
     privacy: { get: (o) => state(fixturePrivacy, o) }, diagnostics: { run: (o) => state(fixtureDiagnostics, o) }, onboarding: { get: (o) => state(fixtureOnboarding, o) },

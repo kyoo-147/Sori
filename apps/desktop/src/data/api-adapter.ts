@@ -18,7 +18,7 @@ export function createApiRepositories(fetchImpl: JsonFetch = fetch): SoriReposit
     status: { get: (o) => get<AppStatus>('status', o) },
     transcripts: { list: (o) => get<Transcript[]>('transcripts', o), get: (id, o) => get<Transcript>(`transcripts/${encodeURIComponent(id)}`, o) },
     vocabulary: { list: (o) => get<VocabularyTerm[]>('vocabulary', o), create: () => unsupported<VocabularyTerm>('Creating vocabulary'), remove: () => unsupported<{ id: string }>('Deleting vocabulary') },
-    models: { list: (o) => get<ModelRecord[]>('models', o), select: () => unsupported<{ modelId: string }>('Selecting a model') },
+    models: { list: (o) => get<ModelRecord[]>('models', o), select: () => unsupported<{ activeModelId: string | null }>('Selecting a model') },
     benchmarks: { list: (o) => get<BenchmarkResult[]>('benchmarks', o) },
     extensions: { list: (o) => get<ExtensionRecord[]>('extensions', o), enable: () => unsupported<ExtensionRecord>('Enabling an extension') },
     privacy: { get: (o) => get<PrivacySettings>('privacy', o) }, diagnostics: { run: (o) => get<DiagnosticCheck[]>('diagnostics', o) }, onboarding: { get: (o) => get<OnboardingState>('onboarding', o) },

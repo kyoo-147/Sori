@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ActiveScreen,
   AppSettings,
-  ModelInfo,
+  ModelRecord,
   RouteRule,
   DictionaryTerm,
   Snippet,
@@ -13,7 +13,6 @@ import {
   AssistantVoiceSettings,
 } from './types';
 import {
-  initialModels,
   initialRoutes,
   initialDictionary,
   initialSnippets,
@@ -52,7 +51,8 @@ import { readPreference, readSettings, writePreference } from './preferences';
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
   const [settings, setSettings] = useState<AppSettings>(() => readSettings(defaultSettings));
-  const [models, setModels] = useState<ModelInfo[]>(initialModels);
+  const [models, setModels] = useState<ModelRecord[]>([]);
+  const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [routes, setRoutes] = useState<RouteRule[]>(initialRoutes);
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>(initialDictionary);
   const [snippets, setSnippets] = useState<Snippet[]>(initialSnippets);
@@ -80,11 +80,14 @@ export default function App() {
   const [runtimeClient] = useState(() => new RuntimeClient());
 
   const refreshRuntime = useCallback(async () => {
-    const [statusResult, doctorResult, historyResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50)]);
+    const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models<ModelRecord[]>(), runtimeClient.route<{ activeModelId: string | null }>()]);
     setRuntimeStatus(statusResult.data);
     setRuntimeSource(statusResult.source);
     setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
     setDoctorChecks(doctorResult.data);
+    if (!modelsResult.error && Array.isArray(modelsResult.data)) setModels(modelsResult.data);
+    if (!routeResult.error && routeResult.data && typeof routeResult.data.activeModelId === 'string') setActiveModelId(routeResult.data.activeModelId);
+    else if (!routeResult.error) setActiveModelId(null);
     if (historyResult.error === null) {
       setHistory(historyResult.data.map((entry) => ({
         id: entry.id,
@@ -184,8 +187,10 @@ export default function App() {
     setRuntimeError(result.error);
   };
 
-  // Active warm model
-  const activeWarmModel = models.find((m) => m.isWarm && m.isInstalled) || models[0];
+  // The daemon route and model registry are authoritative. A disconnected or
+  // stale route must not fall back to preview metadata.
+  const activeModel = models.find((model) => model.id === activeModelId && model.available);
+  const activeModelName = activeModel?.name ?? 'UNAVAILABLE';
 
   // Capture and ASR are owned by sorid. The UI never fabricates transcript success.
   const toggleListening = async () => {
@@ -215,8 +220,8 @@ export default function App() {
     setRuntimeError(result.error ?? (result.data.accepted ? null : result.data.detail));
   };
   const runBenchmark = async (fixture: BenchmarkFixture) => {
-    if (!activeWarmModel) return 'Benchmark unavailable: no active model is configured.';
-    const result = await runtimeClient.runBenchmark(activeWarmModel.id, fixture.audio, fixture.reference, 5);
+    if (!activeModel) return 'Benchmark unavailable: no available active model is configured.';
+    const result = await runtimeClient.runBenchmark(activeModel.id, fixture.audio, fixture.reference, 5);
     setRuntimeSource(result.source);
     if (result.error) { setRuntimeError(result.error); return `Benchmark unavailable: ${result.error}`; }
     const refreshError = await refreshBenchmarks();
@@ -235,7 +240,7 @@ export default function App() {
           toggleListening={toggleListening}
           trayOpen={trayOpen}
           setTrayOpen={setTrayOpen}
-          activeModelName={activeWarmModel.name}
+          activeModelName={activeModelName}
           runtimeSource={runtimeSource}
           runtimeStatus={runtimeStatus}
           runtimeError={runtimeError}
@@ -280,7 +285,7 @@ export default function App() {
             onClose={() => setTrayOpen(false)}
             settings={settings}
             setSettings={setSettings}
-            activeModelName={activeWarmModel.name}
+            activeModelName={activeModelName}
             runtimeSource={runtimeSource}
             runtimeStatus={runtimeStatus}
             onTogglePaused={() => setPaused(!runtimeStatus.paused)}
@@ -297,7 +302,7 @@ export default function App() {
             transcript=""
             interimTranscript={interimTranscript}
             activeApp={activeScreen === 'voice-edit' ? 'VS Code Selection' : 'VS Code (src/router.rs)'}
-            activeModel={activeWarmModel.name}
+            activeModel={activeModelName}
             errorMessage={errorMessage}
             onCloseError={() => setErrorMessage(null)}
           />
@@ -311,7 +316,7 @@ export default function App() {
                 toggleListening={toggleListening}
                 onNavigate={setActiveScreen}
                 history={history}
-                activeModelName={activeWarmModel.name}
+                activeModelName={activeModelName}
                 runtimeSource={runtimeSource}
                 runtimeActivity={runtimeStatus.activity}
               />
@@ -337,13 +342,14 @@ export default function App() {
             {activeScreen === 'models' && (
               <ModelManagerScreen
                 runtimeClient={runtimeClient}
+                onActiveModelChanged={setActiveModelId}
               />
             )}
 
             {(activeScreen === 'benchmark' || activeScreen === 'benchmarks') && (
               <BenchmarkScreen
                 benchmarkResults={benchmarkResults}
-                modelId={activeWarmModel?.id ?? null}
+                modelId={activeModel?.id ?? null}
                 onApplyPolicy={handleApplyRecommendedPolicy}
                 onRun={runBenchmark}
               />

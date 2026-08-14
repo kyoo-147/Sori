@@ -41,3 +41,15 @@ describe('RuntimeClient transcript deletion', () => {
     expect(result.data.accepted).toBe(false);
   });
 });
+
+describe('RuntimeClient model routing', () => {
+  it('writes the canonical activeModelId route field', async () => {
+    let operation = ''; let params: Record<string, unknown> | undefined;
+    const client = new RuntimeClient({ source: 'backend', request: async (name, values) => { operation = name; params = values; return { Resource: { resource: 'route', value: { activeModelId: 'daemon-model' } } }; } });
+    const result = await client.setActiveModel('daemon-model');
+    expect(operation).toBe('resource_set');
+    expect(params).toEqual({ resource: 'route', value: { activeModelId: 'daemon-model' } });
+    expect(result.data).toEqual({ activeModelId: 'daemon-model' });
+    expect(result.error).toBeNull();
+  });
+});

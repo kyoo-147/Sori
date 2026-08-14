@@ -4,10 +4,10 @@ import type { RuntimeClient } from '../../runtime-client';
 import type { ModelRecord } from '../../types';
 
 type RouteState = { activeModelId: string | null; policy: string; fallbackModelIds: string[] };
-interface Props { runtimeClient: RuntimeClient }
+interface Props { runtimeClient: RuntimeClient; onActiveModelChanged?: (modelId: string | null) => void }
 const policies = ['LocalFirst', 'Balanced', 'Performance', 'Battery', 'Privacy', 'CloudAllowed', 'NeverCloud'] as const;
 
-export const ModelManagerScreen: React.FC<Props> = ({ runtimeClient }) => {
+export const ModelManagerScreen: React.FC<Props> = ({ runtimeClient, onActiveModelChanged }) => {
   const [models, setModels] = useState<ModelRecord[]>([]);
   const [route, setRoute] = useState<RouteState | null>(null);
   const [location, setLocation] = useState<'local' | 'cloud'>('local');
@@ -20,14 +20,14 @@ export const ModelManagerScreen: React.FC<Props> = ({ runtimeClient }) => {
     const [modelsResult, routeResult] = await Promise.all([runtimeClient.models<ModelRecord[]>(), runtimeClient.route<RouteState>()]);
     if (modelsResult.error || routeResult.error) { setStatus('error'); setError(modelsResult.error ?? routeResult.error); return; }
     const nextModels = Array.isArray(modelsResult.data) ? modelsResult.data : [];
-    setModels(nextModels); setRoute(routeResult.data); setStatus(nextModels.length ? 'ready' : 'empty');
+    setModels(nextModels); setRoute(routeResult.data); onActiveModelChanged?.(routeResult.data.activeModelId ?? null); setStatus(nextModels.length ? 'ready' : 'empty');
   };
   useEffect(() => { void load(); }, []);
   const visible = useMemo(() => models.filter((model) => model.location === location), [models, location]);
   const selectModel = async (id: string) => {
     setSaving(true);
     const result = await runtimeClient.setActiveModel(id);
-    if (result.error) setError(result.error); else setRoute((current) => current ? { ...current, activeModelId: id } : current);
+    if (result.error) setError(result.error); else await load();
     setSaving(false);
   };
   const selectPolicy = async (policy: typeof policies[number]) => {

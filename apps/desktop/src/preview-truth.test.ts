@@ -19,8 +19,8 @@ describe('desktop preview truth contracts', () => {
     expect(overview).toContain('target focus and injection remain UNVERIFIED');
     expect(edit).toContain("target_identity: 'browser:selection'");
     expect(edit).toContain('Replace unavailable');
-    expect(titlebar).toContain('disabled={!runtimeConnected}');
-    expect(titlebar).toContain('Capture unavailable');
+    expect(titlebar).toContain('titlebarCaptureDisabled(runtimeSource)');
+    expect(titlebar).toContain('Dictation unavailable');
   });
 
   it('removes fabricated tray metrics and disables unwired profile actions', () => {

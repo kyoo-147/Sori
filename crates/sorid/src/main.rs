@@ -483,6 +483,15 @@ async fn main() -> Result<()> {
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Response::Resource(sori_ipc::ResourceResponse { resource, value })
             }
+            Request::DeleteHistory { id } => {
+                let deleted = handler_store
+                    .try_delete_history(id)
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if !deleted {
+                    return Err(sori_ipc::IpcError::Transport("history entry not found".into()));
+                }
+                Response::Control(ControlResponse { accepted: true, detail: "history entry deleted from SQLite".into() })
+            }
             Request::PurgeHistory => {
                 handler_store.try_purge_history().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Response::Control(ControlResponse { accepted: true, detail: "history purged from SQLite".into() })

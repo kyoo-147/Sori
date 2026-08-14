@@ -247,6 +247,21 @@ async fn canonical_ipc_exercises_success_cancellation_and_injection_fallback() {
                 .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Ok(Response::Transcript(result.transcript))
             }
+            Request::DeleteHistory { id } => {
+                let deleted = h
+                    .store
+                    .try_delete_history(id)
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if !deleted {
+                    return Err(sori_ipc::IpcError::Transport(
+                        "history entry not found".into(),
+                    ));
+                }
+                Ok(Response::Control(sori_ipc::ControlResponse {
+                    accepted: true,
+                    detail: "history entry deleted from SQLite".into(),
+                }))
+            }
             Request::PurgeHistory => {
                 h.store
                     .try_purge_history()

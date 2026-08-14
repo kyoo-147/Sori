@@ -12,8 +12,8 @@ export interface VoiceEditResponse { accepted: boolean; transformed_text: string
 export interface ExtensionManifest { id: string; name: string; version: string; description: string; entrypoint: string; permissions: string[]; license: string; license_url?: string | null; package_sha256?: string | null; }
 export interface ExtensionRecord { manifest: ExtensionManifest; state: 'enabled' | 'disabled' | 'error'; installed_at: number; updated_at: number; last_error?: string | null; }
 export type IpcRequest =
-  | 'Status' | 'Doctor' | 'ConfigSummary' | 'DictationStart' | 'DictationStop' | 'DictationCancel' | 'PurgeHistory' | 'Pause' | 'Resume' | 'ExtensionsList'
-  | { RecentEvents: { limit: number } } | { ResourceGet: { resource: string } } | { ResourceSet: { resource: string; value: unknown } } | { RecentHistory: { limit: number } } | { SetConfig: { key: string; value: unknown } } | { Dictation: { model: string; audio: AudioChunk[] } }
+  | 'Status' | 'Doctor' | 'ConfigSummary' | 'DictationStart' | 'DictationStop' | 'DictationCancel' | 'PurgeHistory' | 'DeleteHistory' | 'Pause' | 'Resume' | 'ExtensionsList'
+  | { RecentEvents: { limit: number } } | { ResourceGet: { resource: string } } | { ResourceSet: { resource: string; value: unknown } } | { RecentHistory: { limit: number } } | { DeleteHistory: { id: string } } | { SetConfig: { key: string; value: unknown } } | { Dictation: { model: string; audio: AudioChunk[] } }
   | { VoiceEdit: { selection: VoiceEditSelection; instruction: string; approved: boolean } }
   | { ExtensionInstall: { manifest: ExtensionManifest } } | { ExtensionEnable: { id: string } } | { ExtensionDisable: { id: string } } | { ExtensionUninstall: { id: string } } | { ExtensionInvoke: { id: string; command: string; input: unknown } }
   | { RunBenchmark: { model: string; audio: AudioChunk[]; reference: string | null; iterations: number } } | { RecentBenchmarks: { limit: number } } | { ApplyBenchmarkRecommendation: { model: string } };
@@ -29,13 +29,13 @@ export interface ControlResponse { accepted: boolean; detail: string; }
 export interface TranscriptResponse { language?: string | null; text: string; segments: unknown[]; }
 export interface IpcResponseMap { Status: StatusResponse; Doctor: DoctorResponse; ConfigSummary: ConfigSummaryResponse; RecentEvents: RecentEventsResponse; RecentHistory: RecentHistoryResponse; Resource: ResourceResponse; Control: ControlResponse; Transcript: TranscriptResponse; VoiceEdit: VoiceEditResponse; Extensions: { extensions: ExtensionRecord[] }; Benchmark: unknown; Error: { code: string; detail: string }; }
 export type IpcResponse = { [K in keyof IpcResponseMap]: { [P in K]: IpcResponseMap[K] } }[keyof IpcResponseMap];
-export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'recent_history' | 'resource_get' | 'resource_set' | 'purge_history' | 'set_config' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'voice_edit' | 'pause' | 'resume' | 'extensions_list' | 'extension_install' | 'extension_enable' | 'extension_disable' | 'extension_uninstall' | 'extension_invoke' | 'run_benchmark' | 'recent_benchmarks' | 'apply_benchmark_recommendation';
+export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'recent_events' | 'recent_history' | 'resource_get' | 'resource_set' | 'purge_history' | 'set_config' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'voice_edit' | 'pause' | 'resume' | 'extensions_list' | 'extension_install' | 'extension_enable' | 'extension_disable' | 'extension_uninstall' | 'extension_invoke' | 'run_benchmark' | 'recent_benchmarks' | 'apply_benchmark_recommendation' | 'delete_history';
 export function requestShape(operation: IpcOperation, params: Record<string, unknown> = {}): IpcRequest {
   switch (operation) {
     case 'status': return 'Status'; case 'doctor': return 'Doctor'; case 'config_summary': return 'ConfigSummary';
     case 'dictation_start': return 'DictationStart'; case 'dictation_stop': return 'DictationStop'; case 'dictation_cancel': return 'DictationCancel';
     case 'voice_edit': return { VoiceEdit: { selection: params.selection, instruction: String(params.instruction ?? ''), approved: params.approved === true } } as unknown as IpcRequest;
-    case 'purge_history': return 'PurgeHistory'; case 'pause': return 'Pause'; case 'resume': return 'Resume'; case 'extensions_list': return 'ExtensionsList';
+    case 'purge_history': return 'PurgeHistory'; case 'delete_history': return { DeleteHistory: { id: String(params.id ?? '') } }; case 'pause': return 'Pause'; case 'resume': return 'Resume'; case 'extensions_list': return 'ExtensionsList';
     case 'recent_events': return { RecentEvents: { limit: Number(params.limit ?? 20) } }; case 'resource_get': return { ResourceGet: { resource: String(params.resource ?? '') } };
     case 'resource_set': return { ResourceSet: { resource: String(params.resource ?? ''), value: params.value } }; case 'recent_history': return { RecentHistory: { limit: Number(params.limit ?? 20) } };
     case 'run_benchmark': return { RunBenchmark: { model: String(params.model ?? ''), audio: (params.audio ?? []) as AudioChunk[], reference: typeof params.reference === 'string' ? params.reference : null, iterations: Number(params.iterations ?? 5) } };

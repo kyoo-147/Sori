@@ -80,6 +80,13 @@ impl SqliteStore {
         Ok(())
     }
 
+    pub fn try_delete_history(&self, id: uuid::Uuid) -> Result<bool> {
+        let deleted = self
+            .connection()?
+            .execute("DELETE FROM history WHERE id = ?1", [id.to_string()])?;
+        Ok(deleted == 1)
+    }
+
     /// Keep the newest `limit` entries. Ordering is deterministic for equal timestamps.
     pub fn try_retain_history(&self, limit: usize) -> Result<usize> {
         let deleted = self.connection()?.execute(
@@ -402,6 +409,20 @@ mod tests {
         assert!(store.try_recent_history(20).unwrap().is_empty());
     }
 
+    #[test]
+    fn deleting_one_history_entry_preserves_other_entries() {
+        let database = NamedTempFile::new().unwrap();
+        let first = history(Uuid::new_v4(), "first");
+        let second = history(Uuid::new_v4(), "second");
+        let store = SqliteStore::open(database.path()).unwrap();
+        store.try_push_history(&first).unwrap();
+        store.try_push_history(&second).unwrap();
+        assert!(store.try_delete_history(first.id).unwrap());
+        assert!(!store.try_delete_history(first.id).unwrap());
+        assert_eq!(store.try_recent_history(20).unwrap(), vec![second]);
+    }
+
+    #[test]
     #[test]
     fn history_survives_reopen_and_retention_is_deterministic() {
         let database = NamedTempFile::new().unwrap();

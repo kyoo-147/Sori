@@ -59,6 +59,9 @@ pub enum Request {
         limit: u16,
     },
     PurgeHistory,
+    DeleteHistory {
+        id: Uuid,
+    },
     SetConfig {
         key: String,
         value: serde_json::Value,
@@ -580,7 +583,10 @@ impl Transport for MockTransport {
             Request::ResourceSet { resource, value } => {
                 Response::Resource(ResourceResponse { resource, value })
             }
-            Request::RecentHistory { .. } | Request::PurgeHistory | Request::SetConfig { .. } => {
+            Request::RecentHistory { .. }
+            | Request::PurgeHistory
+            | Request::DeleteHistory { .. }
+            | Request::SetConfig { .. } => {
                 return Err(IpcError::Transport(
                     "mock transport does not persist history/config".into(),
                 ));

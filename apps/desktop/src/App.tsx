@@ -318,7 +318,7 @@ export default function App() {
             )}
 
             {activeScreen === 'transcripts' && (
-              <TranscriptsScreen history={history} />
+              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} />
             )}
 
             {activeScreen === 'onboarding' && (

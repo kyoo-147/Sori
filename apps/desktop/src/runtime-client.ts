@@ -29,6 +29,7 @@ export class RuntimeClient {
   configSummary() { return this.call('config_summary', (v) => unwrap(v, 'config_summary') as unknown as ConfigSummaryResponse, null); }
   history(limit = 20) { return this.call('recent_history', mapHistory, [], { limit }); }
   async purgeHistory() { return this.control('purge_history'); }
+  async deleteHistory(id: string) { return this.control('delete_history', { id }); }
   async setConfig(key: string, value: unknown) { return this.control('set_config', { key, value }); }
   async dictationStart() { return this.control('dictation_start'); }
   async dictationStop() { return this.call('dictation_stop', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null); }
@@ -50,6 +51,6 @@ export class RuntimeClient {
   extensionDisable(id: string) { return this.control('extension_disable', { id }); }
   extensionUninstall(id: string) { return this.control('extension_uninstall', { id }); }
   extensionInstall(manifest: ExtensionManifest) { return this.control('extension_install', { manifest }); }
-  private async control(operation: IpcOperation, params?: Record<string, unknown>): Promise<RuntimeResult<ControlResponse>> { try { const value = await this.transport.request(operation, params); return { data: (responsePayload(value, 'Control') ?? { accepted: false, detail: 'IPC returned no control response' }) as ControlResponse, source: this.transport.source ?? 'backend', error: null }; } catch (error) { return { data: { accepted: false, detail: errorText(error) }, source: 'unavailable', error: errorText(error) }; } }
+  private async control(operation: IpcOperation, params?: Record<string, unknown>): Promise<RuntimeResult<ControlResponse>> { try { const value = await this.transport.request(operation, params); const ipcError = responsePayload(value, 'Error'); if (ipcError) throw new Error(`${ipcError.code}: ${ipcError.detail}`); return { data: (responsePayload(value, 'Control') ?? { accepted: false, detail: 'IPC returned no control response' }) as ControlResponse, source: this.transport.source ?? 'backend', error: null }; } catch (error) { return { data: { accepted: false, detail: errorText(error) }, source: 'unavailable', error: errorText(error) }; } }
   private async call<T>(operation: IpcOperation, mapper: (value: unknown) => T, fallback: T, params?: Record<string, unknown>): Promise<RuntimeResult<T>> { try { return { data: mapper(await this.transport.request(operation, params)), source: this.transport.source ?? 'backend', error: null }; } catch (error) { return { data: fallback, source: 'unavailable', error: errorText(error) }; } }
 }

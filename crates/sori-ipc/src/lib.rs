@@ -55,6 +55,17 @@ pub enum Request {
     },
     Doctor,
     ConfigSummary,
+    /// Enumerate the daemon's provider-owned model catalog and readiness.
+    Models,
+    ModelStatus {
+        model: ModelId,
+    },
+    ModelLoad {
+        model: ModelId,
+    },
+    ModelUnload {
+        model: ModelId,
+    },
     RecentHistory {
         limit: u16,
     },
@@ -103,6 +114,8 @@ pub enum Response {
     Status(StatusResponse),
     Doctor(DoctorResponse),
     ConfigSummary(ConfigSummaryResponse),
+    Models(ModelsResponse),
+    ModelStatus(ModelStatusResponse),
     RecentEvents(RecentEventsResponse),
     Resource(ResourceResponse),
     RecentHistory(RecentHistoryResponse),
@@ -165,6 +178,26 @@ pub struct ConfigSummaryResponse {
     pub history_enabled: bool,
     pub hotkey: String,
     pub route: RouteSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelsResponse {
+    pub provider: Option<String>,
+    pub available: bool,
+    pub models: Vec<ModelRecord>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelRecord {
+    pub manifest: sori_core::ModelManifest,
+    pub status: sori_core::RuntimeStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelStatusResponse {
+    pub provider: String,
+    pub status: sori_core::RuntimeStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -555,7 +588,11 @@ impl Transport for MockTransport {
             | Request::Dictation { .. }
             | Request::RunBenchmark { .. }
             | Request::RecentBenchmarks { .. }
-            | Request::ApplyBenchmarkRecommendation { .. } => {
+            | Request::ApplyBenchmarkRecommendation { .. }
+            | Request::Models
+            | Request::ModelStatus { .. }
+            | Request::ModelLoad { .. }
+            | Request::ModelUnload { .. } => {
                 return Err(IpcError::Transport(
                     "mock transport does not execute dictation".into(),
                 ));
@@ -625,6 +662,24 @@ impl Transport for MockTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_registry_lifecycle_contract_round_trips_and_preserves_errors() {
+        let request = Request::ModelLoad {
+            model: ModelId::from("ggml-base.en.bin"),
+        };
+        let encoded = serde_json::to_string(&request).unwrap();
+        assert!(
+            matches!(serde_json::from_str::<Request>(&encoded).unwrap(), Request::ModelLoad { model } if model.0 == "ggml-base.en.bin")
+        );
+        let response = Response::Error(IpcErrorResponse {
+            code: "model_unavailable".into(),
+            detail: "whisper.cpp executable was not found".into(),
+        });
+        let decoded: Response =
+            serde_json::from_str(&serde_json::to_string(&response).unwrap()).unwrap();
+        assert_eq!(decoded, response);
+    }
 
     #[test]
     fn benchmark_recommendation_request_and_route_response_are_json_contracts() {

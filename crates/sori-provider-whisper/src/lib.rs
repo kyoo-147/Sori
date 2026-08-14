@@ -961,6 +961,24 @@ impl ModelProvider for WhisperCppProvider {
     fn can_transcribe(&self, model: &ModelId) -> bool {
         self.manifests.iter().any(|manifest| &manifest.id == model)
     }
+    fn runtime_status(&self, model: &ModelId) -> RuntimeStatus {
+        let status = self.status(model);
+        RuntimeStatus {
+            model: model.clone(),
+            installed: status.model_path.is_some(),
+            loaded: self.is_loaded(model),
+            warm: self.is_warm(model),
+            memory_bytes: None,
+            backend: Some(PROVIDER_NAME.into()),
+        }
+    }
+    fn load(&self, model: &ModelId) -> Result<(), ModelError> {
+        WhisperCppProvider::load(self, model)
+    }
+    fn unload(&self, model: &ModelId) -> Result<(), ModelError> {
+        self.unload(model);
+        Ok(())
+    }
     fn transcribe(&self, model: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError> {
         if !self.can_transcribe(model) {
             return Err(ModelError::Unsupported(model.clone()));
@@ -1489,6 +1507,30 @@ mod tests {
             },
             samples: vec![0.0],
         }
+    }
+
+    #[test]
+    fn empty_model_directory_is_truthfully_empty() {
+        let root = std::env::temp_dir().join(format!("sori-whisper-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let provider = WhisperCppProvider::from_config(
+            WhisperCppConfig::new("missing", Some(root.clone())),
+            vec![],
+        );
+        assert!(provider.discover_models().unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_model_directory_is_an_explicit_discovery_error() {
+        let provider =
+            WhisperCppProvider::from_config(WhisperCppConfig::new("missing", None), vec![]);
+        let error = provider.discover_models().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("model directory is not configured")
+        );
     }
 
     #[test]

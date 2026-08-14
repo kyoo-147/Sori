@@ -109,6 +109,29 @@ pub trait ModelProvider: Send + Sync {
         &[]
     }
     fn can_transcribe(&self, model: &ModelId) -> bool;
+    /// Report provider-owned lifecycle state without overstating native inference readiness.
+    fn runtime_status(&self, model: &ModelId) -> RuntimeStatus {
+        RuntimeStatus {
+            model: model.clone(),
+            installed: self.can_transcribe(model),
+            loaded: false,
+            warm: false,
+            memory_bytes: None,
+            backend: Some(self.provider_name().to_owned()),
+        }
+    }
+    fn load(&self, _model: &ModelId) -> Result<(), ModelError> {
+        Err(ModelError::Inference(format!(
+            "provider {} does not support model loading",
+            self.provider_name()
+        )))
+    }
+    fn unload(&self, _model: &ModelId) -> Result<(), ModelError> {
+        Err(ModelError::Inference(format!(
+            "provider {} does not support model unloading",
+            self.provider_name()
+        )))
+    }
     fn transcribe(&self, model: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError>;
     fn transcribe_with_context(
         &self,

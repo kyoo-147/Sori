@@ -1,9 +1,9 @@
 # ASR runtime/model delivery report
 
-Date: 2026-08-13  
-Branch: `worker-b/asr-runtime-models`  
-PR: https://github.com/kyoo-147/Sori/pull/101  
-Commit: `23d649c`
+Date: 2026-08-14
+Branch: `fm/product-ws-c-whisper-native-runtime`
+PR: https://github.com/kyoo-147/Sori/pull/134
+Implementation commit: `6a7f5ed`
 
 ## Delivered
 
@@ -15,6 +15,9 @@ Commit: `23d649c`
 - Preserved direct `Command` invocation, model-directory containment checks,
   timeout/cancellation handling, output parsing, temporary-file cleanup, and
   explicit missing-prerequisite failures.
+- Hardened process-spec resolution so configured model paths are verified
+  through canonical model-directory containment before sidecar launch, while
+  preserving manifest-backed fake-runner seams for deterministic tests.
 - Added deterministic registry and lifecycle tests.
 - Documented upstream patterns, license evidence, and the packaging boundary in
   `docs/backend/whisper-provider.md`.
@@ -23,12 +26,12 @@ Commit: `23d649c`
 
 Commands run from the repository root:
 
-- `cargo fmt --all` — PASS
-- `cargo test --workspace` — PASS: all workspace tests passed; one real Whisper
+- `cargo fmt --all --check` — PASS
+- `cargo test -p sori-provider-whisper` — PASS: 17 passed, 1 real Whisper
   fixture test is intentionally ignored because prerequisites were absent.
 - `cargo check -p sorid` — PASS
 - `git diff --check` — PASS
-- `git status --short --branch` — clean after delivery
+- `git status --short --branch` — PASS after commit; branch pushed for PR #134
 
 The explicit real-process gate is
 `cargo test -p sori-provider-whisper real_fixture_transcription_smoke -- --ignored`.

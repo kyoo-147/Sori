@@ -423,7 +423,7 @@ impl WhisperCppProvider {
             })?;
             let file = fs::canonicalize(&path).map_err(|e| {
                 ModelError::Inference(format!(
-                    "whisper.cpp model file is unavailable ({}): {e}",
+                    "whisper.cpp model file does not exist ({}): {e}",
                     path.display()
                 ))
             })?;
@@ -520,7 +520,12 @@ impl WhisperCppProvider {
         if !self.can_transcribe(model) {
             return Err(ModelError::Unsupported(model.clone()));
         }
-        let model_path = self.model_path(model);
+        let model_path = if self.model_dir.is_some() {
+            self.verified_model_path(model)?;
+            self.model_path(model)
+        } else {
+            self.model_path(model)
+        };
         let candidate = Path::new(&model.0);
         if candidate.is_absolute()
             || candidate.components().any(|c| {
@@ -533,12 +538,6 @@ impl WhisperCppProvider {
             return Err(ModelError::Inference(format!(
                 "invalid whisper.cpp model path: {}",
                 model.0
-            )));
-        }
-        if self.model_dir.is_some() && !model_path.is_file() {
-            return Err(ModelError::Inference(format!(
-                "whisper.cpp model file does not exist: {}",
-                model_path.display()
             )));
         }
         let (flag, _) = format.arguments();

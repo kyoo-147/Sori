@@ -3,9 +3,7 @@ import {
   ActiveScreen,
   AppSettings,
   ModelRecord,
-  RouteRule,
   DictionaryTerm,
-  Snippet,
   HistoryItem,
   BenchmarkResult,
   VoiceProfile,
@@ -13,9 +11,6 @@ import {
 } from './types';
 import { mapBenchmarkResult, type BackendBenchmarkResult } from './benchmark-view-model';
 import {
-  initialRoutes,
-  initialSnippets,
-  initialBenchmarkResults,
   defaultSettings,
   defaultVoiceProfile,
   defaultAssistantVoice,
@@ -51,9 +46,7 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(() => readSettings(defaultSettings));
   const [models, setModels] = useState<ModelRecord[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
-  const [routes, setRoutes] = useState<RouteRule[]>(initialRoutes);
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>([]);
-  const [snippets, setSnippets] = useState<Snippet[]>(initialSnippets);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
@@ -294,7 +287,6 @@ export default function App() {
             isOpen={trayOpen}
             onClose={() => setTrayOpen(false)}
             settings={settings}
-            setSettings={setSettings}
             activeModelName={activeModelName}
             runtimeSource={runtimeSource}
             runtimeStatus={runtimeStatus}
@@ -311,7 +303,7 @@ export default function App() {
             isListening={isListening}
             transcript=""
             interimTranscript={interimTranscript}
-            activeApp={activeScreen === 'voice-edit' ? 'VS Code Selection' : 'VS Code (src/router.rs)'}
+            activeApp="UNAVAILABLE · browser preview has no focused target"
             activeModel={activeModelName}
             errorMessage={errorMessage}
             onCloseError={() => setErrorMessage(null)}
@@ -347,7 +339,7 @@ export default function App() {
               />
             )}
 
-            {activeScreen === 'voice-edit' && <VoiceEditScreen settings={settings} runtimeSource={runtimeSource} runtimeClient={runtimeClient} />}
+            {activeScreen === 'voice-edit' && <VoiceEditScreen runtimeSource={runtimeSource} runtimeClient={runtimeClient} />}
 
             {activeScreen === 'models' && (
               <ModelManagerScreen
@@ -373,8 +365,6 @@ export default function App() {
               <DictionarySnippetsScreen
                 dictionary={dictionary}
                 setDictionary={setDictionary}
-                snippets={snippets}
-                setSnippets={setSnippets}
                 runtimeClient={runtimeClient}
               />
             )}

@@ -48,7 +48,7 @@ export const FirstRunOnboardingScreen: React.FC<FirstRunOnboardingScreenProps> =
   const audioCheck = checkFor(doctorChecks, ['audio', 'microphone']);
   const hotkeyCheck = checkFor(doctorChecks, ['hotkey']);
   const injectionCheck = checkFor(doctorChecks, ['text-injection']);
-  const daemonReady = runtimeStatus.daemon === 'running' && runtimeSource !== 'unavailable';
+  const daemonReady = runtimeStatus.daemon === 'running' && (runtimeSource === 'native' || runtimeSource === 'backend');
 
   const refreshChecks = useCallback(async (step: number) => {
     setStep(step, 'checking');

@@ -17,7 +17,6 @@ interface TrayQuickControlsProps {
   isOpen: boolean;
   onClose: () => void;
   settings: AppSettings;
-  setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
   activeModelName: string;
   onNavigate: (screen: any) => void;
   runtimeSource: RuntimeSource;
@@ -29,7 +28,6 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
   isOpen,
   onClose,
   settings,
-  setSettings,
   activeModelName,
   onNavigate,
   runtimeSource,
@@ -69,14 +67,14 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
             <Flame className="w-3.5 h-3.5 text-[#98928A]" />
             Warm Model
           </span>
-          <span className="font-mono text-[#4E7A61] font-medium">{activeModelName}</span>
+          <span className="font-mono text-[#9A7442] font-medium">{activeModelName === 'UNAVAILABLE' ? 'UNVERIFIED' : activeModelName}</span>
         </div>
         <div className="flex items-center justify-between text-xs">
           <span className="text-[#68635D] flex items-center gap-1.5">
             <Activity className="w-3.5 h-3.5 text-[#98928A]" />
             Latency (p50)
           </span>
-          <span className="font-mono text-[#1C1B19]">65ms (Local CUDA)</span>
+          <span className="font-mono text-[#9A7442]">UNVERIFIED</span>
         </div>
       </div>
 
@@ -92,7 +90,9 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
               type="button"
               key={prof}
               aria-pressed={settings.activeProfile === prof}
-              onClick={() => setSettings((prev) => ({ ...prev, activeProfile: prof }))}
+              onClick={() => undefined}
+              disabled
+              title="Needs Wiring: profile persistence is not exposed by canonical IPC"
               className={`px-2.5 py-1.5 rounded-[10px] text-xs font-medium flex items-center justify-between transition-all ${
                 settings.activeProfile === prof
                   ? 'bg-[rgba(221,217,211,0.46)] text-[#1C1B19] border border-[rgba(91,84,77,0.15)] font-semibold shadow-2xs'
@@ -119,7 +119,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
             <Cpu className="w-3.5 h-3.5 text-[#98928A]" />
             Model Manager & Routing
           </span>
-          <span className="text-[10px] text-[#98928A] font-mono">5 Models</span>
+          <span className="text-[10px] text-[#9A7442] font-mono">Registry required</span>
         </button>
 
         <button

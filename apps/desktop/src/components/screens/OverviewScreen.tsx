@@ -29,7 +29,7 @@ const stateCopy: Record<CaptureState, { label: string; detail: string }> = {
 
 export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isListening, toggleListening, onNavigate, history, activeModelName, runtimeSource = 'unavailable', runtimeActivity = 'error' }) => {
   const [stateOverride, setStateOverride] = useState<CaptureState | null>(null);
-  const [target, setTarget] = useState<'VS Code' | 'Terminal' | 'Slack'>('VS Code');
+  const target = 'Unavailable';
   const [preview, setPreview] = useState('Project Update\n\nThe focused target is ready for a local capture.');
   const state: CaptureState = stateOverride ?? (isListening ? 'listening' : runtimeActivity === 'processing' ? 'processing' : runtimeSource === 'unavailable' ? 'injection-error' : 'ready');
   const copy = stateCopy[state];
@@ -68,19 +68,17 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[rgba(92,84,75,0.08)] pb-4">
             <div className="flex gap-3">
               <div className="rounded-xl bg-[#ECEEEB] p-2.5 text-[#6E7A80]"><Target className="h-5 w-5" /></div>
-              <div><h2 className="sori-section-heading">Focused target window</h2><p className="sori-meta-text mt-1">{target} · writable editor preview</p></div>
+              <div><h2 className="sori-section-heading">Focused target window</h2><p className="sori-meta-text mt-1">Focused-app detection is UNAVAILABLE in this surface.</p></div>
             </div>
             <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${state === 'ready' ? 'bg-[#EAF3ED] text-[#4E7A61]' : state === 'injection-error' ? 'bg-[#FAEDEA] text-[#A75850]' : 'bg-[#F5EEDC] text-[#9A7442]'}`}>
               {copy.label}
             </span>
           </div>
 
-          <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Focused target">
-            {(['VS Code', 'Terminal', 'Slack'] as const).map((name) => <button key={name} type="button" aria-pressed={target === name} onClick={() => setTarget(name)} className={`sori-tactile-btn rounded-[10px] px-3 py-1.5 text-xs ${target === name ? 'sori-selected-neutral' : ''}`}>{name}</button>)}
-          </div>
+          <div className="mt-5 rounded-[10px] border border-[#EBD9A8] bg-[#FFF7E6] px-3 py-2 text-xs text-[#6B552C]">Unavailable: native focused-window identity and target selection are not exposed by the canonical IPC contract.</div>
           <div className="mt-4 overflow-hidden rounded-[14px] border border-[rgba(92,84,75,0.12)] bg-[#FFFDF9]">
-            <div className="flex items-center justify-between border-b border-[rgba(92,84,75,0.08)] px-4 py-3 text-[11px] text-[#98928A]"><span className="font-mono">{target === 'Terminal' ? 'sori-daemon — local' : target === 'Slack' ? '# engineering' : 'src/project-update.md'}</span><span>{state === 'listening' ? 'Input level active' : 'Preview only'}</span></div>
-            <textarea value={preview} onChange={(event) => setPreview(event.target.value)} aria-label="Focused editor preview" className="min-h-[210px] w-full resize-y border-0 bg-transparent p-5 text-sm leading-7 text-[#1C1B19] outline-none" />
+            <div className="flex items-center justify-between border-b border-[rgba(92,84,75,0.08)] px-4 py-3 text-[11px] text-[#98928A]"><span className="font-mono">Sori preview · no native target</span><span>{state === 'listening' ? 'Daemon capture active' : 'Preview only'}</span></div>
+            <textarea value={preview} readOnly aria-label="Focused editor preview unavailable" className="min-h-[210px] w-full resize-y border-0 bg-transparent p-5 text-sm leading-7 text-[#68635D] outline-none" />
             <div className="flex items-center justify-between border-t border-[rgba(92,84,75,0.08)] px-4 py-3 text-xs text-[#68635D]"><span className="flex items-center gap-2"><Activity className="h-4 w-4 text-[#6E7A80]" />{copy.detail}</span><span className="font-mono">{settings.hotkey}</span></div>
           </div>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">

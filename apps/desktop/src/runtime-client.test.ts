@@ -72,3 +72,20 @@ describe('RuntimeClient canonical model registry', () => {
     expect(result.error).toContain('not configured');
   });
 });
+
+describe('RuntimeClient query errors', () => {
+  it('surfaces daemon Error responses for status and does not map them as unavailable success', async () => {
+    const client = new RuntimeClient(transport({ Error: { code: 'daemon', detail: 'status unavailable' } }));
+    const result = await client.status();
+    expect(result.data.daemon).toBe('unavailable');
+    expect(result.source).toBe('unavailable');
+    expect(result.error).toContain('status unavailable');
+  });
+
+  it('surfaces daemon Error responses for history queries', async () => {
+    const client = new RuntimeClient(transport({ Error: { code: 'storage', detail: 'SQLite is locked' } }));
+    const result = await client.history();
+    expect(result.data).toEqual([]);
+    expect(result.error).toContain('SQLite is locked');
+  });
+});

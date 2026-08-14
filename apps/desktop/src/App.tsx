@@ -6,7 +6,6 @@ import {
   RouteRule,
   DictionaryTerm,
   Snippet,
-  ExtensionItem,
   HistoryItem,
   BenchmarkResult,
   VoiceProfile,
@@ -14,9 +13,7 @@ import {
 } from './types';
 import {
   initialRoutes,
-  initialDictionary,
   initialSnippets,
-  initialExtensions,
   initialBenchmarkResults,
   defaultSettings,
   defaultVoiceProfile,
@@ -46,7 +43,7 @@ export const applySidebarLiveWidth = (shell: Pick<HTMLElement, 'style'>, width: 
 };
 import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
 import type { BenchmarkFixture } from './benchmark-fixture';
-import { readPreference, readSettings, writePreference } from './preferences';
+import { readSettings, writePreference } from './preferences';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
@@ -54,9 +51,8 @@ export default function App() {
   const [models, setModels] = useState<ModelRecord[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [routes, setRoutes] = useState<RouteRule[]>(initialRoutes);
-  const [dictionary, setDictionary] = useState<DictionaryTerm[]>(initialDictionary);
+  const [dictionary, setDictionary] = useState<DictionaryTerm[]>([]);
   const [snippets, setSnippets] = useState<Snippet[]>(initialSnippets);
-  const [extensions, setExtensions] = useState<ExtensionItem[]>(() => readPreference('extensions', initialExtensions));
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
@@ -146,10 +142,6 @@ export default function App() {
     window.localStorage.setItem('sori.sidebar.collapsed', String(sidebarCollapsed));
     window.localStorage.setItem('sori.sidebar.width', String(sidebarWidth));
   }, [sidebarCollapsed, sidebarWidth]);
-
-  useEffect(() => {
-    writePreference('extensions', extensions);
-  }, [extensions]);
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     if (sidebarCollapsed) return;

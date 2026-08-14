@@ -1,4 +1,5 @@
-import { requestShape, responsePayload, type ConfigSummaryResponse, type ControlResponse, type DoctorCheck, type ExtensionManifest, type ExtensionRecord, type HistoryEntry, type IpcOperation, type IpcResponseMap, type RouteSummary, type TranscriptResponse, type VoiceEditResponse, type VoiceEditSelection } from './ipc-contract.js';
+import { requestShape, responsePayload, type ConfigSummaryResponse, type ControlResponse, type DoctorCheck, type ExtensionManifest, type ExtensionRecord, type HistoryEntry, type IpcOperation, type IpcResponseMap, type ModelsResponse, type RouteSummary, type TranscriptResponse, type VoiceEditResponse, type VoiceEditSelection } from './ipc-contract.js';
+import type { ModelRecord } from './types';
 export type { DoctorCheck, IpcOperation, IpcRequest } from './ipc-contract.js';
 export interface DaemonStatus { daemon: 'starting' | 'running' | 'stopping' | 'unavailable'; activity: 'idle' | 'paused' | 'error'; paused: boolean; hotkey: string; route: RouteSummary; profile: string; privacy: string; version: string | null; }
 export type RuntimeSource = 'native' | 'backend' | 'mock' | 'unavailable';
@@ -16,6 +17,16 @@ export { requestShape } from './ipc-contract.js';
 export function mapStatus(value: unknown): DaemonStatus { const raw = unwrap(value, 'status'); return { daemon: raw.daemon === 'starting' || raw.daemon === 'stopping' || raw.daemon === 'running' ? raw.daemon : raw.running === true ? 'running' : 'unavailable', activity: raw.paused === true || raw.activity === 'Paused' ? 'paused' : raw.activity === 'Idle' ? 'idle' : 'error', paused: raw.paused === true || raw.activity === 'Paused', hotkey: text(raw.hotkey, 'Alt+Space')!, route: { prefer_local: record(raw.route).prefer_local === true, allow_cloud: record(raw.route).allow_cloud === true, prefer_warm_runtime: record(raw.route).prefer_warm_runtime === true, optimize_battery: record(raw.route).optimize_battery === true }, profile: text(raw.profile, 'Basic')!, privacy: text(raw.privacy, 'LocalOnly')!, version: text(raw.daemon_version) ?? text(raw.version) }; }
 export function mapDoctor(value: unknown): DoctorCheck[] { const checks = unwrap(value, 'doctor').checks; return Array.isArray(checks) ? checks.filter((check): check is DoctorCheck => { const item = record(check); return typeof item.name === 'string' && typeof item.ok === 'boolean' && typeof item.detail === 'string'; }) : []; }
 export function mapHistory(value: unknown): HistoryEntry[] { const entries = unwrap(value, 'recent_history').entries; return Array.isArray(entries) ? entries.filter((entry): entry is HistoryEntry => { const item = record(entry); return typeof item.id === 'string' && typeof item.at === 'string' && typeof record(item.transcript).text === 'string'; }) : []; }
+export function mapModels(value: unknown): ModelRecord[] {
+  const payload = responsePayload(value, 'Models') as ModelsResponse | undefined;
+  if (!payload?.available) throw new Error(payload?.error ?? 'model registry is unavailable');
+  if (!Array.isArray(payload.models)) throw new Error('daemon returned an invalid model registry');
+  return payload.models.map(({ manifest, status }) => {
+    const provider = payload.provider ?? status.backend ?? manifest.backend;
+    const id = provider ? `${provider}/${manifest.id}` : manifest.id;
+    return { id, name: manifest.display_name, provider, location: 'local', qualityTier: 'standard', recommended: false, available: status.installed, unavailableReason: status.installed ? null : 'Model files are not installed by the daemon' };
+  });
+}
 export class HttpIpcTransport implements IpcTransport { readonly source = 'backend' as const; constructor(private readonly url = endpoint, private readonly fetchImpl: typeof fetch = fetch) {} async request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown> { const response = await this.fetchImpl(this.url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(requestShape(operation, params)) }); if (!response.ok) throw new Error(`IPC request failed (${response.status})`); return response.json(); } }
 type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>; type TauriWindow = { __TAURI_INTERNALS__?: unknown };
 const tauriInvoke: TauriInvoke = async <T>(command: string, args?: Record<string, unknown>) => { const { invoke } = await import('@tauri-apps/api/core'); return invoke<T>(command, args); };
@@ -39,7 +50,7 @@ export class RuntimeClient {
   async recentBenchmarks(limit = 20) { return this.call('recent_benchmarks', (v) => (responsePayload(v, 'Resource') as { value: unknown[] } | undefined)?.value ?? [], [], { limit }); }
   async applyBenchmarkRecommendation(model: string) { return this.call('apply_benchmark_recommendation', (value) => (responsePayload(value, 'Resource') as { value: unknown } | undefined)?.value ?? null, null, { model }); }
   resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }
-  models<T = unknown>() { return this.resource<T>('models'); }
+  models() { return this.call('models', mapModels, [] as ModelRecord[]); }
   route<T = unknown>() { return this.resource<T>('route'); }
   setActiveModel(modelId: string) { return this.setResource<{ activeModelId: string | null }>('route', { activeModelId: modelId }); }
   setRoutePolicy(policy: 'Performance' | 'Balanced' | 'Battery' | 'Privacy' | 'LocalFirst' | 'CloudAllowed' | 'NeverCloud') { return this.setConfig('route.policy', policy); }

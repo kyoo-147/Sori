@@ -53,3 +53,22 @@ describe('RuntimeClient model routing', () => {
     expect(result.error).toBeNull();
   });
 });
+
+describe('RuntimeClient canonical model registry', () => {
+  it('maps the Rust Models response to provider-qualified activeModelId keys', async () => {
+    let operation = '';
+    const client = new RuntimeClient({ source: 'backend', request: async (name) => { operation = name; return { Models: { provider: 'whisper.cpp', available: true, error: null, models: [{ manifest: { id: 'ggml-base.en', display_name: 'Base English', language: 'en', backend: 'whisper.cpp', quantization: null, disk_size_bytes: null, ram_bytes: null, license: { name: 'MIT', url: null, attribution: null } }, status: { model: 'ggml-base.en', installed: true, loaded: false, warm: false, memory_bytes: null, backend: 'whisper.cpp' } }] } }; } });
+    const result = await client.models();
+    expect(operation).toBe('models');
+    expect(result.error).toBeNull();
+    expect(result.data[0]).toMatchObject({ id: 'whisper.cpp/ggml-base.en', available: true });
+  });
+
+  it('surfaces an unavailable provider without inventing preview models', async () => {
+    const client = new RuntimeClient(transport({ Models: { provider: null, available: false, models: [], error: 'whisper.cpp is not configured' } }));
+    const result = await client.models();
+    expect(result.data).toEqual([]);
+    expect(result.source).toBe('unavailable');
+    expect(result.error).toContain('not configured');
+  });
+});

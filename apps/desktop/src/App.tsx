@@ -80,7 +80,7 @@ export default function App() {
   const [runtimeClient] = useState(() => new RuntimeClient());
 
   const refreshRuntime = useCallback(async () => {
-    const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models<ModelRecord[]>(), runtimeClient.route<{ activeModelId: string | null }>()]);
+    const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
     setRuntimeStatus(statusResult.data);
     setRuntimeSource(statusResult.source);
     setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
@@ -351,7 +351,7 @@ export default function App() {
             {(activeScreen === 'benchmark' || activeScreen === 'benchmarks') && (
               <BenchmarkScreen
                 benchmarkResults={benchmarkResults}
-                modelId={activeModel?.id ?? null}
+                activeModelId={activeModel?.id ?? null}
                 onApplyPolicy={handleApplyRecommendedPolicy}
                 onRun={runBenchmark}
               />

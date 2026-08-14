@@ -6,11 +6,11 @@ import { readBenchmarkFixture, type BenchmarkFixture } from '../../benchmark-fix
 interface Props {
   benchmarkResults: BenchmarkResult[];
   onApplyPolicy: () => Promise<void>;
-  modelId: string | null;
+  activeModelId: string | null;
   onRun: (fixture: BenchmarkFixture) => Promise<string>;
 }
 
-export const BenchmarkScreen: React.FC<Props> = ({ benchmarkResults, onApplyPolicy, modelId, onRun }) => {
+export const BenchmarkScreen: React.FC<Props> = ({ benchmarkResults, onApplyPolicy, activeModelId, onRun }) => {
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState('No benchmark run in this session.');
   const [fixture, setFixture] = useState<BenchmarkFixture | null>(null);
@@ -28,7 +28,7 @@ export const BenchmarkScreen: React.FC<Props> = ({ benchmarkResults, onApplyPoli
     }
   };
   const run = async () => {
-    if (running || !fixture || !modelId) return;
+    if (running || !fixture || !activeModelId) return;
     setRunning(true);
     setMessage('Calling the canonical provider benchmark over IPC…');
     try { setMessage(await onRun({ ...fixture, reference: reference.trim() || null })); } catch (error) { setMessage(`Benchmark failed: ${error instanceof Error ? error.message : String(error)}`); }
@@ -49,7 +49,7 @@ export const BenchmarkScreen: React.FC<Props> = ({ benchmarkResults, onApplyPoli
         <label className="block text-xs text-[#68635D]">Reference transcript (optional)
           <textarea className="mt-1 w-full rounded-lg border border-[#E5E0D9] bg-white p-2" rows={3} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Expected transcript for WER/CER" />
         </label>
-        <button className="sori-tactile-btn w-full rounded-xl py-2.5 text-sm disabled:opacity-50" disabled={running || !fixture || !modelId} onClick={() => void run}><Play className="mr-1 inline h-4 w-4" />{running ? 'Running…' : fixture ? 'Run provider benchmark' : 'Run unavailable — select a WAV fixture'}</button>
+        <button className="sori-tactile-btn w-full rounded-xl py-2.5 text-sm disabled:opacity-50" disabled={running || !fixture || !activeModelId} onClick={() => void run}><Play className="mr-1 inline h-4 w-4" />{running ? 'Running…' : fixture ? 'Run provider benchmark' : 'Run unavailable — select a WAV fixture'}</button>
         <p className="text-xs text-[#98928A]">Only the selected mono PCM16 WAV and optional reference are sent to the canonical RuntimeClient. No fixture means unavailable, never fake success.</p>
       </section>
       <section className="sori-pane space-y-4 p-5">

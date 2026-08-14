@@ -11,6 +11,7 @@ import {
   VoiceProfile,
   AssistantVoiceSettings,
 } from './types';
+import { mapBenchmarkResult, type BackendBenchmarkResult } from './benchmark-view-model';
 import {
   initialRoutes,
   initialSnippets,
@@ -121,7 +122,7 @@ export default function App() {
     const result = await runtimeClient.recentBenchmarks(20);
     if (result.error || !result.data || !Array.isArray(result.data.runs)) return result.error;
     const recommendation = result.data.recommendation;
-    setBenchmarkResults(result.data.runs.map((item) => { const value = item as { run_id?: string; started_at?: string; completed_at?: string; model?: string; provider?: string; samples?: number; attempts?: number; startup?: { cold_ms?: number; warm_ms?: number }; latency?: { p50_ms?: number; p95_ms?: number }; memory?: { ram_bytes?: number | null; vram_bytes?: number | null }; accuracy?: { wer?: number | null; cer?: number | null }; real_time_factor?: number; reliability?: { failure_rate?: number; fallback_rate?: number | null } }; return { runId: value.run_id ?? 'unknown', startedAt: value.started_at ?? '', completedAt: value.completed_at ?? '', modelId: value.model ?? 'unknown', provider: value.provider ?? 'unknown', modelName: value.model ?? 'Unknown model', samples: value.samples ?? 0, attempts: value.attempts ?? 0, coldStartMs: value.startup?.cold_ms ?? null, warmLatencyMs: value.startup?.warm_ms ?? null, p50Ms: value.latency?.p50_ms ?? null, p95Ms: value.latency?.p95_ms ?? null, ramMb: value.memory?.ram_bytes == null ? null : value.memory.ram_bytes / 1_000_000, vramMb: value.memory?.vram_bytes == null ? null : value.memory.vram_bytes / 1_000_000, werPercent: value.accuracy?.wer == null ? null : value.accuracy.wer * 100, cerPercent: value.accuracy?.cer == null ? null : value.accuracy.cer * 100, rtf: value.real_time_factor ?? null, failureRate: value.reliability?.failure_rate ?? null, fallbackRate: value.reliability?.fallback_rate ?? null, insertionMs: null, passed: (value.attempts ?? 0) > 0 && (value.samples ?? 0) > 0 && (value.reliability?.failure_rate ?? 1) === 0, isRecommended: recommendation?.run_id === value.run_id }; }));
+    setBenchmarkResults(result.data.runs.map((item) => mapBenchmarkResult(item as BackendBenchmarkResult, recommendation?.run_id ?? null)));
     return null;
   }, [runtimeClient]);
 

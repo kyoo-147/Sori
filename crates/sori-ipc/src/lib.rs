@@ -67,6 +67,14 @@ pub enum Request {
     ModelUnload {
         model: ModelId,
     },
+    ModelInstall {
+        model: ModelId,
+        source: String,
+        expected_sha256: String,
+    },
+    ModelRemove {
+        model: ModelId,
+    },
     RecentHistory {
         limit: u16,
     },
@@ -643,7 +651,9 @@ impl Transport for MockTransport {
             | Request::Models
             | Request::ModelStatus { .. }
             | Request::ModelLoad { .. }
-            | Request::ModelUnload { .. } => {
+            | Request::ModelUnload { .. }
+            | Request::ModelInstall { .. }
+            | Request::ModelRemove { .. } => {
                 return Err(IpcError::Transport(
                     "mock transport does not execute dictation".into(),
                 ));
@@ -713,6 +723,24 @@ impl Transport for MockTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_install_and_remove_contract_round_trips() {
+        let install = Request::ModelInstall {
+            model: ModelId::from("user.bin"),
+            source: "C:/Users/me/user.bin".into(),
+            expected_sha256: "a".repeat(64),
+        };
+        assert!(
+            matches!(serde_json::from_str::<Request>(&serde_json::to_string(&install).unwrap()).unwrap(), Request::ModelInstall { model, expected_sha256, .. } if model.0 == "user.bin" && expected_sha256.len() == 64)
+        );
+        let remove = Request::ModelRemove {
+            model: ModelId::from("user.bin"),
+        };
+        assert!(
+            matches!(serde_json::from_str::<Request>(&serde_json::to_string(&remove).unwrap()).unwrap(), Request::ModelRemove { model } if model.0 == "user.bin")
+        );
+    }
 
     #[test]
     fn model_registry_lifecycle_contract_round_trips_and_preserves_errors() {

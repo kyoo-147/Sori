@@ -105,8 +105,8 @@ impl ModelProviderRegistry {
 
 pub trait ModelProvider: Send + Sync {
     fn provider_name(&self) -> &'static str;
-    fn manifests(&self) -> &[ModelManifest] {
-        &[]
+    fn manifests(&self) -> Vec<ModelManifest> {
+        Vec::new()
     }
     fn can_transcribe(&self, model: &ModelId) -> bool;
     /// Report provider-owned lifecycle state without overstating native inference readiness.
@@ -129,6 +129,23 @@ pub trait ModelProvider: Send + Sync {
     fn unload(&self, _model: &ModelId) -> Result<(), ModelError> {
         Err(ModelError::Inference(format!(
             "provider {} does not support model unloading",
+            self.provider_name()
+        )))
+    }
+    fn install_model_from_file(
+        &self,
+        _model: &ModelId,
+        _source: &Path,
+        _expected_sha256: &str,
+    ) -> Result<(), ModelError> {
+        Err(ModelError::Inference(format!(
+            "provider {} does not support model installation",
+            self.provider_name()
+        )))
+    }
+    fn remove_model(&self, _model: &ModelId) -> Result<(), ModelError> {
+        Err(ModelError::Inference(format!(
+            "provider {} does not support model removal",
             self.provider_name()
         )))
     }

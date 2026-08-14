@@ -423,7 +423,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn history_survives_reopen_and_retention_is_deterministic() {
         let database = NamedTempFile::new().unwrap();
         let first = history(Uuid::new_v4(), "first");
@@ -500,6 +499,16 @@ mod tests {
         );
         assert_eq!(
             store.model_route("default").unwrap(),
+            Some(serde_json::json!({"model": "whisper"}))
+        );
+        drop(store);
+        let reopened = SqliteStore::open(database.path()).unwrap();
+        assert_eq!(
+            reopened.model_manifest("whisper").unwrap(),
+            Some(serde_json::json!({"version": 1}))
+        );
+        assert_eq!(
+            reopened.model_route("default").unwrap(),
             Some(serde_json::json!({"model": "whisper"}))
         );
     }

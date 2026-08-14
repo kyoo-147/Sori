@@ -187,7 +187,7 @@ impl OutputFormat {
 pub struct WhisperCppProvider {
     executable: PathBuf,
     model_dir: Option<PathBuf>,
-    manifests: Vec<ModelManifest>,
+    manifests: Arc<Mutex<Vec<ModelManifest>>>,
     status: Arc<Mutex<WhisperStatus>>,
     loaded: Arc<Mutex<BTreeSet<ModelId>>>,
     warm: Arc<Mutex<BTreeSet<ModelId>>>,
@@ -210,7 +210,7 @@ impl WhisperCppProvider {
         Self {
             executable: executable.into(),
             model_dir: None,
-            manifests,
+            manifests: Arc::new(Mutex::new(manifests)),
             status: initial_status(),
             loaded: Arc::new(Mutex::new(BTreeSet::new())),
             warm: Arc::new(Mutex::new(BTreeSet::new())),
@@ -221,7 +221,7 @@ impl WhisperCppProvider {
         Self {
             executable: config.executable,
             model_dir: config.model_dir,
-            manifests,
+            manifests: Arc::new(Mutex::new(manifests)),
             status: initial_status(),
             loaded: Arc::new(Mutex::new(BTreeSet::new())),
             warm: Arc::new(Mutex::new(BTreeSet::new())),
@@ -246,6 +246,10 @@ impl WhisperCppProvider {
         })?;
         self.loaded.lock().unwrap().remove(model);
         self.warm.lock().unwrap().remove(model);
+        self.manifests
+            .lock()
+            .unwrap()
+            .retain(|manifest| &manifest.id != model);
         Ok(())
     }
 
@@ -327,6 +331,28 @@ impl WhisperCppProvider {
         })();
         match result {
             Ok(path) => {
+                let size = fs::metadata(&path).ok().map(|metadata| metadata.len());
+                let mut manifests = self.manifests.lock().unwrap();
+                if let Some(manifest) = manifests.iter_mut().find(|manifest| manifest.id == *model)
+                {
+                    manifest.disk_size_bytes = size;
+                } else {
+                    manifests.push(ModelManifest {
+                        id: model.clone(),
+                        display_name: model.0.clone(),
+                        language: "unknown".into(),
+                        backend: PROVIDER_NAME.into(),
+                        quantization: None,
+                        disk_size_bytes: size,
+                        ram_bytes: None,
+                        license: sori_core::ModelLicense {
+                            name: "user-provided model".into(),
+                            url: None,
+                            attribution: None,
+                        },
+                    });
+                    manifests.sort_by(|a, b| a.id.cmp(&b.id));
+                }
                 if let Ok(mut status) = self.status.lock() {
                     status.lifecycle = WhisperLifecycle::Ready;
                     status.model_path = Some(path.clone());
@@ -955,11 +981,16 @@ impl ModelProvider for WhisperCppProvider {
     fn provider_name(&self) -> &'static str {
         PROVIDER_NAME
     }
-    fn manifests(&self) -> &[ModelManifest] {
-        &self.manifests
+    fn manifests(&self) -> Vec<ModelManifest> {
+        self.manifests.lock().unwrap().clone()
     }
     fn can_transcribe(&self, model: &ModelId) -> bool {
-        self.manifests.iter().any(|manifest| &manifest.id == model)
+        self.manifests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|manifest| &manifest.id == model)
+            || self.verified_model_path(model).is_ok()
     }
     fn runtime_status(&self, model: &ModelId) -> RuntimeStatus {
         let status = self.status(model);
@@ -978,6 +1009,28 @@ impl ModelProvider for WhisperCppProvider {
     fn unload(&self, model: &ModelId) -> Result<(), ModelError> {
         self.unload(model);
         Ok(())
+    }
+    fn install_model_from_file(
+        &self,
+        model: &ModelId,
+        source: &Path,
+        expected_sha256: &str,
+    ) -> Result<(), ModelError> {
+        if expected_sha256.trim().len() != 64
+            || !expected_sha256
+                .trim()
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(ModelError::Inference(
+                "model checksum must be a 64-character SHA-256 hex digest".into(),
+            ));
+        }
+        WhisperCppProvider::install_model_from_file(self, model, source, Some(expected_sha256))?;
+        Ok(())
+    }
+    fn remove_model(&self, model: &ModelId) -> Result<(), ModelError> {
+        WhisperCppProvider::remove_model(self, model)
     }
     fn transcribe(&self, model: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError> {
         if !self.can_transcribe(model) {

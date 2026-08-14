@@ -76,7 +76,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
             <Activity className="w-3.5 h-3.5 text-[#98928A]" />
             Latency (p50)
           </span>
-          <span className="font-mono text-[#1C1B19]">65ms (Local CUDA)</span>
+          <span className="font-mono text-[#9A7442]">UNVERIFIED</span>
         </div>
       </div>
 
@@ -119,7 +119,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
             <Cpu className="w-3.5 h-3.5 text-[#98928A]" />
             Model Manager & Routing
           </span>
-          <span className="text-[10px] text-[#98928A] font-mono">5 Models</span>
+          <span className="text-[10px] text-[#98928A] font-mono">Canonical registry</span>
         </button>
 
         <button
@@ -133,7 +133,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
             <Zap className="w-3.5 h-3.5 text-[#4E7A61]" />
             Benchmarks
           </span>
-          <span className="text-[10px] text-[#98928A] font-mono">Run Test</span>
+          <span className="text-[10px] text-[#98928A] font-mono">Provider-backed</span>
         </button>
 
         <button

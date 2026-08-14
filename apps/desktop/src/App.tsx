@@ -3,7 +3,6 @@ import {
   ActiveScreen,
   AppSettings,
   ModelRecord,
-  RouteRule,
   DictionaryTerm,
   Snippet,
   HistoryItem,
@@ -13,9 +12,7 @@ import {
 } from './types';
 import { mapBenchmarkResult, type BackendBenchmarkResult } from './benchmark-view-model';
 import {
-  initialRoutes,
   initialSnippets,
-  initialBenchmarkResults,
   defaultSettings,
   defaultVoiceProfile,
   defaultAssistantVoice,
@@ -51,7 +48,6 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(() => readSettings(defaultSettings));
   const [models, setModels] = useState<ModelRecord[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
-  const [routes, setRoutes] = useState<RouteRule[]>(initialRoutes);
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>([]);
   const [snippets, setSnippets] = useState<Snippet[]>(initialSnippets);
   const [history, setHistory] = useState<HistoryItem[]>([]);

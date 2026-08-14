@@ -10,6 +10,8 @@ export const isTitlebarInteractiveTarget = (target: EventTarget | null) =>
 export const titlebarRouteLabel = (runtimeSource: RuntimeSource, activeModelName: string) =>
   runtimeSource === 'native' || runtimeSource === 'backend' ? `Route: ${activeModelName}` : 'Route: UNVERIFIED';
 
+export const titlebarCaptureLabel = (runtimeSource: RuntimeSource, isListening: boolean) => isListening ? 'Stop daemon dictation' : runtimeSource === 'native' || runtimeSource === 'backend' ? 'Start daemon dictation' : 'Dictation unavailable';
+export const titlebarCaptureDisabled = (runtimeSource: RuntimeSource) => runtimeSource === 'mock' || runtimeSource === 'unavailable';
 export const handleTitlebarMouseDownBoundary = (
   target: EventTarget | null,
   button: number,
@@ -158,8 +160,9 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
       <div data-sori-no-drag className="sori-titlebar__center-actions flex items-center gap-2.5 min-w-0">
         <button
           onClick={toggleListening}
-          title="Browser preview only — daemon microphone capture is not connected"
-          aria-label={isListening ? 'Stop browser microphone preview' : 'Start browser microphone preview'}
+          disabled={titlebarCaptureDisabled(runtimeSource)}
+          title={titlebarCaptureDisabled(runtimeSource) ? 'Unavailable until the canonical sorid runtime is connected' : 'Uses canonical DictationStart/DictationStop IPC'}
+          aria-label={titlebarCaptureLabel(runtimeSource, isListening)}
           className={`px-3.5 py-1.5 rounded-[12px] font-medium transition-all flex items-center gap-2 text-[12px] border ${
             isListening
               ? 'bg-[#A75850] text-white border-[#A75850] animate-pulse'
@@ -167,7 +170,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
           }`}
         >
           <Mic className={`w-3.5 h-3.5 ${isListening ? 'text-white' : 'text-[#68635D]'}`} />
-          <span className="hidden sm:inline">{isListening ? 'Preview listening…' : 'Preview capture'}</span>
+          <span className="hidden sm:inline">{titlebarCaptureLabel(runtimeSource, isListening)}</span>
         </button>
 
         <button onClick={onTogglePaused} aria-label={runtimeStatus.paused ? 'Resume Sori daemon' : 'Pause Sori daemon'} disabled={!runtimeConnected} title={runtimeSource === 'mock' ? 'Daemon controls are unavailable in preview mode' : undefined} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] text-[11px] text-[#68635D] font-mono shadow-2xs disabled:opacity-50">

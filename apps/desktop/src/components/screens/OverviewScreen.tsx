@@ -16,7 +16,7 @@ interface OverviewScreenProps {
 type CaptureState = 'ready' | 'listening' | 'processing' | 'inserting' | 'no-target' | 'mic-error' | 'model-loading' | 'injection-error' | 'error';
 
 const stateCopy: Record<CaptureState, { label: string; detail: string }> = {
-  ready: { label: 'Ready to capture', detail: 'Hold the hotkey to dictate into the focused app.' },
+  ready: { label: 'Daemon ready', detail: 'Dictation starts only through the canonical local runtime.' },
   listening: { label: 'Listening', detail: 'Speak naturally. Release the hotkey when you are done.' },
   processing: { label: 'Processing audio', detail: 'The active route is transcribing your capture.' },
   inserting: { label: 'Inserting text', detail: 'The daemon is sending output to the focused window.' },
@@ -30,7 +30,7 @@ const stateCopy: Record<CaptureState, { label: string; detail: string }> = {
 export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isListening, toggleListening, onNavigate, history, activeModelName, runtimeSource = 'unavailable', runtimeActivity = 'error' }) => {
   const [stateOverride, setStateOverride] = useState<CaptureState | null>(null);
   const target = 'Unavailable';
-  const [preview, setPreview] = useState('Project Update\n\nThe focused target is ready for a local capture.');
+  const [preview, setPreview] = useState('Local preview editor\n\nNo focused target or injected text is claimed here.');
   const state: CaptureState = stateOverride ?? (isListening ? 'listening' : runtimeActivity === 'processing' ? 'processing' : runtimeSource === 'unavailable' ? 'injection-error' : 'ready');
   const copy = stateCopy[state];
   const routeLabel = runtimeSource === 'native' || runtimeSource === 'backend' ? 'Connected runtime' : 'Runtime unavailable';
@@ -77,12 +77,12 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
 
           <div className="mt-5 rounded-[10px] border border-[#EBD9A8] bg-[#FFF7E6] px-3 py-2 text-xs text-[#6B552C]">Unavailable: native focused-window identity and target selection are not exposed by the canonical IPC contract.</div>
           <div className="mt-4 overflow-hidden rounded-[14px] border border-[rgba(92,84,75,0.12)] bg-[#FFFDF9]">
-            <div className="flex items-center justify-between border-b border-[rgba(92,84,75,0.08)] px-4 py-3 text-[11px] text-[#98928A]"><span className="font-mono">Sori preview · no native target</span><span>{state === 'listening' ? 'Daemon capture active' : 'Preview only'}</span></div>
-            <textarea value={preview} readOnly aria-label="Focused editor preview unavailable" className="min-h-[210px] w-full resize-y border-0 bg-transparent p-5 text-sm leading-7 text-[#68635D] outline-none" />
+            <div className="flex items-center justify-between border-b border-[rgba(92,84,75,0.08)] px-4 py-3 text-[11px] text-[#98928A]"><span className="font-mono">Sori preview · local-only editor</span><span>{state === 'listening' ? 'Canonical daemon request active' : 'No capture claim'}</span></div>
+            <textarea value={preview} readOnly aria-label="Local preview editor; focused target unavailable" className="min-h-[210px] w-full resize-y border-0 bg-transparent p-5 text-sm leading-7 text-[#68635D] outline-none" />
             <div className="flex items-center justify-between border-t border-[rgba(92,84,75,0.08)] px-4 py-3 text-xs text-[#68635D]"><span className="flex items-center gap-2"><Activity className="h-4 w-4 text-[#6E7A80]" />{copy.detail}</span><span className="font-mono">{settings.hotkey}</span></div>
           </div>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex gap-2"><button type="button" onClick={startCapture} className="sori-tactile-btn rounded-[10px] px-4 py-2 text-xs font-medium"><Mic className="mr-2 inline h-4 w-4" />{isListening ? 'Stop capture' : 'Start capture'}</button><button type="button" onClick={() => setPreview('')} className="sori-tactile-btn rounded-[10px] px-3 py-2 text-xs">Clear</button></div>
+            <div className="flex gap-2"><button type="button" onClick={startCapture} disabled={runtimeSource === 'unavailable' || runtimeSource === 'mock'} title={runtimeSource === 'mock' ? 'Unavailable in browser preview mode' : runtimeSource === 'unavailable' ? 'Unavailable until sorid is connected' : undefined} className="sori-tactile-btn rounded-[10px] px-4 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50"><Mic className="mr-2 inline h-4 w-4" />{isListening ? 'Stop daemon dictation' : runtimeSource === 'backend' || runtimeSource === 'native' ? 'Start daemon dictation' : 'Dictation unavailable'}</button><button type="button" onClick={() => setPreview('')} className="sori-tactile-btn rounded-[10px] px-3 py-2 text-xs">Clear local preview</button></div>
             {state === 'injection-error' && <span className="flex items-center gap-1.5 text-[11px] text-[#A75850]"><WifiOff className="h-3.5 w-3.5" /> No fake success: connect sorid to enable injection.</span>}
           </div>
         </section>

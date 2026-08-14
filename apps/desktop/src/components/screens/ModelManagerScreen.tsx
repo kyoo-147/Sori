@@ -17,7 +17,7 @@ export const ModelManagerScreen: React.FC<Props> = ({ runtimeClient, onActiveMod
 
   const load = async () => {
     setStatus('loading'); setError(null);
-    const [modelsResult, routeResult] = await Promise.all([runtimeClient.models<ModelRecord[]>(), runtimeClient.route<RouteState>()]);
+    const [modelsResult, routeResult] = await Promise.all([runtimeClient.models(), runtimeClient.route<RouteState>()]);
     if (modelsResult.error || routeResult.error) { setStatus('error'); setError(modelsResult.error ?? routeResult.error); return; }
     const nextModels = Array.isArray(modelsResult.data) ? modelsResult.data : [];
     setModels(nextModels); setRoute(routeResult.data); onActiveModelChanged?.(routeResult.data.activeModelId ?? null); setStatus(nextModels.length ? 'ready' : 'empty');
@@ -33,7 +33,7 @@ export const ModelManagerScreen: React.FC<Props> = ({ runtimeClient, onActiveMod
   const selectPolicy = async (policy: typeof policies[number]) => {
     setSaving(true);
     const result = await runtimeClient.setRoutePolicy(policy);
-    if (result.error) setError(result.error); else setRoute((current) => current ? { ...current, policy } : current);
+    if (result.error) setError(result.error); else await load();
     setSaving(false);
   };
   return <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-8">

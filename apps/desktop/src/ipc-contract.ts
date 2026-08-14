@@ -47,10 +47,8 @@ export function requestShape(operation: IpcOperation, params: Record<string, unk
     case 'run_benchmark': return { RunBenchmark: { model: String(params.model ?? ''), audio: (params.audio ?? []) as AudioChunk[], reference: typeof params.reference === 'string' ? params.reference : null, iterations: Number(params.iterations ?? 5), session_id: typeof params.session_id === 'string' ? params.session_id : null, timeout_ms: params.timeout_ms == null ? null : Number(params.timeout_ms) } };
     case 'cancel_benchmark': return { CancelBenchmark: { session_id: String(params.session_id ?? '') } };
     case 'recent_benchmarks': return { RecentBenchmarks: { limit: Number(params.limit ?? 20) } }; case 'apply_benchmark_recommendation': return { ApplyBenchmarkRecommendation: { model: typeof params.model === 'string' ? params.model : null } };
-    case 'run_benchmark': return { RunBenchmark: { model: String(params.model ?? ''), audio: (params.audio ?? []) as AudioChunk[], reference: typeof params.reference === 'string' ? params.reference : null, iterations: Number(params.iterations ?? 5), session_id: typeof params.session_id === 'string' ? params.session_id : null, timeout_ms: params.timeout_ms == null ? null : Number(params.timeout_ms) } };
-    case 'cancel_benchmark': return { CancelBenchmark: { session_id: String(params.session_id ?? '') } };
-    case 'recent_benchmarks': return { RecentBenchmarks: { limit: Number(params.limit ?? 20) } }; case 'apply_benchmark_recommendation': return { ApplyBenchmarkRecommendation: { model: typeof params.model === 'string' ? params.model : null } };
   }
+  throw new Error(`unsupported IPC operation: ${operation}`);
 }
 export function responsePayload<K extends keyof IpcResponseMap>(value: unknown, variant: K): IpcResponseMap[K] | undefined { if (!value || typeof value !== 'object') return undefined; return (value as Record<string, unknown>)[variant] as IpcResponseMap[K] | undefined; }
 export function isIpcResponse(value: unknown): value is IpcResponse { return !!value && typeof value === 'object' && ['Status', 'Doctor', 'ConfigSummary', 'Models', 'ModelStatus', 'RecentEvents', 'RecentHistory', 'Resource', 'Control', 'Transcript', 'VoiceEdit', 'Extensions', 'Benchmark', 'Error'].some((variant) => variant in (value as object)); }

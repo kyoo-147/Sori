@@ -1,8 +1,9 @@
 use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
-    BenchmarkInput, FastIntent, HistoryEntry, HistoryRepository, ModelId, ModelRoute, PrivacyMode,
-    ProfileMode, Vocabulary, VocabularyTerm, recommend_benchmark, run_benchmark,
+    BenchmarkInput, BenchmarkOptions, CancellationToken, FastIntent, HistoryEntry,
+    HistoryRepository, ModelId, ModelRoute, PrivacyMode, ProfileMode, Vocabulary, VocabularyTerm,
+    recommend_benchmark, run_benchmark_with_options,
 };
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
@@ -16,6 +17,7 @@ use sorid::{
     DaemonConfig, DaemonRuntime, HotkeyService, HotkeyServiceStatus, RuntimeState, SharedEventBus,
     start_hotkey_service,
 };
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tracing::info;
@@ -239,6 +241,9 @@ async fn main() -> Result<()> {
     let handler_config = Arc::new(Mutex::new(config.clone()));
     let handler_privacy = Arc::new(Mutex::new(privacy_mode));
     let handler_model_provider = model_provider.clone();
+    let benchmark_sessions: Arc<Mutex<HashMap<uuid::Uuid, CancellationToken>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    let handler_benchmark_sessions = Arc::clone(&benchmark_sessions);
     let server_task = server.serve(move |request| {
         let config_snapshot = handler_config
             .lock()
@@ -444,9 +449,19 @@ async fn main() -> Result<()> {
                 }
                 Response::Transcript(transcript)
             }
-            Request::RunBenchmark { model, audio, reference, iterations } => {
+            Request::CancelBenchmark { session_id } => {
+                let token = handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.get(&session_id).cloned();
+                match token { Some(token) => { token.cancel(); Response::Control(ControlResponse { accepted: true, detail: "benchmark cancellation requested".into() }) }, None => Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_session_not_found".into(), detail: "benchmark session is not active".into() }) }
+            }
+            Request::RunBenchmark { model, audio, reference, iterations, session_id, timeout_ms } => {
                 let provider = benchmark_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("benchmark unavailable: Whisper provider is not ready".into()))?;
-                let result = run_benchmark(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark failed: {e}")))?;
+                let session_id = session_id.unwrap_or_else(uuid::Uuid::new_v4);
+                let cancellation = CancellationToken::new();
+                handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.insert(session_id, cancellation.clone());
+                if let Some(timeout_ms) = timeout_ms { let timer = cancellation.clone(); std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_millis(timeout_ms)); timer.cancel(); }); }
+                let result = run_benchmark_with_options(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }, &BenchmarkOptions { cancellation: cancellation.clone(), timeout: timeout_ms.map(std::time::Duration::from_millis) });
+                handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.remove(&session_id);
+                let result = result.map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark failed: {e}")))?;
                 handler_store.save_benchmark(&result).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark persistence failed: {e}")))?;
                 Response::Benchmark(result)
             }

@@ -1,3 +1,21 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[derive(Debug, Clone, Default)]
+pub struct CancellationToken(std::sync::Arc<AtomicBool>);
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+    pub fn flag(&self) -> std::sync::Arc<AtomicBool> {
+        std::sync::Arc::clone(&self.0)
+    }
+}
 use crate::{AudioChunk, ContextSnapshot, Transcript};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -150,6 +168,17 @@ pub trait ModelProvider: Send + Sync {
         )))
     }
     fn transcribe(&self, model: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError>;
+    fn transcribe_with_cancellation(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        cancellation: &CancellationToken,
+    ) -> Result<Transcript, ModelError> {
+        if cancellation.is_cancelled() {
+            return Err(ModelError::Inference("benchmark cancelled".into()));
+        }
+        self.transcribe(model, audio)
+    }
     fn transcribe_with_context(
         &self,
         model: &ModelId,

@@ -9,9 +9,9 @@ use sha2::Digest;
 
 use serde_json::Value;
 use sori_core::{
-    AudioChunk, ContextSnapshot, ExternalProcessProvider, ExternalProcessSpec, ModelError, ModelId,
-    ModelManifest, ModelProvider, ModelRoute, ModelRuntime, PrivacyMode, RuntimeStatus,
-    SampleFormat, Transcript, TranscriptSegment,
+    AudioChunk, CancellationToken, ContextSnapshot, ExternalProcessProvider, ExternalProcessSpec,
+    ModelError, ModelId, ModelManifest, ModelProvider, ModelRoute, ModelRuntime, PrivacyMode,
+    RuntimeStatus, SampleFormat, Transcript, TranscriptSegment,
 };
 use std::collections::BTreeSet;
 use std::fs;
@@ -1037,6 +1037,21 @@ impl ModelProvider for WhisperCppProvider {
             return Err(ModelError::Unsupported(model.clone()));
         }
         self.transcribe_audio(model, audio, OutputFormat::Text, &ProcessOptions::default())
+    }
+    fn transcribe_with_cancellation(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        cancellation: &CancellationToken,
+    ) -> Result<Transcript, ModelError> {
+        if !self.can_transcribe(model) {
+            return Err(ModelError::Unsupported(model.clone()));
+        }
+        let options = ProcessOptions {
+            timeout: None,
+            cancelled: cancellation.flag(),
+        };
+        self.transcribe_audio(model, audio, OutputFormat::Text, &options)
     }
     fn transcribe_with_context(
         &self,

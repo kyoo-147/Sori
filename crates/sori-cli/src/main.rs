@@ -198,6 +198,8 @@ fn benchmark(
         audio,
         reference,
         iterations,
+        session_id: None,
+        timeout_ms: None,
     })? {
         Response::Benchmark(result) => {
             println!(

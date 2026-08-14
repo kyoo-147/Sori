@@ -1,6 +1,6 @@
 //! Deterministic benchmark contracts and runner for real provider seams.
 
-use crate::{AudioChunk, ModelError, ModelId, ModelProvider};
+use crate::{AudioChunk, CancellationToken, ModelError, ModelId, ModelProvider};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use time::OffsetDateTime;
@@ -82,27 +82,66 @@ pub struct BenchmarkInput {
     pub iterations: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct BenchmarkOptions {
+    pub cancellation: CancellationToken,
+    pub timeout: Option<std::time::Duration>,
+}
+impl Default for BenchmarkOptions {
+    fn default() -> Self {
+        Self {
+            cancellation: CancellationToken::new(),
+            timeout: None,
+        }
+    }
+}
+
 pub fn run_benchmark(
     provider: &dyn ModelProvider,
     input: &BenchmarkInput,
 ) -> Result<BenchmarkResult, ModelError> {
+    run_benchmark_with_options(provider, input, &BenchmarkOptions::default())
+}
+
+pub fn run_benchmark_with_options(
+    provider: &dyn ModelProvider,
+    input: &BenchmarkInput,
+    options: &BenchmarkOptions,
+) -> Result<BenchmarkResult, ModelError> {
     let run_id = Uuid::new_v4();
     let started_at = OffsetDateTime::now_utc();
     let iterations = input.iterations.max(2);
+    let benchmark_started = Instant::now();
     // Keep invocation order for cold/warm semantics; derive sorted samples only
     // for order-independent percentile metrics.
     let mut invocation_elapsed = Vec::with_capacity(iterations);
     let mut failures = 0usize;
     let mut transcript = None;
     for _ in 0..iterations {
+        if options.cancellation.is_cancelled() {
+            return Err(ModelError::Inference("benchmark cancelled".into()));
+        }
+        if options
+            .timeout
+            .is_some_and(|timeout| benchmark_started.elapsed() >= timeout)
+        {
+            return Err(ModelError::Inference("benchmark timed out".into()));
+        }
         let started = Instant::now();
-        match provider.transcribe(&input.model, &input.audio) {
+        match provider.transcribe_with_cancellation(
+            &input.model,
+            &input.audio,
+            &options.cancellation,
+        ) {
             Ok(value) => {
                 transcript = Some(value);
                 invocation_elapsed.push(started.elapsed().as_secs_f64() * 1000.0);
             }
             Err(_error) => failures += 1,
         }
+    }
+    if options.cancellation.is_cancelled() {
+        return Err(ModelError::Inference("benchmark cancelled".into()));
     }
     if invocation_elapsed.is_empty() {
         return Err(ModelError::Inference("all benchmark samples failed".into()));
@@ -256,6 +295,45 @@ mod tests {
             samples: vec![0.0; 100],
         }]
     }
+    #[test]
+    fn cancellation_is_an_error_and_never_returns_partial_result() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let result = run_benchmark_with_options(
+            &Provider,
+            &BenchmarkInput {
+                model: ModelId::from("x"),
+                audio: audio(),
+                reference: None,
+                iterations: 3,
+            },
+            &BenchmarkOptions {
+                cancellation: token,
+                timeout: None,
+            },
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn timeout_is_an_error_before_provider_work() {
+        let result = run_benchmark_with_options(
+            &Provider,
+            &BenchmarkInput {
+                model: ModelId::from("x"),
+                audio: audio(),
+                reference: None,
+                iterations: 3,
+            },
+            &BenchmarkOptions {
+                cancellation: CancellationToken::new(),
+                timeout: Some(std::time::Duration::ZERO),
+            },
+        );
+        assert!(result.unwrap_err().to_string().contains("timed out"));
+    }
+
     #[test]
     fn runner_reports_real_samples_and_accuracy() {
         let r = run_benchmark(

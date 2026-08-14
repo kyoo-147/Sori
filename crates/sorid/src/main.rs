@@ -635,6 +635,7 @@ async fn main() -> Result<()> {
             }
             Request::ResourceSet { resource, value } => {
                 validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
+                validate_resource_value(&resource, &value).map_err(sori_ipc::IpcError::Transport)?;
                 if resource == "route" {
                     let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
                     validate_route_resource(&value, provider.as_ref()).map_err(|detail| sori_ipc::IpcError::Transport(detail))?;
@@ -917,9 +918,23 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
 
 fn validate_resource(resource: &str) -> Result<(), String> {
     match resource {
-        "vocabulary" | "models" | "benchmarks" | "extensions" | "permissions" | "privacy"
-        | "onboarding" | "route" => Ok(()),
+        "vocabulary" | "snippets" | "settings" | "models" | "benchmarks" | "extensions"
+        | "permissions" | "privacy" | "onboarding" | "route" => Ok(()),
         _ => Err(format!("unsupported resource: {resource}")),
+    }
+}
+
+fn validate_resource_value(resource: &str, value: &serde_json::Value) -> Result<(), String> {
+    match resource {
+        "settings" => value
+            .as_object()
+            .map(|_| ())
+            .ok_or_else(|| "settings resource must be a JSON object".into()),
+        "vocabulary" | "snippets" => value
+            .as_array()
+            .map(|_| ())
+            .ok_or_else(|| format!("{resource} resource must be a JSON array")),
+        _ => Ok(()),
     }
 }
 
@@ -1012,11 +1027,22 @@ mod benchmark_recommendation_tests {
         assert!(validated_benchmark_route(&ModelId::from("other/ready"), &Provider).is_err());
         assert!(validated_benchmark_route(&ModelId::from("missing"), &Provider).is_err());
     }
+
+    #[test]
+    fn user_data_resources_reject_invalid_shapes() {
+        assert!(validate_resource_value("settings", &serde_json::json!({})).is_ok());
+        assert!(validate_resource_value("settings", &serde_json::json!([])).is_err());
+        assert!(validate_resource_value("vocabulary", &serde_json::json!([])).is_ok());
+        assert!(validate_resource_value("snippets", &serde_json::json!({})).is_err());
+    }
 }
 
 fn default_resource(resource: &str) -> serde_json::Value {
     match resource {
-        "vocabulary" | "benchmarks" | "extensions" | "permissions" => serde_json::json!([]),
+        "vocabulary" | "snippets" | "benchmarks" | "extensions" | "permissions" => {
+            serde_json::json!([])
+        }
+        "settings" => serde_json::json!({}),
         "models" => serde_json::json!([]),
         "privacy" => {
             serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})

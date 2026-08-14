@@ -39,11 +39,10 @@ export const applySidebarLiveWidth = (shell: Pick<HTMLElement, 'style'>, width: 
 };
 import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
 import type { BenchmarkFixture } from './benchmark-fixture';
-import { readSettings, writePreference } from './preferences';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
-  const [settings, setSettings] = useState<AppSettings>(() => readSettings(defaultSettings));
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [models, setModels] = useState<ModelRecord[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>([]);
@@ -68,6 +67,7 @@ export default function App() {
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
+  const settingsHydrated = useRef(false);
 
   const refreshHistory = useCallback(async () => {
     const result = await runtimeClient.history(50);
@@ -122,8 +122,21 @@ export default function App() {
   useEffect(() => { void refreshBenchmarks(); }, [refreshBenchmarks]);
 
   useEffect(() => {
-    writePreference('settings', settings);
-  }, [settings]);
+    let cancelled = false;
+    runtimeClient.resource<Partial<AppSettings>>('settings').then((result) => {
+      if (cancelled || result.error || !result.data || typeof result.data !== 'object') return;
+      setSettings((current) => ({ ...current, ...result.data }));
+      settingsHydrated.current = true;
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [runtimeClient]);
+
+  useEffect(() => {
+    if (!settingsHydrated.current) return;
+    runtimeClient.setResource('settings', settings).then((result) => {
+      if (result.error) setRuntimeError(result.error);
+    }).catch((error) => setRuntimeError(error instanceof Error ? error.message : String(error)));
+  }, [runtimeClient, settings]);
 
   useEffect(() => {
     runtimeClient.resource<Array<{ id: string; term: string; pronunciationHint?: string | null; category?: string }>>('vocabulary').then((result) => {
@@ -366,6 +379,7 @@ export default function App() {
                 dictionary={dictionary}
                 setDictionary={setDictionary}
                 runtimeClient={runtimeClient}
+                mode={activeScreen === 'snippets' ? 'snippets' : 'vocabulary'}
               />
             )}
 

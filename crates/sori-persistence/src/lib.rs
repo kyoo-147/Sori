@@ -533,4 +533,50 @@ mod tests {
         let after_delete = SqliteStore::open(database.path()).unwrap();
         assert_eq!(after_delete.model_manifest("whisper").unwrap(), None);
     }
+
+    #[test]
+    fn resource_settings_and_snippets_survive_reopen_and_concurrent_writes() {
+        let database = NamedTempFile::new().unwrap();
+        let settings = serde_json::json!({"theme":"light","retentionDays":30});
+        let snippets =
+            serde_json::json!([{"id":"sig","triggerPhrase":"my signature","expansion":"Regards"}]);
+        {
+            let store = SqliteStore::open(database.path()).unwrap();
+            store.set_setting("resource.settings", &settings).unwrap();
+            store.set_setting("resource.snippets", &snippets).unwrap();
+            let store = std::sync::Arc::new(store);
+            let workers = (0..4)
+                .map(|index| {
+                    let store = std::sync::Arc::clone(&store);
+                    std::thread::spawn(move || {
+                        store
+                            .set_setting("resource.settings", &serde_json::json!({"writer": index}))
+                            .unwrap();
+                    })
+                })
+                .collect::<Vec<_>>();
+            for worker in workers {
+                worker.join().unwrap();
+            }
+            assert!(
+                store
+                    .setting("resource.settings")
+                    .unwrap()
+                    .unwrap()
+                    .is_object()
+            );
+        }
+        let reopened = SqliteStore::open(database.path()).unwrap();
+        assert_eq!(
+            reopened.setting("resource.snippets").unwrap(),
+            Some(snippets)
+        );
+        assert!(
+            reopened
+                .setting("resource.settings")
+                .unwrap()
+                .unwrap()
+                .is_object()
+        );
+    }
 }

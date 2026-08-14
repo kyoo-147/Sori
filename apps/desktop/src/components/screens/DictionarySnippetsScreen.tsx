@@ -7,6 +7,7 @@ interface DictionarySnippetsScreenProps {
   dictionary: DictionaryTerm[];
   setDictionary: React.Dispatch<React.SetStateAction<DictionaryTerm[]>>;
   runtimeClient: RuntimeClient;
+  mode?: 'vocabulary' | 'snippets';
 }
 type Category = DictionaryTerm['category'];
 type PersistedVocabularyTerm = { id: string; term: string; pronunciationHint?: string | null; category?: string; language?: string; createdAt?: string };
@@ -20,7 +21,8 @@ const toResource = (items: DictionaryTerm[], previous: PersistedVocabularyTerm[]
   return items.map((item) => ({ ...metadata.get(item.id), id: item.id, term: item.term, pronunciationHint: item.pronunciation ?? null, category: item.category, language: metadata.get(item.id)?.language ?? 'en' }));
 };
 
-export const DictionarySnippetsScreen: React.FC<DictionarySnippetsScreenProps> = ({ dictionary, setDictionary, runtimeClient }) => {
+export const DictionarySnippetsScreen: React.FC<DictionarySnippetsScreenProps> = ({ dictionary, setDictionary, runtimeClient, mode = 'vocabulary' }) => {
+  if (mode === 'snippets') return <div className="mx-auto max-w-[760px] p-4"><section className="rounded-[18px] border border-[rgba(92,84,75,0.13)] bg-[#FBF9F6] p-6"><p className="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-[#A75850]">Needs Wiring</p><h1 className="sori-page-heading">Snippets</h1><p className="sori-body-text mt-2">Snippet expansion is not exposed by the current runtime contract. No local-only snippet state or simulated expansion is available.</p></section></div>;
   const [term, setTerm] = useState(''); const [pronunciation, setPronunciation] = useState(''); const [category, setCategory] = useState<Category>('custom'); const [query, setQuery] = useState(''); const [filter, setFilter] = useState<'all' | Category>('all'); const [editing, setEditing] = useState<string | null>(null); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [importOpen, setImportOpen] = useState(false); const [csv, setCsv] = useState(''); const [busy, setBusy] = useState(false);
   const filtered = useMemo(() => dictionary.filter((item) => item.term.toLowerCase().includes(query.toLowerCase()) && (filter === 'all' || item.category === filter)), [dictionary, query, filter]);
   const reset = () => { setTerm(''); setPronunciation(''); setCategory('custom'); setEditing(null); setError(''); };

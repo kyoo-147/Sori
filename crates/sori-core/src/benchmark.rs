@@ -3,6 +3,8 @@
 use crate::{AudioChunk, ModelError, ModelId, ModelProvider};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
+use time::OffsetDateTime;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LatencyMetrics {
@@ -31,9 +33,13 @@ pub struct ReliabilityMetrics {
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BenchmarkResult {
+    pub run_id: Uuid,
+    pub started_at: OffsetDateTime,
+    pub completed_at: OffsetDateTime,
     pub model: ModelId,
     pub provider: String,
     pub samples: usize,
+    pub attempts: usize,
     pub latency: LatencyMetrics,
     pub real_time_factor: f64,
     pub memory: MemoryMetrics,
@@ -45,6 +51,27 @@ impl BenchmarkResult {
     pub fn is_realtime(&self) -> bool {
         self.real_time_factor <= 1.0
     }
+}
+
+/// Select a recommendation deterministically, independent of persistence order.
+pub fn recommend_benchmark(results: &[BenchmarkResult]) -> Option<&BenchmarkResult> {
+    results.iter().min_by(|left, right| {
+        left.reliability
+            .failure_rate
+            .total_cmp(&right.reliability.failure_rate)
+            .then_with(|| {
+                left.reliability
+                    .fallback_rate
+                    .unwrap_or(1.0)
+                    .total_cmp(&right.reliability.fallback_rate.unwrap_or(1.0))
+            })
+            .then_with(|| left.latency.p95_ms.total_cmp(&right.latency.p95_ms))
+            .then_with(|| left.latency.p50_ms.total_cmp(&right.latency.p50_ms))
+            .then_with(|| left.real_time_factor.total_cmp(&right.real_time_factor))
+            .then_with(|| left.provider.cmp(&right.provider))
+            .then_with(|| left.model.0.cmp(&right.model.0))
+            .then_with(|| left.run_id.cmp(&right.run_id))
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +86,8 @@ pub fn run_benchmark(
     provider: &dyn ModelProvider,
     input: &BenchmarkInput,
 ) -> Result<BenchmarkResult, ModelError> {
+    let run_id = Uuid::new_v4();
+    let started_at = OffsetDateTime::now_utc();
     let iterations = input.iterations.max(2);
     // Keep invocation order for cold/warm semantics; derive sorted samples only
     // for order-independent percentile metrics.
@@ -109,9 +138,13 @@ pub fn run_benchmark(
         }
     });
     Ok(BenchmarkResult {
+        run_id,
+        started_at,
+        completed_at: OffsetDateTime::now_utc(),
         model: input.model.clone(),
         provider: provider.provider_name().into(),
         samples: successful_samples,
+        attempts: iterations,
         latency: LatencyMetrics {
             p50_ms: percentile(0.50),
             p95_ms: percentile(0.95),

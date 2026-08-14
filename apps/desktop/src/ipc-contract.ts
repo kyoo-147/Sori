@@ -17,7 +17,7 @@ export type IpcRequest =
   | { VoiceEdit: { selection: VoiceEditSelection; instruction: string; approved: boolean } }
   | { ModelInstall: { model: string; source: string; expected_sha256: string } } | { ModelRemove: { model: string } }
   | { ExtensionInstall: { manifest: ExtensionManifest } } | { ExtensionEnable: { id: string } } | { ExtensionDisable: { id: string } } | { ExtensionUninstall: { id: string } } | { ExtensionInvoke: { id: string; command: string; input: unknown } }
-  | { RunBenchmark: { model: string; audio: AudioChunk[]; reference: string | null; iterations: number } } | { RecentBenchmarks: { limit: number } } | { ApplyBenchmarkRecommendation: { model: string } };
+  | { RunBenchmark: { model: string; audio: AudioChunk[]; reference: string | null; iterations: number } } | { RecentBenchmarks: { limit: number } } | { ApplyBenchmarkRecommendation: { model: string | null } };
 export interface StatusResponse { protocol_version: number; daemon_version: string; running: boolean; activity: RuntimeActivity; paused: boolean; hotkey: string; route: RouteSummary; profile: ProfileMode; privacy: PrivacyMode; }
 export interface DoctorCheck { name: string; ok: boolean; detail: string; }
 export interface DoctorResponse { status: StatusResponse; checks: DoctorCheck[]; }
@@ -45,7 +45,7 @@ export function requestShape(operation: IpcOperation, params: Record<string, unk
     case 'recent_events': return { RecentEvents: { limit: Number(params.limit ?? 20) } }; case 'resource_get': return { ResourceGet: { resource: String(params.resource ?? '') } };
     case 'resource_set': return { ResourceSet: { resource: String(params.resource ?? ''), value: params.value } }; case 'recent_history': return { RecentHistory: { limit: Number(params.limit ?? 20) } };
     case 'run_benchmark': return { RunBenchmark: { model: String(params.model ?? ''), audio: (params.audio ?? []) as AudioChunk[], reference: typeof params.reference === 'string' ? params.reference : null, iterations: Number(params.iterations ?? 5) } };
-    case 'recent_benchmarks': return { RecentBenchmarks: { limit: Number(params.limit ?? 20) } }; case 'apply_benchmark_recommendation': return { ApplyBenchmarkRecommendation: { model: String(params.model ?? '') } };
+    case 'recent_benchmarks': return { RecentBenchmarks: { limit: Number(params.limit ?? 20) } }; case 'apply_benchmark_recommendation': return { ApplyBenchmarkRecommendation: { model: typeof params.model === 'string' ? params.model : null } };
     case 'set_config': return { SetConfig: { key: String(params.key ?? ''), value: params.value } };
     case 'extension_install': return { ExtensionInstall: { manifest: params.manifest as ExtensionManifest } }; case 'extension_enable': return { ExtensionEnable: { id: String(params.id ?? '') } };
     case 'extension_disable': return { ExtensionDisable: { id: String(params.id ?? '') } }; case 'extension_uninstall': return { ExtensionUninstall: { id: String(params.id ?? '') } };

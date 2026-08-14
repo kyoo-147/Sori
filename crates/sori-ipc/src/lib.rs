@@ -52,7 +52,7 @@ pub enum Request {
         limit: u16,
     },
     ApplyBenchmarkRecommendation {
-        model: ModelId,
+        model: Option<ModelId>,
     },
     Doctor,
     ConfigSummary,
@@ -763,11 +763,11 @@ mod tests {
     #[test]
     fn benchmark_recommendation_request_and_route_response_are_json_contracts() {
         let request = Request::ApplyBenchmarkRecommendation {
-            model: ModelId::from("whisper.cpp/ready"),
+            model: Some(ModelId::from("whisper.cpp/ready")),
         };
         let encoded = serde_json::to_string(&request).unwrap();
         assert!(
-            matches!(serde_json::from_str::<Request>(&encoded).unwrap(), Request::ApplyBenchmarkRecommendation { model } if model.0 == "whisper.cpp/ready")
+            matches!(serde_json::from_str::<Request>(&encoded).unwrap(), Request::ApplyBenchmarkRecommendation { model } if model.as_ref().is_some_and(|model| model.0 == "whisper.cpp/ready"))
         );
         let response = Response::Resource(ResourceResponse {
             resource: "route".into(),

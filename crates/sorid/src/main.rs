@@ -2,7 +2,7 @@ use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
     BenchmarkInput, FastIntent, HistoryEntry, HistoryRepository, ModelId, ModelRoute, PrivacyMode,
-    ProfileMode, Vocabulary, VocabularyTerm, run_benchmark,
+    ProfileMode, Vocabulary, VocabularyTerm, recommend_benchmark, run_benchmark,
 };
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
@@ -440,13 +440,26 @@ async fn main() -> Result<()> {
                 handler_store.save_benchmark(&result).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark persistence failed: {e}")))?;
                 Response::Benchmark(result)
             }
-            Request::RecentBenchmarks { limit } => Response::Resource(sori_ipc::ResourceResponse {
-                resource: "benchmarks".into(),
-                value: serde_json::to_value(handler_store.recent_benchmarks(usize::from(limit)).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?,
-            }),
+            Request::RecentBenchmarks { limit } => {
+                let runs = handler_store.recent_benchmarks(usize::from(limit)).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                let recommendation = recommend_benchmark(&runs).map(|result| serde_json::json!({
+                    "run_id": result.run_id,
+                    "provider": result.provider,
+                    "model": result.model,
+                }));
+                Response::Resource(sori_ipc::ResourceResponse {
+                    resource: "benchmarks".into(),
+                    value: serde_json::json!({ "runs": runs, "recommendation": recommendation }),
+                })
+            }
             Request::ApplyBenchmarkRecommendation { model } => {
                 let provider = benchmark_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("benchmark recommendation unavailable: Whisper provider is not ready".into()))?;
-                let route = validated_benchmark_route(&model, provider.as_ref()).map_err(sori_ipc::IpcError::Transport)?;
+                let runs = handler_store.recent_benchmarks(usize::MAX).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                let selected = recommend_benchmark(&runs).ok_or_else(|| sori_ipc::IpcError::Transport("benchmark recommendation unavailable: no successful benchmark runs".into()))?;
+                if let Some(requested) = model {
+                    if requested != selected.model { return Err(sori_ipc::IpcError::Transport("requested model is not the backend-selected benchmark recommendation".into())); }
+                }
+                let route = validated_benchmark_route(&selected.model, provider.as_ref()).map_err(sori_ipc::IpcError::Transport)?;
                 handler_store.set_setting("resource.route", &route).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark recommendation persistence failed: {e}")))?;
                 Response::Resource(sori_ipc::ResourceResponse { resource: "route".into(), value: route })
             }

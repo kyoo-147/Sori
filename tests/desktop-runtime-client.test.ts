@@ -99,6 +99,16 @@ describe('desktop benchmark input contract', () => {
     expect(fixture.reference).toBe('hello');
   });
 
+  it('applies a benchmark recommendation from the Resource route response', async () => {
+    const requests: Array<{ operation: string; params?: Record<string, unknown> }> = [];
+    const transport = { source: 'backend' as const, request: async (operation: string, params?: Record<string, unknown>) => { requests.push({ operation, params }); return { Resource: { resource: 'route', value: { activeModelId: 'whisper.cpp/ready', provider: 'whisper.cpp', policy: 'LocalFirst', fallbackModelIds: [] } } }; } };
+    const client = new RuntimeClient(transport);
+    const result = await client.applyBenchmarkRecommendation('whisper.cpp/ready');
+    expect(result.error).toBeNull();
+    expect(result.data).toMatchObject({ activeModelId: 'whisper.cpp/ready', provider: 'whisper.cpp' });
+    expect(requests).toEqual([{ operation: 'apply_benchmark_recommendation', params: { model: 'whisper.cpp/ready' } }]);
+  });
+
   it('routes a real fixture and reference through canonical benchmark IPC', async () => {
     const requests: Array<{ operation: string; params?: Record<string, unknown> }> = [];
     const transport = { source: 'backend' as const, request: async (operation: string, params?: Record<string, unknown>) => { requests.push({ operation, params }); return { Benchmark: { model: 'local-whisper' } }; } };

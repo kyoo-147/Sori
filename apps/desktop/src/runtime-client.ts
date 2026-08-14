@@ -37,7 +37,7 @@ export class RuntimeClient {
   async voiceEdit(selection: VoiceEditSelection, instruction: string, approved = false) { return this.call('voice_edit', (value) => (responsePayload(value, 'VoiceEdit') ?? null) as VoiceEditResponse | null, null, { selection, instruction, approved }); }
   async runBenchmark(model: string, audio: unknown[], reference: string | null, iterations = 5) { return this.call('run_benchmark', (v) => responsePayload(v, 'Benchmark') ?? null, null, { model, audio, reference, iterations }); }
   async recentBenchmarks(limit = 20) { return this.call('recent_benchmarks', (v) => (responsePayload(v, 'Resource') as { value: unknown[] } | undefined)?.value ?? [], [], { limit }); }
-  async applyBenchmarkRecommendation(model: string) { return this.control('apply_benchmark_recommendation', { model }); }
+  async applyBenchmarkRecommendation(model: string) { return this.call('apply_benchmark_recommendation', (value) => (responsePayload(value, 'Resource') as { value: unknown } | undefined)?.value ?? null, null, { model }); }
   resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }
   models<T = unknown>() { return this.resource<T>('models'); }
   route<T = unknown>() { return this.resource<T>('route'); }

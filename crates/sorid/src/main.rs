@@ -390,9 +390,10 @@ async fn main() -> Result<()> {
                 value: serde_json::to_value(handler_store.recent_benchmarks(usize::from(limit)).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?,
             }),
             Request::ApplyBenchmarkRecommendation { model } => {
-                let route = serde_json::json!({"provider":"whisper.cpp","model":model,"reason":"recommended by persisted benchmark","fallback":[]});
-                handler_store.save_model_route("recommended", &route).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                Response::Control(ControlResponse { accepted: true, detail: format!("benchmark recommendation persisted for {}", model.0) })
+                let provider = benchmark_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("benchmark recommendation unavailable: Whisper provider is not ready".into()))?;
+                let route = validated_benchmark_route(&model, provider.as_ref()).map_err(sori_ipc::IpcError::Transport)?;
+                handler_store.set_setting("resource.route", &route).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark recommendation persistence failed: {e}")))?;
+                Response::Resource(sori_ipc::ResourceResponse { resource: "route".into(), value: route })
             }
             Request::Doctor => {
                 let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
@@ -740,6 +741,68 @@ fn validate_resource(resource: &str) -> Result<(), String> {
         "vocabulary" | "models" | "benchmarks" | "extensions" | "permissions" | "privacy"
         | "onboarding" | "route" => Ok(()),
         _ => Err(format!("unsupported resource: {resource}")),
+    }
+}
+
+fn validated_benchmark_route(
+    requested: &ModelId,
+    provider: &dyn sori_core::ModelProvider,
+) -> Result<serde_json::Value, String> {
+    let requested = requested.0.trim();
+    if requested.is_empty() {
+        return Err("benchmark recommendation requires a model id".into());
+    }
+    let model = if let Some((requested_provider, model)) = requested.split_once('/') {
+        if requested_provider != provider.provider_name() || model.trim().is_empty() {
+            return Err(format!("unsupported benchmark provider/model: {requested}"));
+        }
+        model.trim()
+    } else {
+        requested
+    };
+    let model = ModelId::from(model);
+    if !provider.can_transcribe(&model) {
+        return Err(format!("benchmark model is unavailable: {}", model.0));
+    }
+    Ok(
+        serde_json::json!({"activeModelId": format!("{}/{}", provider.provider_name(), model.0), "provider": provider.provider_name(), "model": model, "policy": "LocalFirst", "fallbackModelIds": [], "reason": "recommended by persisted benchmark"}),
+    )
+}
+
+#[cfg(test)]
+mod benchmark_recommendation_tests {
+    use super::*;
+    use sori_core::{AudioChunk, ModelError, ModelManifest, ModelProvider, Transcript};
+    struct Provider;
+    impl ModelProvider for Provider {
+        fn provider_name(&self) -> &'static str {
+            "test-provider"
+        }
+        fn manifests(&self) -> &[ModelManifest] {
+            &[]
+        }
+        fn can_transcribe(&self, model: &ModelId) -> bool {
+            model.0 == "ready"
+        }
+        fn transcribe(
+            &self,
+            _model: &ModelId,
+            _audio: &[AudioChunk],
+        ) -> Result<Transcript, ModelError> {
+            unreachable!()
+        }
+    }
+    #[test]
+    fn recommendation_returns_canonical_active_model_route() {
+        let route =
+            validated_benchmark_route(&ModelId::from("test-provider/ready"), &Provider).unwrap();
+        assert_eq!(route["activeModelId"], "test-provider/ready");
+        assert_eq!(route["provider"], "test-provider");
+    }
+    #[test]
+    fn recommendation_rejects_unknown_provider_or_model() {
+        assert!(validated_benchmark_route(&ModelId::from("other/ready"), &Provider).is_err());
+        assert!(validated_benchmark_route(&ModelId::from("missing"), &Provider).is_err());
     }
 }
 

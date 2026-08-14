@@ -217,7 +217,8 @@ export default function App() {
     const model = benchmarkResults[0]?.modelId;
     if (!model) return;
     const result = await runtimeClient.applyBenchmarkRecommendation(model);
-    setRuntimeError(result.error ?? (result.data.accepted ? null : result.data.detail));
+    setRuntimeError(result.error);
+    if (!result.error && typeof result.data?.activeModelId === 'string') setActiveModelId(result.data.activeModelId);
   };
   const runBenchmark = async (fixture: BenchmarkFixture) => {
     if (!activeModel) return 'Benchmark unavailable: no available active model is configured.';

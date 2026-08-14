@@ -627,6 +627,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn benchmark_recommendation_request_and_route_response_are_json_contracts() {
+        let request = Request::ApplyBenchmarkRecommendation {
+            model: ModelId::from("whisper.cpp/ready"),
+        };
+        let encoded = serde_json::to_string(&request).unwrap();
+        assert!(
+            matches!(serde_json::from_str::<Request>(&encoded).unwrap(), Request::ApplyBenchmarkRecommendation { model } if model.0 == "whisper.cpp/ready")
+        );
+        let response = Response::Resource(ResourceResponse {
+            resource: "route".into(),
+            value: serde_json::json!({"activeModelId":"whisper.cpp/ready"}),
+        });
+        let encoded = serde_json::to_string(&response).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Response>(&encoded).unwrap(),
+            response
+        );
+    }
+
+    #[test]
     fn request_and_response_are_json_contracts() {
         let request = Request::RecentEvents { limit: 3 };
         let encoded = serde_json::to_string(&request).unwrap();

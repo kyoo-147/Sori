@@ -3,7 +3,7 @@
 Date: 2026-08-14
 Branch: `fm/product-ws-c-whisper-native-runtime`
 PR: https://github.com/kyoo-147/Sori/pull/134
-Commit: `c550fdf`
+Implementation commit: `6a7f5ed`
 
 ## Delivered
 

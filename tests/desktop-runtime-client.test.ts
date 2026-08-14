@@ -79,7 +79,7 @@ describe('desktop runtime IPC boundary', () => {
     await client.setActiveModel('local-whisper');
     await client.setRoutePolicy('NeverCloud');
     expect(requests).toEqual([
-      { operation: 'resource_get', params: { resource: 'models' } },
+      { operation: 'models', params: undefined },
       { operation: 'resource_set', params: { resource: 'route', value: { activeModelId: 'local-whisper' } } },
       { operation: 'set_config', params: { key: 'route.policy', value: 'NeverCloud' } },
     ]);

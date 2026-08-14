@@ -53,3 +53,8 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
     result_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS benchmark_runs_at_idx ON benchmark_runs(at DESC);
+CREATE TABLE IF NOT EXISTS user_data (
+    resource TEXT PRIMARY KEY NOT NULL,
+    value_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);

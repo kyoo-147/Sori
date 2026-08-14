@@ -14,6 +14,25 @@ describe('RuntimeClient resource persistence', () => {
     expect(result.data).toEqual([{ id: 'daemon-1', term: 'Sori' }]);
   });
 
+  it('serializes writes for one resource so rapid UI edits cannot reorder SQLite state', async () => {
+    const operations: string[] = [];
+    let releaseFirst!: () => void;
+    const first = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const client = new RuntimeClient({ source: 'backend', request: async (_name, values) => {
+      const value = JSON.stringify(values?.value);
+      operations.push(value);
+      if (operations.length === 1) await first;
+      return { Resource: { resource: 'settings', value: values?.value } };
+    } });
+    const firstWrite = client.setResource('settings', { hotkey: 'Alt+Space' });
+    const secondWrite = client.setResource('settings', { hotkey: 'Ctrl+Space' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(operations).toEqual([JSON.stringify({ hotkey: 'Alt+Space' })]);
+    releaseFirst();
+    await Promise.all([firstWrite, secondWrite]);
+    expect(operations).toEqual([JSON.stringify({ hotkey: 'Alt+Space' }), JSON.stringify({ hotkey: 'Ctrl+Space' })]);
+  });
+
   it('turns a daemon Error response into an error result', async () => {
     const client = new RuntimeClient(transport({ Error: { code: 'validation', detail: 'invalid vocabulary' } }));
     const result = await client.setResource('vocabulary', []);

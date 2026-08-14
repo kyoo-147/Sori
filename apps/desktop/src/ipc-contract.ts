@@ -21,7 +21,7 @@ export type IpcRequest =
 export interface StatusResponse { protocol_version: number; daemon_version: string; running: boolean; activity: RuntimeActivity; paused: boolean; hotkey: string; route: RouteSummary; profile: ProfileMode; privacy: PrivacyMode; }
 export interface DoctorCheck { name: string; ok: boolean; detail: string; }
 export interface DoctorResponse { status: StatusResponse; checks: DoctorCheck[]; }
-export interface ConfigSummaryResponse { profile: ProfileMode; privacy: PrivacyMode; history_enabled: boolean; hotkey: string; route: RouteSummary; }
+export interface ConfigSummaryResponse { profile: ProfileMode; privacy: PrivacyMode; history_enabled: boolean; history_retention_limit: number; hotkey: string; route: RouteSummary; }
 export interface RecentEventsResponse { events: IpcEvent[]; }
 export interface ResourceResponse { resource: string; value: unknown; }
 export interface ModelManifest { id: string; display_name: string; language: string; backend: string; quantization: string | null; disk_size_bytes: number | null; ram_bytes: number | null; license: { name: string; url: string | null; attribution: string | null }; }

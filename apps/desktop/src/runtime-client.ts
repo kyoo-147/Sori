@@ -57,7 +57,13 @@ export class RuntimeClient {
   route<T = unknown>() { return this.resource<T>('route'); }
   setActiveModel(modelId: string) { return this.setResource<{ activeModelId: string | null }>('route', { activeModelId: modelId }); }
   setRoutePolicy(policy: 'Performance' | 'Balanced' | 'Battery' | 'Privacy' | 'LocalFirst' | 'CloudAllowed' | 'NeverCloud') { return this.setConfig('route.policy', policy); }
-  async setResource<T>(name: string, value: T) { return this.call('resource_set', (response) => (responsePayload(response, 'Resource') as { value: T }).value, value, { resource: name, value }); }
+  private readonly resourceWrites = new Map<string, Promise<unknown>>();
+  async setResource<T>(name: string, value: T) {
+    const previous = this.resourceWrites.get(name) ?? Promise.resolve();
+    const write = previous.catch(() => undefined).then(() => this.call('resource_set', (response) => (responsePayload(response, 'Resource') as { value: T }).value, value, { resource: name, value }));
+    this.resourceWrites.set(name, write);
+    try { return await write; } finally { if (this.resourceWrites.get(name) === write) this.resourceWrites.delete(name); }
+  }
   async pause() { const result = await this.control('pause'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }
   async resume() { const result = await this.control('resume'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }
   extensions() { return this.call('extensions_list', (v) => (responsePayload(v, 'Extensions') as { extensions: ExtensionRecord[] }).extensions, []); }

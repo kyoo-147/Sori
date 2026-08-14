@@ -456,7 +456,7 @@ async fn main() -> Result<()> {
                     .map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
                 let no_history = NoopHistory;
                 let history: &dyn HistoryRepository = if history_enabled { handler_store.as_ref() } else { &no_history };
-                let vocabulary = handler_store.setting("resource.vocabulary").ok().flatten()
+                let vocabulary = handler_store.resource("vocabulary").ok().flatten().or_else(|| handler_store.setting("resource.vocabulary").ok().flatten())
                     .and_then(|value| serde_json::from_value::<Vec<serde_json::Value>>(value).ok())
                     .map(|items| Vocabulary { terms: items.into_iter().filter_map(|item| Some(VocabularyTerm {
                         term: item.get("term")?.as_str()?.to_owned(),
@@ -651,6 +651,11 @@ async fn main() -> Result<()> {
                 profile: ProfileMode::Basic,
                 privacy,
                 history_enabled,
+                history_retention_limit: handler_store
+                    .setting("history.retention_limit")
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(20) as u32,
                 hotkey: config_snapshot.hotkey.binding.clone(),
                 route: route_summary(&config_snapshot),
                 })
@@ -660,9 +665,13 @@ async fn main() -> Result<()> {
             }),
             Request::ResourceGet { resource } => {
                 validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
-                let value = handler_store
+                let legacy = handler_store
                     .setting(&format!("resource.{resource}"))
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                let value = handler_store
+                    .resource(&resource)
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .or(legacy)
                     .unwrap_or_else(|| default_resource(&resource));
                 Response::Resource(sori_ipc::ResourceResponse { resource, value })
             }
@@ -672,6 +681,11 @@ async fn main() -> Result<()> {
                     let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
                     validate_route_resource(&value, provider.as_ref()).map_err(|detail| sori_ipc::IpcError::Transport(detail))?;
                 }
+                handler_store
+                    .set_resource(&resource, &value)
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                // Keep the legacy key readable by daemon startup code while all
+                // new writes are owned by the user_data resource table.
                 handler_store
                     .set_setting(&format!("resource.{resource}"), &value)
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -950,8 +964,8 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
 
 fn validate_resource(resource: &str) -> Result<(), String> {
     match resource {
-        "vocabulary" | "models" | "benchmarks" | "extensions" | "permissions" | "privacy"
-        | "onboarding" | "route" => Ok(()),
+        "settings" | "vocabulary" | "snippets" | "models" | "benchmarks" | "extensions"
+        | "permissions" | "privacy" | "onboarding" | "route" => Ok(()),
         _ => Err(format!("unsupported resource: {resource}")),
     }
 }
@@ -1049,7 +1063,10 @@ mod benchmark_recommendation_tests {
 
 fn default_resource(resource: &str) -> serde_json::Value {
     match resource {
-        "vocabulary" | "benchmarks" | "extensions" | "permissions" => serde_json::json!([]),
+        "vocabulary" | "snippets" | "benchmarks" | "extensions" | "permissions" => {
+            serde_json::json!([])
+        }
+        "settings" => serde_json::json!({}),
         "models" => serde_json::json!([]),
         "privacy" => {
             serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})

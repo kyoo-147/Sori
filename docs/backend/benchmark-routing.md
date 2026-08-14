@@ -11,7 +11,9 @@ sori benchmark --model ggml-base.en.bin --audio .\fixtures\sample.wav --referenc
 ```
 
 The runner reports cold/warm latency, p50/p95, real-time factor, failure rate, and
-optional WER/CER. WER/CER are only computed when a caller supplies a reference string;
+optional WER/CER. Cold is the first successful invocation in invocation order; warm is
+the mean of subsequent successful invocations. Percentiles use successful samples only,
+while failure rate uses failures divided by all attempted invocations. Fallback rate, like RAM/VRAM, remains unavailable until fallback telemetry exists. WER/CER are only computed when a caller supplies a reference string;
 there is no bundled reference dataset in this repository, so unlabelled audio is
 `UNVERIFIED` for accuracy. RAM/VRAM are also `UNVERIFIED` until a provider exposes
 process-level resource telemetry; the runner does not print zero as a fake measurement.

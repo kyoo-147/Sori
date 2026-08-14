@@ -181,6 +181,13 @@ impl SqliteStore {
         Ok(())
     }
 
+    pub fn delete_model_manifest(&self, id: &str) -> Result<bool> {
+        Ok(self
+            .connection()?
+            .execute("DELETE FROM model_manifests WHERE id = ?1", [id])?
+            == 1)
+    }
+
     pub fn model_manifest(&self, id: &str) -> Result<Option<serde_json::Value>> {
         let connection = self.connection()?;
         let value = connection
@@ -423,7 +430,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn history_survives_reopen_and_retention_is_deterministic() {
         let database = NamedTempFile::new().unwrap();
         let first = history(Uuid::new_v4(), "first");
@@ -502,5 +508,24 @@ mod tests {
             store.model_route("default").unwrap(),
             Some(serde_json::json!({"model": "whisper"}))
         );
+        drop(store);
+        let reopened = SqliteStore::open(database.path()).unwrap();
+        assert_eq!(
+            reopened.model_manifest("whisper").unwrap(),
+            Some(serde_json::json!({"version": 1}))
+        );
+        assert_eq!(
+            reopened.model_route("default").unwrap(),
+            Some(serde_json::json!({"model": "whisper"}))
+        );
+        assert_eq!(
+            reopened.model_route("default").unwrap(),
+            Some(serde_json::json!({"model": "whisper"}))
+        );
+        assert!(reopened.delete_model_manifest("whisper").unwrap());
+        assert!(!reopened.delete_model_manifest("whisper").unwrap());
+        drop(reopened);
+        let after_delete = SqliteStore::open(database.path()).unwrap();
+        assert_eq!(after_delete.model_manifest("whisper").unwrap(), None);
     }
 }

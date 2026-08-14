@@ -51,6 +51,8 @@ export class RuntimeClient {
   async applyBenchmarkRecommendation(model: string) { return this.call('apply_benchmark_recommendation', (value) => (responsePayload(value, 'Resource') as { value: unknown } | undefined)?.value ?? null, null, { model }); }
   resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }
   models() { return this.call('models', mapModels, [] as ModelRecord[]); }
+  installModel(model: string, source: string, expectedSha256: string) { return this.call('model_install', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model, source, expected_sha256: expectedSha256 }); }
+  removeModel(model: string) { return this.call('model_remove', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model }); }
   route<T = unknown>() { return this.resource<T>('route'); }
   setActiveModel(modelId: string) { return this.setResource<{ activeModelId: string | null }>('route', { activeModelId: modelId }); }
   setRoutePolicy(policy: 'Performance' | 'Balanced' | 'Battery' | 'Privacy' | 'LocalFirst' | 'CloudAllowed' | 'NeverCloud') { return this.setConfig('route.policy', policy); }

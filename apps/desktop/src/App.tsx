@@ -39,11 +39,11 @@ export const applySidebarLiveWidth = (shell: Pick<HTMLElement, 'style'>, width: 
 };
 import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
 import type { BenchmarkFixture } from './benchmark-fixture';
-import { readSettings, writePreference } from './preferences';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
-  const [settings, setSettings] = useState<AppSettings>(() => readSettings(defaultSettings));
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const settingsHydrated = useRef(false);
   const [models, setModels] = useState<ModelRecord[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>([]);
@@ -122,8 +122,23 @@ export default function App() {
   useEffect(() => { void refreshBenchmarks(); }, [refreshBenchmarks]);
 
   useEffect(() => {
-    writePreference('settings', settings);
-  }, [settings]);
+    let cancelled = false;
+    runtimeClient.resource<Partial<AppSettings>>('settings').then((result) => {
+      if (cancelled) return;
+      if (result.error === null && result.data && typeof result.data === 'object') {
+        setSettings((current) => ({ ...current, ...result.data }));
+      }
+      settingsHydrated.current = true;
+    }).catch(() => { settingsHydrated.current = true; });
+    return () => { cancelled = true; };
+  }, [runtimeClient]);
+
+  useEffect(() => {
+    if (!settingsHydrated.current) return;
+    void runtimeClient.setResource('settings', settings).then((result) => {
+      if (result.error) setRuntimeError(`Settings unavailable: ${result.error}`);
+    });
+  }, [runtimeClient, settings]);
 
   useEffect(() => {
     runtimeClient.resource<Array<{ id: string; term: string; pronunciationHint?: string | null; category?: string }>>('vocabulary').then((result) => {

@@ -206,6 +206,7 @@ pub struct ConfigSummaryResponse {
     pub profile: ProfileMode,
     pub privacy: PrivacyMode,
     pub history_enabled: bool,
+    pub history_retention_limit: u32,
     pub hotkey: String,
     pub route: RouteSummary,
 }
@@ -604,6 +605,7 @@ impl Default for MockIpcServer {
                     profile: ProfileMode::Basic,
                     privacy: PrivacyMode::LocalOnly,
                     history_enabled: false,
+                    history_retention_limit: 20,
                     hotkey: "Alt+Space".into(),
                     route: RouteSummary {
                         prefer_local: true,

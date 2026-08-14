@@ -97,6 +97,32 @@ impl SqliteStore {
         Ok(deleted)
     }
 
+    /// Persist a user-owned resource atomically in SQLite. This is the authority
+    /// for FE settings, vocabulary, and snippets; the browser must not mirror it.
+    pub fn set_resource(&self, resource: &str, value: &serde_json::Value) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO user_data (resource, value_json, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(resource) DO UPDATE SET value_json = excluded.value_json,
+                 updated_at = excluded.updated_at",
+            params![resource, serde_json::to_string(value)?, unix_timestamp()],
+        )?;
+        Ok(())
+    }
+
+    pub fn resource(&self, resource: &str) -> Result<Option<serde_json::Value>> {
+        let connection = self.connection()?;
+        let value = connection
+            .query_row(
+                "SELECT value_json FROM user_data WHERE resource = ?1",
+                [resource],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        value
+            .map(|json| serde_json::from_str(&json).map_err(PersistenceError::from))
+            .transpose()
+    }
+
     pub fn set_setting(&self, key: &str, value: &serde_json::Value) -> Result<()> {
         self.connection()?.execute(
             "INSERT INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)
@@ -462,6 +488,53 @@ mod tests {
         };
         store.try_publish_event(&event).unwrap();
         assert_eq!(store.try_recent_events().unwrap(), vec![event]);
+    }
+
+    #[test]
+    fn resources_survive_reopen_and_update_atomically() {
+        let database = NamedTempFile::new().unwrap();
+        {
+            let store = SqliteStore::open(database.path()).unwrap();
+            store
+                .set_resource("settings", &serde_json::json!({"hotkey":"Alt+Space"}))
+                .unwrap();
+            store
+                .set_resource(
+                    "vocabulary",
+                    &serde_json::json!([{"id":"vocab-sori","term":"Sori"}]),
+                )
+                .unwrap();
+            store
+                .set_resource(
+                    "snippets",
+                    &serde_json::json!([{"id":"snippet-1","text":"hello"}]),
+                )
+                .unwrap();
+        }
+        let reopened = SqliteStore::open(database.path()).unwrap();
+        assert_eq!(
+            reopened.resource("settings").unwrap().unwrap()["hotkey"],
+            "Alt+Space"
+        );
+        assert_eq!(
+            reopened.resource("vocabulary").unwrap().unwrap()[0]["term"],
+            "Sori"
+        );
+        assert_eq!(
+            reopened.resource("snippets").unwrap().unwrap()[0]["text"],
+            "hello"
+        );
+        store_resource_update(&reopened);
+        assert_eq!(
+            reopened.resource("settings").unwrap().unwrap()["hotkey"],
+            "Ctrl+Space"
+        );
+    }
+
+    fn store_resource_update(store: &SqliteStore) {
+        store
+            .set_resource("settings", &serde_json::json!({"hotkey":"Ctrl+Space"}))
+            .unwrap();
     }
 
     #[test]

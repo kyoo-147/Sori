@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Download, Fingerprint, Lock, Trash2, Volume2 } from 'lucide-react';
 import { HistoryItem, VoiceProfile } from '../../types';
 import type { RuntimeClient } from '../../runtime-client';
@@ -20,6 +20,14 @@ export const VoiceIdentityScreen: React.FC<Props> = ({ voiceProfile, setVoicePro
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    void runtimeClient.configSummary().then((result) => {
+      if (result.error || !result.data) return;
+      setSave(result.data.history_enabled);
+      setRetention(result.data.history_retention_limit);
+    });
+  }, [runtimeClient]);
 
   const updateConfig = async (key: string, value: unknown, onSuccess: () => void) => {
     setError('');

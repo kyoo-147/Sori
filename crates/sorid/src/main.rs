@@ -798,6 +798,25 @@ fn validated_benchmark_route(
     )
 }
 
+fn default_resource(resource: &str) -> serde_json::Value {
+    match resource {
+        "vocabulary" | "benchmarks" | "extensions" | "permissions" => serde_json::json!([]),
+        "models" => {
+            serde_json::json!([{"id":"whisper.cpp/ggml-base.en","name":"Whisper base.en","provider":"whisper.cpp","location":"local","qualityTier":"standard","recommended":true,"available":false,"unavailableReason":"UNVERIFIED: local model files have not been configured"}])
+        }
+        "privacy" => {
+            serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
+        }
+        "onboarding" => {
+            serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
+        }
+        "route" => {
+            serde_json::json!({"activeModelId":"whisper.cpp/ggml-base.en","policy":"LocalFirst","fallbackModelIds":[]})
+        }
+        _ => serde_json::Value::Null,
+    }
+}
+
 #[cfg(test)]
 mod benchmark_recommendation_tests {
     use super::*;
@@ -832,24 +851,5 @@ mod benchmark_recommendation_tests {
     fn recommendation_rejects_unknown_provider_or_model() {
         assert!(validated_benchmark_route(&ModelId::from("other/ready"), &Provider).is_err());
         assert!(validated_benchmark_route(&ModelId::from("missing"), &Provider).is_err());
-    }
-}
-
-fn default_resource(resource: &str) -> serde_json::Value {
-    match resource {
-        "vocabulary" | "benchmarks" | "extensions" | "permissions" => serde_json::json!([]),
-        "models" => {
-            serde_json::json!([{"id":"whisper.cpp/ggml-base.en","name":"Whisper base.en","provider":"whisper.cpp","location":"local","qualityTier":"standard","recommended":true,"available":false,"unavailableReason":"UNVERIFIED: local model files have not been configured"}])
-        }
-        "privacy" => {
-            serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
-        }
-        "onboarding" => {
-            serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
-        }
-        "route" => {
-            serde_json::json!({"activeModelId":"whisper.cpp/ggml-base.en","policy":"LocalFirst","fallbackModelIds":[]})
-        }
-        _ => serde_json::Value::Null,
     }
 }

@@ -423,7 +423,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn history_survives_reopen_and_retention_is_deterministic() {
         let database = NamedTempFile::new().unwrap();
         let first = history(Uuid::new_v4(), "first");

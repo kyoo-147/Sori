@@ -24,7 +24,9 @@ Tauri runs `build:bundle`, which builds the frontend and `sorid` in release mode
 (staged into the ignored Tauri resource path by `prepare-desktop-bundle.mjs`)
 and emits NSIS and MSI targets. Do not package Whisper executables or model files:
 they are user-managed prerequisites and must be installed with their own license
-and checksum evidence.
+and checksum evidence. Configure them with `SORI_WHISPER_CPP_BIN`,
+`SORI_WHISPER_MODEL_DIR`, and `SORI_WHISPER_MODEL` (or the restart-persistent
+user-owned `whisper.json`).
 
 ## Launch and cleanup
 
@@ -61,3 +63,33 @@ explicit configuration without a separate user-confirmed migration policy.
 A release checklist must carry the exact Whisper executable/model source,
 checksum, and applicable upstream license notice. A successful Tauri build is
 not evidence that those optional runtime prerequisites are installed.
+
+## Contract checks and Windows acceptance
+
+Run the deterministic source/configuration check from any host:
+
+```sh
+npm run test:windows-packaging
+```
+
+On a real Windows machine, run the safe artifact check against Tauri's bundle
+output. It never installs or uninstalls anything, and it refuses to launch if
+another process owns the loopback endpoint:
+
+```powershell
+.\scripts\windows-packaging-acceptance.ps1 -BundleRoot .\apps\desktop\src-tauri\target\release\bundle
+```
+
+After separately installing the MSI or NSIS artifact, pass the installed root
+to verify `Sori.exe` and the `sorid.exe` resource. Add `-Launch` only when a
+manual Windows run is intended:
+
+```powershell
+.\scripts\windows-packaging-acceptance.ps1 -BundleRoot .\apps\desktop\src-tauri\target\release\bundle -InstalledRoot "$env:LOCALAPPDATA\Sori" -Launch
+```
+
+The script does not claim installer execution, signing, elevation, uninstall
+retention, restart recovery, microphone capture, Whisper inference, or focused
+application injection. Those require real Windows evidence and remain
+`UNVERIFIED`/`SKIP` until that matrix is run. Restart is deliberately manual;
+the wrapper never kills an unknown endpoint owner or silently adopts it.

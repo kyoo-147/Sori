@@ -8,12 +8,20 @@ struct DaemonSupervisor {
 
 impl Default for DaemonSupervisor {
     fn default() -> Self {
-        Self { child: StdMutex::new(None) }
+        Self {
+            child: StdMutex::new(None),
+        }
     }
-
 }
 
 impl DaemonSupervisor {
+    fn whisper_runtime_diagnostic(configured: bool, bundled: bool) -> Option<&'static str> {
+        if configured || bundled {
+            None
+        } else {
+            Some("optional Whisper runtime unavailable; configure SORI_WHISPER_CPP_BIN with a user-owned whisper-cli executable")
+        }
+    }
     fn daemon_path() -> PathBuf {
         if let Some(path) = std::env::var_os("SORI_DAEMON_PATH") {
             return PathBuf::from(path);
@@ -24,29 +32,50 @@ impl DaemonSupervisor {
             .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
             .unwrap_or_else(|| PathBuf::from("."));
         let sibling = parent.join(executable_name);
-        if sibling.is_file() { sibling } else { parent.join("resources").join(executable_name) }
+        if sibling.is_file() {
+            sibling
+        } else {
+            parent.join("resources").join(executable_name)
+        }
     }
 
     fn endpoint_occupied() -> bool {
         std::net::TcpStream::connect_timeout(
-            &sori_ipc::DEFAULT_ENDPOINT.parse().expect("valid daemon endpoint"),
+            &sori_ipc::DEFAULT_ENDPOINT
+                .parse()
+                .expect("valid daemon endpoint"),
             std::time::Duration::from_millis(150),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     fn start(&self) -> Result<(), String> {
         if Self::endpoint_occupied() {
-            eprintln!("[sori] daemon endpoint is already occupied; refusing to launch an unknown sorid");
+            eprintln!(
+                "[sori] daemon endpoint is already occupied; refusing to launch an unknown sorid"
+            );
             return Ok(());
         }
         let path = Self::daemon_path();
         if !path.is_file() {
-            eprintln!("[sori] sorid is not bundled or configured at {}; desktop remains offline", path.display());
+            eprintln!(
+                "[sori] sorid is not bundled or configured at {}; desktop remains offline",
+                path.display()
+            );
             return Ok(());
         }
         let bundled_whisper = path
             .parent()
             .map(|parent| parent.join("whisper-runtime").join("whisper-cli.exe"));
+        let configured_whisper = std::env::var_os("SORI_WHISPER_CPP_BIN").is_some();
+        let bundled_whisper_available = bundled_whisper
+            .as_ref()
+            .is_some_and(|candidate| candidate.is_file());
+        if let Some(message) =
+            Self::whisper_runtime_diagnostic(configured_whisper, bundled_whisper_available)
+        {
+            eprintln!("[sori] {message}");
+        }
         let mut command = Command::new(&path);
         if std::env::var_os("SORI_WHISPER_CPP_BIN").is_none() {
             if let Some(executable) = bundled_whisper.filter(|candidate| candidate.is_file()) {
@@ -59,13 +88,20 @@ impl DaemonSupervisor {
             .stderr(Stdio::inherit())
             .spawn()
             .map_err(|error| format!("failed to launch sorid at {}: {error}", path.display()))?;
-        *self.child.lock().map_err(|_| "daemon supervisor lock poisoned".to_string())? = Some(child);
+        *self
+            .child
+            .lock()
+            .map_err(|_| "daemon supervisor lock poisoned".to_string())? = Some(child);
         Ok(())
     }
 
     fn stop(&self) {
-        let Ok(mut child) = self.child.lock() else { return };
-        let Some(mut child) = child.take() else { return };
+        let Ok(mut child) = self.child.lock() else {
+            return;
+        };
+        let Some(mut child) = child.take() else {
+            return;
+        };
         if child.try_wait().ok().flatten().is_none() {
             let _ = child.kill();
             let _ = child.wait();
@@ -286,7 +322,9 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let supervisor = app.state::<DaemonSupervisor>();
-            supervisor.start().map_err(|error| tauri::Error::Anyhow(anyhow::anyhow!(error)))?;
+            supervisor
+                .start()
+                .map_err(|error| tauri::Error::Anyhow(anyhow::anyhow!(error)))?;
             let window = app
                 .get_webview_window("main")
                 .expect("main window is not available");
@@ -388,5 +426,23 @@ mod titlebar_tests {
         ] {
             assert!(source.contains(command), "missing command: {command}");
         }
+    }
+    #[test]
+    fn optional_whisper_runtime_never_blocks_desktop_startup() {
+        assert!(super::DaemonSupervisor::whisper_runtime_diagnostic(false, false).is_some());
+        assert!(super::DaemonSupervisor::whisper_runtime_diagnostic(true, false).is_none());
+        assert!(super::DaemonSupervisor::whisper_runtime_diagnostic(false, true).is_none());
+    }
+
+    #[test]
+    fn packaging_keeps_user_owned_whisper_runtime_out_of_tauri_resources() {
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let resources = config["bundle"]["resources"].as_array().unwrap();
+        assert!(resources
+            .iter()
+            .any(|item| item == "../../../target/debug/sorid.exe"));
+        assert!(!resources
+            .iter()
+            .any(|item| item.as_str().is_some_and(|item| item.contains("whisper"))));
     }
 }

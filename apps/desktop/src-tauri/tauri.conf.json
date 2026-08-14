@@ -17,6 +17,6 @@
     "active": true,
     "targets": ["nsis", "msi"],
     "icon": ["icons/icon.ico"],
-    "resources": ["../../../target/debug/sorid.exe", "../../../target/debug/whisper-runtime"]
+    "resources": ["../../../target/debug/sorid.exe"]
   }
 }

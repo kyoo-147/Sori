@@ -4,6 +4,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HotkeyServiceStatus {
     Running,
+    RunningWithFallback,
     Unsupported,
     Unavailable(String),
 }
@@ -39,7 +40,8 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
             let _ = ready_tx.send(Err(error));
             return;
         }
-        let _ = ready_tx.send(Ok(()));
+        let active_hotkey = backend.active_hotkey();
+        let _ = ready_tx.send(Ok(active_hotkey));
         let mut message = MSG {
             hwnd: std::ptr::null_mut(),
             message: 0,
@@ -66,7 +68,7 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
                         events.publish(event.into_event());
                         on_event(event);
                         if event == HotkeyEvent::Pressed {
-                            while hotkey_is_down(hotkey) && stop_rx.try_recv().is_err() {
+                            while hotkey_is_down(active_hotkey) && stop_rx.try_recv().is_err() {
                                 std::thread::sleep(Duration::from_millis(10));
                             }
                             if let Ok(Some(released)) =
@@ -89,12 +91,16 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
         let _ = backend.stop();
     });
     match ready_rx.recv().expect("hotkey worker startup response") {
-        Ok(()) => Ok((
+        Ok(active_hotkey) => Ok((
             HotkeyService {
                 stop: stop_tx,
                 thread: Some(thread),
             },
-            HotkeyServiceStatus::Running,
+            if active_hotkey == hotkey {
+                HotkeyServiceStatus::Running
+            } else {
+                HotkeyServiceStatus::RunningWithFallback
+            },
         )),
         Err(error) => {
             let _ = thread.join();

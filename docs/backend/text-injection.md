@@ -17,7 +17,13 @@ On Windows, `WindowsTextInjector::native()` provides UTF-16 `SendInput` first,
 modifier-release protection, a Unicode clipboard/paste fallback, and conditional
 restore only when the clipboard still contains the Sori payload. A failed paste
 is reported as `CopiedFallback`; a changed foreground identity is rejected.
-Focused-target insertion remains `UNVERIFIED` until observed in a real target. The Windows adapter reads the foreground HWND and owning PID immediately before input; a caller-provided `pid:...` identity mismatch is rejected. It does not claim that `SendInput` was accepted by the target.
+Before provider work begins, sorid snapshots the foreground HWND and owning PID
+as the target identity. The adapter reads the foreground HWND and owning PID
+again immediately before input, rejects a changed target, and returns an
+explicit unavailable error when no target can be captured. It does not claim
+that `SendInput` was accepted by the target. Focused-target insertion remains
+`UNVERIFIED` until observed in a real target. A caller-provided `pid:...`
+identity mismatch is also rejected.
 Adapters should refuse or clearly report elevated integrity-level mismatches.
 
 ## Manual application matrix

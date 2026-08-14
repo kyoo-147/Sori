@@ -26,8 +26,9 @@ pub use audio::{
     SampleFormat, VoiceActivity, VoiceActivityDetector,
 };
 pub use benchmark::{
-    AccuracyMetrics, BenchmarkInput, BenchmarkResult, LatencyMetrics, MemoryMetrics,
-    ReliabilityMetrics, StartupMetrics, recommend_benchmark, run_benchmark,
+    AccuracyMetrics, BenchmarkInput, BenchmarkOptions, BenchmarkResult, LatencyMetrics,
+    MemoryMetrics, ReliabilityMetrics, StartupMetrics, recommend_benchmark, run_benchmark,
+    run_benchmark_with_options,
 };
 pub use context::{ContextSnapshot, PrivacyMode, ProfileMode};
 pub use event::{Event, EventBus, EventKind, InMemoryEventBus};
@@ -41,8 +42,9 @@ pub use hotkey::{
 pub use hotkey::{WindowsHotkeyBackend, WindowsHotkeyRegistration};
 pub use intent::{FastIntent, IntentRouter};
 pub use model::{
-    ExternalProcessProvider, ExternalProcessSpec, ModelError, ModelId, ModelLicense, ModelManifest,
-    ModelProvider, ModelProviderRegistry, ModelRoute, ModelRuntime, RuntimeStatus,
+    CancellationToken, ExternalProcessProvider, ExternalProcessSpec, ModelError, ModelId,
+    ModelLicense, ModelManifest, ModelProvider, ModelProviderRegistry, ModelRoute, ModelRuntime,
+    RuntimeStatus,
 };
 pub use permission::{ActionRisk, PermissionDecision, PermissionRequest};
 pub use pipeline::{

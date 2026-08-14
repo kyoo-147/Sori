@@ -17,7 +17,7 @@ export type IpcRequest =
   | { VoiceEdit: { selection: VoiceEditSelection; instruction: string; approved: boolean } }
   | { ModelInstall: { model: string; source: string; expected_sha256: string } } | { ModelRemove: { model: string } }
   | { ExtensionInstall: { manifest: ExtensionManifest } } | { ExtensionEnable: { id: string } } | { ExtensionDisable: { id: string } } | { ExtensionUninstall: { id: string } } | { ExtensionInvoke: { id: string; command: string; input: unknown } }
-  | { RunBenchmark: { model: string; audio: AudioChunk[]; reference: string | null; iterations: number } } | { RecentBenchmarks: { limit: number } } | { ApplyBenchmarkRecommendation: { model: string | null } };
+  | { RunBenchmark: { model: string; audio: AudioChunk[]; reference: string | null; iterations: number; session_id?: string | null; timeout_ms?: number | null } } | { CancelBenchmark: { session_id: string } } | { RecentBenchmarks: { limit: number } } | { ApplyBenchmarkRecommendation: { model: string | null } };
 export interface StatusResponse { protocol_version: number; daemon_version: string; running: boolean; activity: RuntimeActivity; paused: boolean; hotkey: string; route: RouteSummary; profile: ProfileMode; privacy: PrivacyMode; }
 export interface DoctorCheck { name: string; ok: boolean; detail: string; }
 export interface DoctorResponse { status: StatusResponse; checks: DoctorCheck[]; }
@@ -34,7 +34,7 @@ export interface ControlResponse { accepted: boolean; detail: string; }
 export interface TranscriptResponse { language?: string | null; text: string; segments: unknown[]; }
 export interface IpcResponseMap { Status: StatusResponse; Doctor: DoctorResponse; ConfigSummary: ConfigSummaryResponse; Models: ModelsResponse; ModelStatus: { provider: string; status: ModelRuntimeStatus }; RecentEvents: RecentEventsResponse; RecentHistory: RecentHistoryResponse; Resource: ResourceResponse; Control: ControlResponse; Transcript: TranscriptResponse; VoiceEdit: VoiceEditResponse; Extensions: { extensions: ExtensionRecord[] }; Benchmark: unknown; Error: { code: string; detail: string }; }
 export type IpcResponse = { [K in keyof IpcResponseMap]: { [P in K]: IpcResponseMap[K] } }[keyof IpcResponseMap];
-export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'models' | 'model_install' | 'model_remove' | 'recent_events' | 'recent_history' | 'resource_get' | 'resource_set' | 'purge_history' | 'set_config' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'voice_edit' | 'pause' | 'resume' | 'extensions_list' | 'extension_install' | 'extension_enable' | 'extension_disable' | 'extension_uninstall' | 'extension_invoke' | 'run_benchmark' | 'recent_benchmarks' | 'apply_benchmark_recommendation' | 'delete_history';
+export type IpcOperation = 'status' | 'doctor' | 'config_summary' | 'models' | 'model_install' | 'model_remove' | 'recent_events' | 'recent_history' | 'resource_get' | 'resource_set' | 'purge_history' | 'set_config' | 'dictation_start' | 'dictation_stop' | 'dictation_cancel' | 'voice_edit' | 'pause' | 'resume' | 'extensions_list' | 'extension_install' | 'extension_enable' | 'extension_disable' | 'extension_uninstall' | 'extension_invoke' | 'run_benchmark' | 'cancel_benchmark' | 'recent_benchmarks' | 'apply_benchmark_recommendation' | 'delete_history';
 export function requestShape(operation: IpcOperation, params: Record<string, unknown> = {}): IpcRequest {
   switch (operation) {
     case 'status': return 'Status'; case 'doctor': return 'Doctor'; case 'config_summary': return 'ConfigSummary'; case 'models': return 'Models';
@@ -44,12 +44,12 @@ export function requestShape(operation: IpcOperation, params: Record<string, unk
     case 'purge_history': return 'PurgeHistory'; case 'delete_history': return { DeleteHistory: { id: String(params.id ?? '') } }; case 'pause': return 'Pause'; case 'resume': return 'Resume'; case 'extensions_list': return 'ExtensionsList';
     case 'recent_events': return { RecentEvents: { limit: Number(params.limit ?? 20) } }; case 'resource_get': return { ResourceGet: { resource: String(params.resource ?? '') } };
     case 'resource_set': return { ResourceSet: { resource: String(params.resource ?? ''), value: params.value } }; case 'recent_history': return { RecentHistory: { limit: Number(params.limit ?? 20) } };
-    case 'run_benchmark': return { RunBenchmark: { model: String(params.model ?? ''), audio: (params.audio ?? []) as AudioChunk[], reference: typeof params.reference === 'string' ? params.reference : null, iterations: Number(params.iterations ?? 5) } };
+    case 'run_benchmark': return { RunBenchmark: { model: String(params.model ?? ''), audio: (params.audio ?? []) as AudioChunk[], reference: typeof params.reference === 'string' ? params.reference : null, iterations: Number(params.iterations ?? 5), session_id: typeof params.session_id === 'string' ? params.session_id : null, timeout_ms: params.timeout_ms == null ? null : Number(params.timeout_ms) } };
+    case 'cancel_benchmark': return { CancelBenchmark: { session_id: String(params.session_id ?? '') } };
     case 'recent_benchmarks': return { RecentBenchmarks: { limit: Number(params.limit ?? 20) } }; case 'apply_benchmark_recommendation': return { ApplyBenchmarkRecommendation: { model: typeof params.model === 'string' ? params.model : null } };
-    case 'set_config': return { SetConfig: { key: String(params.key ?? ''), value: params.value } };
-    case 'extension_install': return { ExtensionInstall: { manifest: params.manifest as ExtensionManifest } }; case 'extension_enable': return { ExtensionEnable: { id: String(params.id ?? '') } };
-    case 'extension_disable': return { ExtensionDisable: { id: String(params.id ?? '') } }; case 'extension_uninstall': return { ExtensionUninstall: { id: String(params.id ?? '') } };
-    case 'extension_invoke': return { ExtensionInvoke: { id: String(params.id ?? ''), command: String(params.command ?? ''), input: params.input } };
+    case 'run_benchmark': return { RunBenchmark: { model: String(params.model ?? ''), audio: (params.audio ?? []) as AudioChunk[], reference: typeof params.reference === 'string' ? params.reference : null, iterations: Number(params.iterations ?? 5), session_id: typeof params.session_id === 'string' ? params.session_id : null, timeout_ms: params.timeout_ms == null ? null : Number(params.timeout_ms) } };
+    case 'cancel_benchmark': return { CancelBenchmark: { session_id: String(params.session_id ?? '') } };
+    case 'recent_benchmarks': return { RecentBenchmarks: { limit: Number(params.limit ?? 20) } }; case 'apply_benchmark_recommendation': return { ApplyBenchmarkRecommendation: { model: typeof params.model === 'string' ? params.model : null } };
   }
 }
 export function responsePayload<K extends keyof IpcResponseMap>(value: unknown, variant: K): IpcResponseMap[K] | undefined { if (!value || typeof value !== 'object') return undefined; return (value as Record<string, unknown>)[variant] as IpcResponseMap[K] | undefined; }

@@ -47,6 +47,13 @@ pub enum Request {
         audio: Vec<AudioChunk>,
         reference: Option<String>,
         iterations: u16,
+        #[serde(default)]
+        session_id: Option<Uuid>,
+        #[serde(default)]
+        timeout_ms: Option<u64>,
+    },
+    CancelBenchmark {
+        session_id: Uuid,
     },
     RecentBenchmarks {
         limit: u16,
@@ -646,6 +653,7 @@ impl Transport for MockTransport {
             | Request::DictationCancel
             | Request::Dictation { .. }
             | Request::RunBenchmark { .. }
+            | Request::CancelBenchmark { .. }
             | Request::RecentBenchmarks { .. }
             | Request::ApplyBenchmarkRecommendation { .. }
             | Request::Models

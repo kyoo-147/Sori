@@ -167,6 +167,36 @@ pub trait ModelProvider: Send + Sync {
             self.provider_name()
         )))
     }
+    fn install_model_from_file_cancelled(
+        &self,
+        model: &ModelId,
+        source: &Path,
+        expected_sha256: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<(), ModelError> {
+        if cancellation.is_cancelled() {
+            return Err(ModelError::Cancelled);
+        }
+        let result = self.install_model_from_file(model, source, expected_sha256);
+        if cancellation.is_cancelled() {
+            return Err(ModelError::Cancelled);
+        }
+        result
+    }
+    fn remove_model_cancelled(
+        &self,
+        model: &ModelId,
+        cancellation: &CancellationToken,
+    ) -> Result<(), ModelError> {
+        if cancellation.is_cancelled() {
+            return Err(ModelError::Cancelled);
+        }
+        let result = self.remove_model(model);
+        if cancellation.is_cancelled() {
+            return Err(ModelError::Cancelled);
+        }
+        result
+    }
     fn transcribe(&self, model: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError>;
     fn transcribe_with_cancellation(
         &self,
@@ -211,6 +241,8 @@ pub enum ModelError {
     Unsupported(ModelId),
     #[error("model inference failed: {0}")]
     Inference(String),
+    #[error("model operation cancelled")]
+    Cancelled,
 }
 
 #[cfg(test)]

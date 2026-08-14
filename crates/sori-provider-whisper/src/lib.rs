@@ -331,28 +331,15 @@ impl WhisperCppProvider {
         })();
         match result {
             Ok(path) => {
-                let size = fs::metadata(&path).ok().map(|metadata| metadata.len());
-                let mut manifests = self.manifests.lock().unwrap();
-                if let Some(manifest) = manifests.iter_mut().find(|manifest| manifest.id == *model)
-                {
-                    manifest.disk_size_bytes = size;
-                } else {
-                    manifests.push(ModelManifest {
-                        id: model.clone(),
-                        display_name: model.0.clone(),
-                        language: "unknown".into(),
-                        backend: PROVIDER_NAME.into(),
-                        quantization: None,
-                        disk_size_bytes: size,
-                        ram_bytes: None,
-                        license: sori_core::ModelLicense {
-                            name: "user-provided model".into(),
-                            url: None,
-                            attribution: None,
-                        },
-                    });
-                    manifests.sort_by(|a, b| a.id.cmp(&b.id));
+                let discovered = self.discover_models()?;
+                if !discovered.iter().any(|manifest| manifest.id == *model) {
+                    return Err(ModelError::Inference(format!(
+                        "installed artifact is not a discoverable whisper.cpp model: {}",
+                        model.0
+                    )));
                 }
+                let mut manifests = self.manifests.lock().unwrap();
+                *manifests = discovered;
                 if let Ok(mut status) = self.status.lock() {
                     status.lifecycle = WhisperLifecycle::Ready;
                     status.model_path = Some(path.clone());
@@ -1032,6 +1019,23 @@ impl ModelProvider for WhisperCppProvider {
     fn remove_model(&self, model: &ModelId) -> Result<(), ModelError> {
         WhisperCppProvider::remove_model(self, model)
     }
+    fn install_model_from_file_cancelled(
+        &self,
+        model: &ModelId,
+        source: &Path,
+        expected_sha256: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<(), ModelError> {
+        if cancellation.is_cancelled() {
+            return Err(ModelError::Cancelled);
+        }
+        self.install_model_from_file(model, source, Some(expected_sha256))?;
+        if cancellation.is_cancelled() {
+            let _ = self.remove_model(model);
+            return Err(ModelError::Cancelled);
+        }
+        Ok(())
+    }
     fn transcribe(&self, model: &ModelId, audio: &[AudioChunk]) -> Result<Transcript, ModelError> {
         if !self.can_transcribe(model) {
             return Err(ModelError::Unsupported(model.clone()));
@@ -1691,6 +1695,35 @@ mod tests {
         assert!(!provider.is_loaded(&id));
         provider.remove_model(&id).unwrap();
         assert!(provider.verified_model_path(&id).is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn install_does_not_create_a_synthetic_manifest_and_honors_cancellation() {
+        let root =
+            std::env::temp_dir().join(format!("sori-whisper-no-fake-{}", std::process::id()));
+        let source = root.join("not-a-model.bin");
+        let model_dir = root.join("models");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&source, b"fixture model").unwrap();
+        let digest = format!("{:x}", sha2::Sha256::digest(b"fixture model"));
+        let provider = WhisperCppProvider::from_config(
+            WhisperCppConfig::new("whisper-cli", Some(model_dir.clone())),
+            Vec::new(),
+        );
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        assert!(matches!(
+            <WhisperCppProvider as ModelProvider>::install_model_from_file_cancelled(
+                &provider,
+                &ModelId::from("not-a-model.bin"),
+                &source,
+                &digest,
+                &cancelled
+            ),
+            Err(ModelError::Cancelled)
+        ));
+        assert!(provider.manifests().is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 

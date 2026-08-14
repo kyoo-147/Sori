@@ -1,8 +1,8 @@
 use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
-    BenchmarkInput, FastIntent, HistoryEntry, HistoryRepository, ModelId, ModelLicense,
-    ModelManifest, ModelRoute, PrivacyMode, ProfileMode, Vocabulary, VocabularyTerm, run_benchmark,
+    BenchmarkInput, FastIntent, HistoryEntry, HistoryRepository, ModelId, ModelRoute, PrivacyMode,
+    ProfileMode, Vocabulary, VocabularyTerm, run_benchmark,
 };
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
@@ -123,29 +123,27 @@ async fn main() -> Result<()> {
     config.validate().map_err(anyhow::Error::msg)?;
     let whisper_model =
         std::env::var("SORI_WHISPER_MODEL").unwrap_or_else(|_| "ggml-base.en.bin".into());
-    let whisper_manifests = vec![ModelManifest {
-        id: ModelId::from(whisper_model.as_str()),
-        display_name: "Whisper.cpp local model".into(),
-        language: "en".into(),
-        backend: "whisper.cpp".into(),
-        quantization: None,
-        disk_size_bytes: None,
-        ram_bytes: None,
-        license: ModelLicense {
-            name: "Whisper model license".into(),
-            url: None,
-            attribution: None,
-        },
-    }];
     let (whisper_provider, whisper_detail): (Option<Arc<dyn sori_core::ModelProvider>>, String) =
         match WhisperCppConfig::discover() {
             Ok(config) => {
-                let provider = WhisperCppProvider::from_config(config, whisper_manifests);
-                match provider.validate_for_transcription(&ModelId::from(whisper_model.as_str())) {
-                    Ok(()) => (
-                        Some(Arc::new(provider)),
-                        "whisper.cpp executable and model are ready".into(),
-                    ),
+                let provider = WhisperCppProvider::from_config(config, Vec::new());
+                match provider.discover_models() {
+                    Ok(manifests) => {
+                        let count = manifests.len();
+                        let provider = WhisperCppProvider::from_config(
+                            WhisperCppConfig::new(
+                                provider.executable().to_path_buf(),
+                                provider.model_dir().map(std::path::Path::to_path_buf),
+                            ),
+                            manifests,
+                        );
+                        (
+                            Some(Arc::new(provider)),
+                            format!(
+                                "whisper.cpp executable configured; discovered {count} model(s)"
+                            ),
+                        )
+                    }
                     Err(error) => (None, format!("unavailable: {error}")),
                 }
             }
@@ -158,6 +156,7 @@ async fn main() -> Result<()> {
         }
     }
     let benchmark_provider = whisper_provider.clone();
+    let model_provider = whisper_provider.clone();
     if let Some(value) = store.setting("hotkey.binding")? {
         if let Some(binding) = value.as_str() {
             config.hotkey.binding = binding.to_owned();
@@ -239,6 +238,7 @@ async fn main() -> Result<()> {
     let handler_store = Arc::clone(&store);
     let handler_config = Arc::new(Mutex::new(config.clone()));
     let handler_privacy = Arc::new(Mutex::new(privacy_mode));
+    let handler_model_provider = model_provider.clone();
     let server_task = server.serve(move |request| {
         let config_snapshot = handler_config
             .lock()
@@ -248,6 +248,35 @@ async fn main() -> Result<()> {
             .lock()
             .map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))?;
         let response = match request {
+            Request::Models => match handler_model_provider.as_ref() {
+                Some(provider) => Response::Models(sori_ipc::ModelsResponse {
+                    provider: Some(provider.provider_name().into()), available: true,
+                    models: provider.manifests().iter().map(|manifest| sori_ipc::ModelRecord {
+                        manifest: manifest.clone(), status: provider.runtime_status(&manifest.id),
+                    }).collect(), error: None,
+                }),
+                None => Response::Models(sori_ipc::ModelsResponse {
+                    provider: None, available: false, models: Vec::new(), error: Some(whisper_detail.clone()),
+                }),
+            },
+            Request::ModelStatus { model } => {
+                let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
+                if !provider.can_transcribe(&model) {
+                    Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("model is not discovered and ready: {}", model.0) })
+                } else {
+                    Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+                }
+            }
+            Request::ModelLoad { model } => {
+                let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
+                provider.load(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model load failed: {error}")))?;
+                Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+            }
+            Request::ModelUnload { model } => {
+                let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
+                provider.unload(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model unload failed: {error}")))?;
+                Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+            }
             Request::ExtensionsList => Response::Extensions(ExtensionsResponse {
                 extensions: handler_store.extensions().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.into_iter().map(extension_record).collect(),
             }),

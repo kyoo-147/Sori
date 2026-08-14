@@ -5,14 +5,16 @@
 //! import the desktop application or the IPC mock transport.
 
 use sori_core::{
-    AudioCaptureEngine, AudioChunk, AudioEngine, AudioError, AudioFormat, EventKind,
-    InjectorCapabilities, ModelError, ModelId, ModelProvider, ModelRoute, SampleFormat,
-    TextInjectionError, TextInjectionRequest, TextInjectionResult, TextInjector, TextTarget,
-    TextTargetCapabilities, Transcript, run_dictation,
+    AudioCaptureEngine, AudioChunk, AudioEngine, AudioError, AudioFormat, BenchmarkInput,
+    BenchmarkOptions, CancellationToken, EventKind, InjectorCapabilities, ModelError, ModelId,
+    ModelProvider, ModelRoute, SampleFormat, TextInjectionError, TextInjectionRequest,
+    TextInjectionResult, TextInjector, TextTarget, TextTargetCapabilities, Transcript,
+    run_dictation,
 };
 use sori_ipc::{IpcClient, LocalIpcClient, LocalIpcServer, Request, Response};
 use sori_persistence::SqliteStore;
 use sorid::{DaemonRuntime, SharedEventBus};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use time::OffsetDateTime;
 
@@ -385,4 +387,190 @@ async fn canonical_ipc_exercises_success_cancellation_and_injection_fallback() {
     );
 
     task.abort();
+}
+
+struct CancellableBenchmarkProvider {
+    started: Arc<AtomicBool>,
+    hold: Arc<AtomicBool>,
+}
+
+impl ModelProvider for CancellableBenchmarkProvider {
+    fn provider_name(&self) -> &'static str {
+        "deterministic-benchmark-provider"
+    }
+    fn can_transcribe(&self, model: &ModelId) -> bool {
+        model.0 == MODEL
+    }
+    fn transcribe(&self, model: &ModelId, _: &[AudioChunk]) -> Result<Transcript, ModelError> {
+        if !self.can_transcribe(model) {
+            return Err(ModelError::Unsupported(model.clone()));
+        }
+        Ok(Transcript::plain("deterministic transcript"))
+    }
+    fn transcribe_with_cancellation(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        cancellation: &CancellationToken,
+    ) -> Result<Transcript, ModelError> {
+        self.started.store(true, Ordering::Release);
+        while self.hold.load(Ordering::Acquire) {
+            if cancellation.is_cancelled() {
+                return Err(ModelError::Inference("benchmark cancelled".into()));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        self.transcribe(model, audio)
+    }
+}
+
+#[tokio::test]
+async fn canonical_ipc_benchmark_cancel_retry_history_reload_and_concurrent_status() {
+    let path =
+        std::env::temp_dir().join(format!("sori-backend-ipc-{}.sqlite", uuid::Uuid::new_v4()));
+    let store = Arc::new(SqliteStore::open(&path).unwrap());
+    let provider = Arc::new(CancellableBenchmarkProvider {
+        started: Arc::new(AtomicBool::new(false)),
+        hold: Arc::new(AtomicBool::new(true)),
+    });
+    let sessions: Arc<Mutex<std::collections::HashMap<uuid::Uuid, CancellationToken>>> =
+        Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let server = LocalIpcServer::bind("127.0.0.1:0".parse().unwrap())
+        .await
+        .unwrap();
+    let endpoint = server.local_addr().unwrap();
+    let handler_store = Arc::clone(&store);
+    let handler_provider = Arc::clone(&provider);
+    let handler_sessions = Arc::clone(&sessions);
+    let task = tokio::spawn(server.serve(move |request| {
+        match request {
+            Request::Status => Ok(Response::Status(sori_ipc::StatusResponse {
+                protocol_version: sori_ipc::PROTOCOL_VERSION, daemon_version: "e2e".into(), running: true,
+                activity: sori_ipc::RuntimeActivity::Idle, paused: false, hotkey: "Alt+Space".into(),
+                route: sori_ipc::RouteSummary { prefer_local: true, allow_cloud: false, prefer_warm_runtime: false, optimize_battery: false },
+                profile: sori_core::ProfileMode::Basic, privacy: sori_core::PrivacyMode::LocalOnly,
+            })),
+            Request::RunBenchmark { model, audio, reference, iterations, session_id, timeout_ms } => {
+                let session_id = session_id.unwrap_or_else(uuid::Uuid::new_v4);
+                let cancellation = CancellationToken::new();
+                handler_sessions.lock().unwrap().insert(session_id, cancellation.clone());
+                let result = sori_core::run_benchmark_with_options(handler_provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }, &BenchmarkOptions { cancellation: cancellation.clone(), timeout: timeout_ms.map(std::time::Duration::from_millis) });
+                handler_sessions.lock().unwrap().remove(&session_id);
+                let result = result.map_err(|error| sori_ipc::IpcError::Transport(format!("benchmark failed: {error}")))?;
+                handler_store.save_benchmark(&result).map_err(|error| sori_ipc::IpcError::Transport(error.to_string()))?;
+                Ok(Response::Benchmark(result))
+            }
+            Request::CancelBenchmark { session_id } => match handler_sessions.lock().unwrap().get(&session_id).cloned() {
+                Some(token) => { token.cancel(); Ok(Response::Control(sori_ipc::ControlResponse { accepted: true, detail: "benchmark cancellation requested".into() })) }
+                None => Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_session_not_found".into(), detail: "benchmark session is not active".into() })),
+            },
+            Request::RecentBenchmarks { limit } => {
+                let runs = handler_store.recent_benchmarks(usize::from(limit)).unwrap();
+                let recommendation = sori_core::recommend_benchmark(&runs).map(|run| serde_json::json!({ "run_id": run.run_id, "provider": run.provider, "model": run.model }));
+                Ok(Response::Resource(sori_ipc::ResourceResponse { resource: "benchmarks".into(), value: serde_json::json!({ "runs": runs, "recommendation": recommendation }) }))
+            }
+            Request::RecentHistory { limit } => Ok(Response::RecentHistory(sori_ipc::RecentHistoryResponse { entries: handler_store.try_recent_history(usize::from(limit)).unwrap() })),
+            Request::DeleteHistory { id } => Ok(if handler_store.try_delete_history(id).unwrap() {
+                Response::Control(sori_ipc::ControlResponse { accepted: true, detail: "history entry deleted from SQLite".into() })
+            } else { Response::Error(sori_ipc::IpcErrorResponse { code: "not_found".into(), detail: "history entry not found".into() }) }),
+            _ => Err(sori_ipc::IpcError::UnexpectedResponse { request: Box::new(request) }),
+        }
+    }));
+    let request = move |request| {
+        tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(request)
+        })
+    };
+    let session_id = uuid::Uuid::new_v4();
+    let benchmark = tokio::spawn(request(Request::RunBenchmark {
+        model: ModelId::from(MODEL),
+        audio: vec![chunk(0.5)],
+        reference: Some("deterministic transcript".into()),
+        iterations: 3,
+        session_id: Some(session_id),
+        timeout_ms: None,
+    }));
+    let started_at = std::time::Instant::now();
+    while !provider.started.load(Ordering::Acquire) {
+        assert!(started_at.elapsed() < std::time::Duration::from_secs(2));
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        matches!(
+            request(Request::Status).await.unwrap().unwrap(),
+            Response::Status(_)
+        ),
+        "status stays responsive during benchmark"
+    );
+    assert!(
+        matches!(request(Request::CancelBenchmark { session_id }).await.unwrap().unwrap(), Response::Control(control) if control.accepted)
+    );
+    assert!(
+        matches!(benchmark.await.unwrap().unwrap().unwrap(), Response::Error(error) if error.detail.contains("cancelled"))
+    );
+    assert!(
+        matches!(request(Request::RecentBenchmarks { limit: 10 }).await.unwrap().unwrap(), Response::Resource(resource) if resource.value["runs"].as_array().unwrap().is_empty())
+    );
+
+    provider.hold.store(false, Ordering::Release);
+    let successful = request(Request::RunBenchmark {
+        model: ModelId::from(MODEL),
+        audio: vec![chunk(0.5)],
+        reference: Some("deterministic transcript".into()),
+        iterations: 3,
+        session_id: None,
+        timeout_ms: None,
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        matches!(successful, Response::Benchmark(result) if result.accuracy.unwrap().wer == Some(0.0))
+    );
+    let recent = request(Request::RecentBenchmarks { limit: 10 })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(recent, Response::Resource(resource) if resource.value["recommendation"]["model"] == MODEL)
+    );
+
+    let entry = sori_core::HistoryEntry {
+        id: uuid::Uuid::new_v4(),
+        at: time::OffsetDateTime::UNIX_EPOCH,
+        active_app: None,
+        transcript: Transcript::plain("persisted history"),
+        intent: sori_core::FastIntent::Dictation {
+            text: "persisted history".into(),
+        },
+        route: None,
+        inserted_text: None,
+    };
+    store.try_push_history(&entry).unwrap();
+    assert!(
+        matches!(request(Request::RecentHistory { limit: 10 }).await.unwrap().unwrap(), Response::RecentHistory(response) if response.entries.iter().any(|item| item.id == entry.id))
+    );
+    assert!(
+        matches!(request(Request::DeleteHistory { id: entry.id }).await.unwrap().unwrap(), Response::Control(control) if control.accepted)
+    );
+    assert!(
+        matches!(request(Request::DeleteHistory { id: entry.id }).await.unwrap().unwrap(), Response::Error(error) if error.code == "not_found")
+    );
+    task.abort();
+    let _ = task.await;
+    drop(store);
+    let reopened = SqliteStore::open(&path).unwrap();
+    assert_eq!(
+        reopened.recent_benchmarks(10).unwrap().len(),
+        1,
+        "successful benchmark survives SQLite reopen"
+    );
+    assert!(
+        reopened.try_recent_history(10).unwrap().is_empty(),
+        "deleted history stays deleted after reopen"
+    );
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
 }

@@ -179,6 +179,18 @@ pub trait ModelProvider: Send + Sync {
         }
         self.transcribe(model, audio)
     }
+    fn transcribe_with_context_and_cancellation(
+        &self,
+        model: &ModelId,
+        audio: &[AudioChunk],
+        vocabulary: &crate::Vocabulary,
+        cancellation: &CancellationToken,
+    ) -> Result<Transcript, ModelError> {
+        if cancellation.is_cancelled() {
+            return Err(ModelError::Inference("transcription cancelled".into()));
+        }
+        self.transcribe_with_context(model, audio, vocabulary)
+    }
     fn transcribe_with_context(
         &self,
         model: &ModelId,

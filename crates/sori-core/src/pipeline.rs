@@ -181,6 +181,109 @@ pub fn complete_dictation_with_vocabulary(
     })
 }
 
+/// Execute a dictation with a cancellation/timeout seam owned by the caller.
+/// Providers must observe the token; the elapsed check also prevents a late
+/// provider result from becoming a successful transcript.
+#[allow(clippy::too_many_arguments)]
+pub fn complete_dictation_with_vocabulary_options(
+    chunks: Vec<AudioChunk>,
+    asr: &dyn ModelProvider,
+    injector: &mut dyn TextInjector,
+    target: &dyn TextTarget,
+    route: &ModelRoute,
+    history: &dyn HistoryRepository,
+    events: &dyn EventBus,
+    vocabulary: &Vocabulary,
+    cancellation: &crate::CancellationToken,
+    timeout: Option<std::time::Duration>,
+) -> Result<DictationResult, PipelineError> {
+    let started = std::time::Instant::now();
+    if cancellation.is_cancelled() {
+        return Err(PipelineError::Asr(ModelError::Inference(
+            "transcription cancelled".into(),
+        )));
+    }
+    if timeout.is_some_and(|limit| limit.is_zero()) {
+        return Err(PipelineError::Asr(ModelError::Inference(
+            "transcription timed out before provider launch".into(),
+        )));
+    }
+    if route.provider != asr.provider_name() {
+        return Err(PipelineError::Route(format!(
+            "route provider {} is not served by {}",
+            route.provider,
+            asr.provider_name()
+        )));
+    }
+    if !asr.can_transcribe(&route.model) {
+        return Err(PipelineError::Route(format!(
+            "model is unavailable: {}",
+            route.model.0
+        )));
+    }
+    publish(events, EventKind::AsrSelected, &route.model.0);
+    let transcript = normalize_transcript(
+        asr.transcribe_with_context_and_cancellation(
+            &route.model,
+            &chunks,
+            vocabulary,
+            cancellation,
+        )?,
+        vocabulary,
+    );
+    if cancellation.is_cancelled() || timeout.is_some_and(|limit| started.elapsed() >= limit) {
+        let detail = if cancellation.is_cancelled() {
+            "transcription cancelled"
+        } else {
+            "transcription timed out"
+        };
+        return Err(PipelineError::Asr(ModelError::Inference(detail.into())));
+    }
+    publish(events, EventKind::TranscriptFinal, &transcript.text);
+    let request = TextInjectionRequest {
+        text: transcript.text.clone(),
+        dry_run: false,
+    };
+    let (inserted_text, injection_error) = match injector.inject(target, &request) {
+        Ok(_) => {
+            publish(events, EventKind::ActionAfter, "text-injected");
+            (Some(transcript.text.clone()), None)
+        }
+        Err(error) => {
+            publish(
+                events,
+                EventKind::ModelFallback,
+                &format!("injection-fallback: {error}"),
+            );
+            (None, Some(error.to_string()))
+        }
+    };
+    history
+        .try_push(HistoryEntry {
+            id: Uuid::new_v4(),
+            at: OffsetDateTime::now_utc(),
+            active_app: Some(target.name().to_owned()),
+            intent: FastIntent::Dictation {
+                text: transcript.text.clone(),
+            },
+            transcript: transcript.clone(),
+            route: Some(route.clone()),
+            inserted_text: inserted_text.clone(),
+        })
+        .map_err(PipelineError::History)?;
+    Ok(DictationResult {
+        transcript,
+        inserted_text,
+        chunks: chunks.len(),
+        stages: vec![
+            PipelineStage::AsrRoute,
+            PipelineStage::Transcribe,
+            PipelineStage::InjectOrAct,
+        ],
+        injection_error,
+    })
+}
+
 pub fn run_dictation(
     audio: &mut dyn AudioEngine,
     asr: &dyn ModelProvider,
@@ -325,6 +428,58 @@ mod tests {
             &events,
         );
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn cancellation_and_timeout_are_terminal_before_injection() {
+        let history = crate::InMemoryHistory::default();
+        let events = crate::InMemoryEventBus::default();
+        let token = crate::CancellationToken::new();
+        token.cancel();
+        let cancelled = complete_dictation_with_vocabulary_options(
+            vec![AudioChunk {
+                captured_at: OffsetDateTime::UNIX_EPOCH,
+                format: AudioFormat {
+                    sample_rate_hz: 16_000,
+                    channels: 1,
+                    sample_format: SampleFormat::F32,
+                },
+                samples: vec![1.0],
+            }],
+            &AsrFake,
+            &mut InjectorFake { fail: false },
+            &TargetFake,
+            &route(),
+            &history,
+            &events,
+            &Vocabulary::default(),
+            &token,
+            None,
+        );
+        assert!(cancelled.is_err());
+        assert!(history.recent(1).is_empty());
+        let timed_out = complete_dictation_with_vocabulary_options(
+            vec![AudioChunk {
+                captured_at: OffsetDateTime::UNIX_EPOCH,
+                format: AudioFormat {
+                    sample_rate_hz: 16_000,
+                    channels: 1,
+                    sample_format: SampleFormat::F32,
+                },
+                samples: vec![1.0],
+            }],
+            &AsrFake,
+            &mut InjectorFake { fail: false },
+            &TargetFake,
+            &route(),
+            &history,
+            &events,
+            &Vocabulary::default(),
+            &crate::CancellationToken::new(),
+            Some(std::time::Duration::ZERO),
+        );
+        assert!(timed_out.is_err());
+        assert!(history.recent(1).is_empty());
     }
 
     #[test]

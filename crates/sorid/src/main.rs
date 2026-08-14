@@ -387,7 +387,18 @@ async fn main() -> Result<()> {
                         pronunciation_hint: item.get("pronunciationHint").and_then(|v| v.as_str()).map(str::to_owned),
                         correction: item.get("correction").and_then(|v| v.as_str()).map(str::to_owned),
                     })).collect() }).unwrap_or_default();
-                let result = match runtime.complete_captured_dictation_with_vocabulary(&route, &mut injector, &target, history, &vocabulary) {
+                // Bound native provider work so a stuck whisper child is killed by
+                // its runner and this IPC operation cannot publish a late result.
+                let cancellation = CancellationToken::new();
+                let timeout_token = cancellation.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                    timeout_token.cancel();
+                });
+                let result = match runtime.complete_captured_dictation_with_options(
+                    &route, &mut injector, &target, history, &vocabulary,
+                    &cancellation, Some(std::time::Duration::from_secs(30)),
+                ) {
                     Ok(result) => result,
                     Err(sori_core::PipelineError::Route(detail)) => {
                         return Ok(Response::Error(sori_ipc::IpcErrorResponse {

@@ -1,10 +1,11 @@
 //! Non-blocking daemon lifecycle state machine.
 
 use sori_core::{
-    AudioCaptureEngine, AudioChunk, AudioError, EnergyVad, EventBus, EventKind, HistoryRepository,
-    ModelError, ModelId, ModelProvider, ModelRoute, TextInjector, TextTarget, Transcript,
-    Vocabulary, VoiceActivity, VoiceActivityDetector, complete_dictation,
-    complete_dictation_with_vocabulary, event::serde_json_like::Value,
+    AudioCaptureEngine, AudioChunk, AudioError, CancellationToken, EnergyVad, EventBus, EventKind,
+    HistoryRepository, ModelError, ModelId, ModelProvider, ModelRoute, TextInjector, TextTarget,
+    Transcript, Vocabulary, VoiceActivity, VoiceActivityDetector, complete_dictation,
+    complete_dictation_with_vocabulary, complete_dictation_with_vocabulary_options,
+    event::serde_json_like::Value,
 };
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -316,6 +317,43 @@ impl<B: EventBus> DaemonRuntime<B> {
         )
     }
 
+    /// Complete the stopped capture with provider cancellation and a hard deadline.
+    pub fn complete_captured_dictation_with_options(
+        &mut self,
+        route: &ModelRoute,
+        injector: &mut dyn TextInjector,
+        target: &dyn TextTarget,
+        history: &dyn HistoryRepository,
+        vocabulary: &Vocabulary,
+        cancellation: &CancellationToken,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<sori_core::DictationResult, sori_core::PipelineError> {
+        let audio = self.take_captured_audio();
+        let provider = self.provider.as_deref().ok_or_else(|| {
+            sori_core::PipelineError::Asr(ModelError::Inference(
+                "no model provider is configured".into(),
+            ))
+        })?;
+        let result = complete_dictation_with_vocabulary_options(
+            audio,
+            provider,
+            injector,
+            target,
+            route,
+            history,
+            &self.events,
+            vocabulary,
+            cancellation,
+            timeout,
+        );
+        if let Err(error) = &result {
+            self.publish(
+                EventKind::AudioError,
+                Value::String(format!("dictation: {error}")),
+            );
+        }
+        result
+    }
     pub fn handle_hotkey(&mut self, event: sori_core::HotkeyEvent, model: &ModelId) {
         let result: Result<(), String> = match event {
             sori_core::HotkeyEvent::Pressed => self

@@ -278,7 +278,9 @@ async fn main() -> Result<()> {
                 Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
             }
             Request::ModelInstall { model, source, expected_sha256 } => {
-                let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
+                let Some(provider) = handler_model_provider.as_ref() else {
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "model_provider_unavailable".into(), detail: whisper_detail.clone() }));
+                };
                 provider.install_model_from_file(&model, std::path::Path::new(&source), &expected_sha256)
                     .map_err(|error| sori_ipc::IpcError::Transport(format!("model install failed: {error}")))?;
                 let manifest = provider.manifests().into_iter().find(|manifest| manifest.id == model)
@@ -288,13 +290,16 @@ async fn main() -> Result<()> {
                 Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
             }
             Request::ModelRemove { model } => {
-                let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
+                let Some(provider) = handler_model_provider.as_ref() else {
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "model_provider_unavailable".into(), detail: whisper_detail.clone() }));
+                };
                 let route = handler_store.setting("resource.route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 let active = route.as_ref().and_then(|value| value.get("activeModelId")).and_then(|value| value.as_str()).unwrap_or_default();
                 if active == model.0 || active == format!("{}/{}", provider.provider_name(), model.0) {
                     Response::Error(sori_ipc::IpcErrorResponse { code: "model_in_use".into(), detail: format!("cannot remove model {} because it is the active route", model.0) })
                 } else {
                     provider.remove_model(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model removal failed: {error}")))?;
+                    handler_store.delete_model_manifest(&model.0).map_err(|error| sori_ipc::IpcError::Transport(format!("model manifest removal failed: {error}")))?;
                     Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
                 }
             }

@@ -131,7 +131,10 @@ impl Request {
     fn is_long_running(&self) -> bool {
         matches!(
             self,
-            Self::Dictation { .. } | Self::DictationStop | Self::RunBenchmark { .. }
+            Self::DictationStart
+                | Self::Dictation { .. }
+                | Self::DictationStop
+                | Self::RunBenchmark { .. }
         )
     }
 }
@@ -1002,6 +1005,68 @@ mod tests {
             matches!(first.await.unwrap().unwrap(), Response::Control(control) if control.accepted)
         );
         task.abort();
+    }
+
+    #[tokio::test]
+    async fn cancellation_is_admitted_while_long_operation_runs() {
+        let server = LocalIpcServer::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let endpoint = server.local_addr().unwrap();
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let handler_gate = Arc::clone(&gate);
+        let task = tokio::spawn(server.serve(move |request| match request {
+            Request::DictationStop => {
+                handler_gate.wait();
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                Ok(Response::Control(ControlResponse {
+                    accepted: true,
+                    detail: "stopped".into(),
+                }))
+            }
+            Request::DictationCancel => Ok(Response::Control(ControlResponse {
+                accepted: true,
+                detail: "cancel requested".into(),
+            })),
+            _ => Err(IpcError::UnexpectedResponse {
+                request: Box::new(request),
+            }),
+        }));
+        let stop = tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(Request::DictationStop)
+        });
+        tokio::task::spawn_blocking(move || gate.wait())
+            .await
+            .unwrap();
+        let started = std::time::Instant::now();
+        let cancel = tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(Request::DictationCancel)
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_millis(150));
+        assert!(matches!(cancel, Response::Control(control) if control.accepted));
+        assert!(
+            matches!(stop.await.unwrap().unwrap(), Response::Control(control) if control.accepted)
+        );
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn bind_refuses_an_endpoint_already_owned() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = listener.local_addr().unwrap();
+        let error = match LocalIpcServer::bind(endpoint).await {
+            Ok(_) => panic!("second server unexpectedly acquired an owned endpoint"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("address") || error.to_string().contains("Only one"));
+        drop(listener);
     }
 
     #[tokio::test]

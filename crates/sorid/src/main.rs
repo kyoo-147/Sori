@@ -258,6 +258,8 @@ async fn main() -> Result<()> {
     let benchmark_sessions: Arc<Mutex<HashMap<uuid::Uuid, CancellationToken>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let handler_benchmark_sessions = Arc::clone(&benchmark_sessions);
+    let dictation_cancellation: Arc<Mutex<Option<CancellationToken>>> = Arc::new(Mutex::new(None));
+    let handler_dictation_cancellation = Arc::clone(&dictation_cancellation);
     let server_task = server.serve(move |request| {
         let config_snapshot = handler_config
             .lock()
@@ -359,9 +361,25 @@ async fn main() -> Result<()> {
                 Response::Status(slot.as_ref().map(|runtime| status_response(runtime, &config_snapshot, privacy)).unwrap_or_else(|| busy_status_response(&config_snapshot, privacy)))
             }
             Request::DictationStart => {
+                let cancellation = CancellationToken::new();
+                *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = Some(cancellation.clone());
                 let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
-                let runtime = slot.as_mut().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
-                runtime.start_audio().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                let runtime = match slot.as_mut() {
+                    Some(runtime) => runtime,
+                    None => {
+                        *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
+                        return Err(sori_ipc::IpcError::Transport("runtime operation in progress".into()));
+                    }
+                };
+                if let Err(error) = runtime.start_audio() {
+                    *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
+                    return Err(sori_ipc::IpcError::Transport(error.to_string()));
+                }
+                if cancellation.is_cancelled() {
+                    let _ = runtime.stop_audio(true);
+                    *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "dictation_cancelled".into(), detail: "dictation was cancelled while microphone capture was starting".into() }));
+                }
                 Response::Control(ControlResponse { accepted: true, detail: "microphone capture started".into() })
             }
             Request::DictationStop => {
@@ -415,7 +433,7 @@ async fn main() -> Result<()> {
                     })).collect() }).unwrap_or_default();
                 // Bound native provider work so a stuck whisper child is killed by
                 // its runner and this IPC operation cannot publish a late result.
-                let cancellation = CancellationToken::new();
+                let cancellation = handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))?.clone().unwrap_or_else(CancellationToken::new);
                 let timeout_token = cancellation.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(30));
@@ -440,6 +458,7 @@ async fn main() -> Result<()> {
                 Ok(Response::Transcript(result.transcript))
                 }
                 })();
+                *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
                 handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                 operation?
             }
@@ -456,16 +475,20 @@ async fn main() -> Result<()> {
                 }
             }
             Request::DictationCancel => {
-                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
-                let mut runtime = slot.take().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
-                drop(slot);
-                let operation = (|| {
-                    let chunks = runtime.stop_audio(true).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                    let _ = runtime.take_captured_audio();
-                    Ok::<Response, sori_ipc::IpcError>(Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") }))
-                })();
-                handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
-                operation?
+                let cancellation = handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))?.clone().ok_or_else(|| sori_ipc::IpcError::Transport("no dictation session is active".into()))?;
+                cancellation.cancel();
+                // Provider work owns the runtime slot. The token makes that
+                // work terminate without waiting on the runtime mutex.
+                if let Ok(mut slot) = handler_runtime.try_lock() {
+                    if let Some(runtime) = slot.as_mut() {
+                        if let Ok(chunks) = runtime.stop_audio(true) {
+                            let _ = runtime.take_captured_audio();
+                            *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
+                            return Ok(Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") }));
+                        }
+                    }
+                }
+                Response::Control(ControlResponse { accepted: true, detail: "dictation cancellation requested; active provider work will be discarded".into() })
             }
             Request::Dictation { model, audio } => {
                 let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
@@ -527,10 +550,12 @@ async fn main() -> Result<()> {
             }
             Request::Doctor => {
                 let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
-                let runtime = slot.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);
+                let status = slot.as_ref().map(|runtime| status_response(runtime, &config_snapshot, privacy)).unwrap_or_else(|| busy_status_response(&config_snapshot, privacy));
+                let audio_error = slot.as_ref().and_then(|runtime| runtime.audio_readiness().err()).map(|error| error.to_string());
+                let whisper_ready = slot.as_ref().is_some_and(|runtime| runtime.whisper_available());
                 Response::Doctor(DoctorResponse {
-                    status: status_response(runtime, &config_snapshot, privacy),
+                    status,
                     checks: vec![
                         DoctorCheck {
                             name: "daemon".into(),
@@ -563,16 +588,17 @@ async fn main() -> Result<()> {
                         },
                         DoctorCheck {
                             name: "audio".into(),
-                            ok: runtime.audio_readiness().is_ok(),
-                            detail: match runtime.audio_readiness() {
-                                Ok(()) => "CPAL input device discovered and native input configuration is available; stream start remains a separate session check".into(),
-                                Err(error) => format!("unavailable: {error}"),
+                            ok: slot.is_some() && audio_error.is_none(),
+                            detail: match audio_error {
+                                None if slot.is_some() => "CPAL input device discovered and native input configuration is available; stream start remains a separate session check".into(),
+                                None => "unavailable while a dictation operation is cleaning up".into(),
+                                Some(error) => format!("unavailable: {error}"),
                             },
                         },
                         DoctorCheck {
                             name: "whisper".into(),
-                            ok: runtime.whisper_available(),
-                            detail: whisper_detail.clone(),
+                            ok: whisper_ready,
+                            detail: if slot.is_some() { whisper_detail.clone() } else { "unavailable while a dictation operation is cleaning up".into() },
                         },
                         DoctorCheck {
                             name: "text-injection".into(),
@@ -679,17 +705,36 @@ async fn main() -> Result<()> {
         signal = tokio::signal::ctrl_c() => { signal?; Ok(()) }
     };
     // Cleanup is deliberately performed even when the IPC server exits with an error.
+    // A provider operation may own the runtime slot, so request cancellation
+    // first and wait briefly for the handler to return ownership before shutdown.
+    if let Ok(active) = dictation_cancellation.lock() {
+        if let Some(token) = active.as_ref() {
+            token.cancel();
+        }
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        if runtime.lock().map(|slot| slot.is_some()).unwrap_or(false)
+            || std::time::Instant::now() >= deadline
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     let mut runtime_slot = runtime
         .lock()
         .map_err(|_| anyhow::anyhow!("runtime lock poisoned"))?;
-    let runtime = runtime_slot
-        .as_mut()
-        .ok_or_else(|| anyhow::anyhow!("runtime operation still active"))?;
-    if !matches!(runtime.state(), RuntimeState::ShuttingDown) {
-        runtime.shutdown()?;
-    }
+    let stopped = if let Some(runtime) = runtime_slot.as_mut() {
+        if !matches!(runtime.state(), RuntimeState::ShuttingDown) {
+            runtime.shutdown()?;
+        }
+        matches!(runtime.state(), RuntimeState::ShuttingDown)
+    } else {
+        info!("sorid stopped with an active operation still unwinding after cancellation deadline");
+        false
+    };
     loop_result?;
-    if matches!(runtime.state(), RuntimeState::ShuttingDown) {
+    if stopped {
         info!("sorid stopped gracefully");
     }
     Ok(())

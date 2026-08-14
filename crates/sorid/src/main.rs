@@ -157,6 +157,20 @@ async fn main() -> Result<()> {
             config.route = preset.policy();
         }
     }
+    if let Some(route) = store.setting("resource.route")? {
+        let valid = whisper_provider.as_ref().is_some_and(|provider| {
+            route
+                .get("activeModelId")
+                .and_then(|value| value.as_str())
+                .is_some_and(|active| {
+                    let model = active.strip_prefix("whisper.cpp/").unwrap_or(active);
+                    provider.can_transcribe(&ModelId::from(model))
+                })
+        });
+        if !valid {
+            store.set_setting("resource.route", &serde_json::json!({"activeModelId": null, "policy": "LocalFirst", "fallbackModelIds": []}))?;
+        }
+    }
     let benchmark_provider = whisper_provider.clone();
     let model_provider = whisper_provider.clone();
     if let Some(value) = store.setting("hotkey.binding")? {
@@ -254,12 +268,16 @@ async fn main() -> Result<()> {
             .map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))?;
         let response = match request {
             Request::Models => match handler_model_provider.as_ref() {
-                Some(provider) => Response::Models(sori_ipc::ModelsResponse {
-                    provider: Some(provider.provider_name().into()), available: true,
-                    models: provider.manifests().iter().map(|manifest| sori_ipc::ModelRecord {
+                Some(provider) => {
+                    let models = provider.manifests().iter().map(|manifest| sori_ipc::ModelRecord {
                         manifest: manifest.clone(), status: provider.runtime_status(&manifest.id),
-                    }).collect(), error: None,
-                }),
+                    }).collect::<Vec<_>>();
+                    let available = !models.is_empty();
+                    Response::Models(sori_ipc::ModelsResponse {
+                        provider: Some(provider.provider_name().into()), available,
+                        models, error: if !available { Some("no installed whisper.cpp models were discovered".into()) } else { None },
+                    })
+                }
                 None => Response::Models(sori_ipc::ModelsResponse {
                     provider: None, available: false, models: Vec::new(), error: Some(whisper_detail.clone()),
                 }),
@@ -274,13 +292,21 @@ async fn main() -> Result<()> {
             }
             Request::ModelLoad { model } => {
                 let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
-                provider.load(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model load failed: {error}")))?;
-                Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+                if !provider.can_transcribe(&model) {
+                    Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("cannot load unavailable model: {}", model.0) })
+                } else {
+                    provider.load(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model load failed: {error}")))?;
+                    Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+                }
             }
             Request::ModelUnload { model } => {
                 let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
-                provider.unload(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model unload failed: {error}")))?;
-                Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+                if !provider.can_transcribe(&model) {
+                    Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("cannot unload unavailable model: {}", model.0) })
+                } else {
+                    provider.unload(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model unload failed: {error}")))?;
+                    Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+                }
             }
             Request::ModelInstall { model, source, expected_sha256 } => {
                 let Some(provider) = handler_model_provider.as_ref() else {
@@ -572,6 +598,10 @@ async fn main() -> Result<()> {
             }
             Request::ResourceSet { resource, value } => {
                 validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
+                if resource == "route" {
+                    let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
+                    validate_route_resource(&value, provider.as_ref()).map_err(|detail| sori_ipc::IpcError::Transport(detail))?;
+                }
                 handler_store
                     .set_setting(&format!("resource.{resource}"), &value)
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -837,6 +867,35 @@ fn validate_resource(resource: &str) -> Result<(), String> {
     }
 }
 
+fn validate_route_resource(
+    value: &serde_json::Value,
+    provider: &dyn sori_core::ModelProvider,
+) -> Result<(), String> {
+    let active = value
+        .get("activeModelId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "route.activeModelId is required".to_owned())?;
+    let (provider_id, model_id) = active
+        .split_once('/')
+        .unwrap_or((provider.provider_name(), active));
+    if provider_id != provider.provider_name() || model_id.trim().is_empty() {
+        return Err(format!("unsupported model provider route: {active}"));
+    }
+    let model = ModelId::from(model_id);
+    if !provider.can_transcribe(&model) {
+        return Err(format!("model is unavailable: {model_id}"));
+    }
+    if let Some(fallbacks) = value.get("fallbackModelIds").and_then(|v| v.as_array()) {
+        for fallback in fallbacks.iter().filter_map(|v| v.as_str()) {
+            let fallback = fallback.strip_prefix("whisper.cpp/").unwrap_or(fallback);
+            if !provider.can_transcribe(&ModelId::from(fallback)) {
+                return Err(format!("fallback model is unavailable: {fallback}"));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validated_benchmark_route(
     requested: &ModelId,
     provider: &dyn sori_core::ModelProvider,
@@ -902,9 +961,7 @@ mod benchmark_recommendation_tests {
 fn default_resource(resource: &str) -> serde_json::Value {
     match resource {
         "vocabulary" | "benchmarks" | "extensions" | "permissions" => serde_json::json!([]),
-        "models" => {
-            serde_json::json!([{"id":"whisper.cpp/ggml-base.en","name":"Whisper base.en","provider":"whisper.cpp","location":"local","qualityTier":"standard","recommended":true,"available":false,"unavailableReason":"UNVERIFIED: local model files have not been configured"}])
-        }
+        "models" => serde_json::json!([]),
         "privacy" => {
             serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
         }
@@ -912,7 +969,7 @@ fn default_resource(resource: &str) -> serde_json::Value {
             serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
         }
         "route" => {
-            serde_json::json!({"activeModelId":"whisper.cpp/ggml-base.en","policy":"LocalFirst","fallbackModelIds":[]})
+            serde_json::json!({"activeModelId": null,"policy":"LocalFirst","fallbackModelIds":[]})
         }
         _ => serde_json::Value::Null,
     }

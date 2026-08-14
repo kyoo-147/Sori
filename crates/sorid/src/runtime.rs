@@ -104,6 +104,13 @@ impl<B: EventBus> DaemonRuntime<B> {
 
     /// Start the real input stream. Success is reported only after CPAL starts it.
     pub fn start_audio(&mut self) -> Result<(), AudioError> {
+        if !matches!(self.state, RuntimeState::Ready) {
+            return Err(AudioError::Pipeline(format!(
+                "dictation cannot start while daemon is {:?}",
+                self.state
+            )));
+        }
+        self.captured_audio.clear();
         if self.audio_session.is_some() {
             return Err(AudioError::Pipeline(
                 "dictation session is already running".into(),
@@ -171,11 +178,13 @@ impl<B: EventBus> DaemonRuntime<B> {
             Ok(session.chunks)
         })();
         if let Err(error) = &result {
+            self.captured_audio.clear();
             engine.stop_capture();
             self.publish(EventKind::AudioError, Value::String(error.to_string()));
         }
         drop(engine);
         if cancelled {
+            self.captured_audio.clear();
             self.publish(EventKind::DictationCancelled, Value::Null);
         }
         self.publish(

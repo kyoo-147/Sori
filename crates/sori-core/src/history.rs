@@ -26,6 +26,13 @@ pub struct HistoryEntry {
 
 pub trait HistoryRepository: Send + Sync {
     fn push(&self, entry: HistoryEntry);
+    /// Fallible persistence hook for runtime paths that must not report success
+    /// when a durable history write failed. Existing repositories keep the
+    /// infallible contract while durable stores override this method.
+    fn try_push(&self, entry: HistoryEntry) -> Result<(), String> {
+        self.push(entry);
+        Ok(())
+    }
     fn recent(&self, limit: usize) -> Vec<HistoryEntry>;
     fn purge(&self);
 }

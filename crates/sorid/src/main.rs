@@ -382,8 +382,18 @@ async fn main() -> Result<()> {
                         pronunciation_hint: item.get("pronunciationHint").and_then(|v| v.as_str()).map(str::to_owned),
                         correction: item.get("correction").and_then(|v| v.as_str()).map(str::to_owned),
                     })).collect() }).unwrap_or_default();
-                let result = runtime.complete_captured_dictation_with_vocabulary(&route, &mut injector, &target, history, &vocabulary)
-                    .map_err(|error| sori_ipc::IpcError::Transport(format!("capture stopped after {chunks} chunks but canonical dictation pipeline failed: {error}")))?;
+                let result = match runtime.complete_captured_dictation_with_vocabulary(&route, &mut injector, &target, history, &vocabulary) {
+                    Ok(result) => result,
+                    Err(sori_core::PipelineError::Route(detail)) => {
+                        return Ok(Response::Error(sori_ipc::IpcErrorResponse {
+                            code: "model_unavailable".into(),
+                            detail: format!("capture stopped after {chunks} chunks: {detail}"),
+                        }));
+                    }
+                    Err(error) => return Err(sori_ipc::IpcError::Transport(format!(
+                        "capture stopped after {chunks} chunks but canonical dictation pipeline failed: {error}"
+                    ))),
+                };
                 if history_enabled { handler_store.try_retain_history(history_retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?; }
                 Ok(Response::Transcript(result.transcript))
                 }

@@ -67,6 +67,10 @@ pub enum PipelineError {
     Audio(#[from] crate::AudioError),
     #[error("ASR failed: {0}")]
     Asr(#[from] ModelError),
+    #[error("history persistence failed: {0}")]
+    History(String),
+    #[error("route is unavailable: {0}")]
+    Route(String),
 }
 
 fn publish(bus: &dyn EventBus, kind: EventKind, payload: &str) {
@@ -114,6 +118,19 @@ pub fn complete_dictation_with_vocabulary(
     events: &dyn EventBus,
     vocabulary: &Vocabulary,
 ) -> Result<DictationResult, PipelineError> {
+    if route.provider != asr.provider_name() {
+        return Err(PipelineError::Route(format!(
+            "route provider {} is not served by {}",
+            route.provider,
+            asr.provider_name()
+        )));
+    }
+    if !asr.can_transcribe(&route.model) {
+        return Err(PipelineError::Route(format!(
+            "model is unavailable: {}",
+            route.model.0
+        )));
+    }
     publish(events, EventKind::AsrSelected, &route.model.0);
     let transcript = normalize_transcript(
         asr.transcribe_with_context(&route.model, &chunks, vocabulary)?,
@@ -138,17 +155,19 @@ pub fn complete_dictation_with_vocabulary(
             (None, Some(error.to_string()))
         }
     };
-    history.push(HistoryEntry {
-        id: Uuid::new_v4(),
-        at: OffsetDateTime::now_utc(),
-        active_app: Some(target.name().to_owned()),
-        intent: FastIntent::Dictation {
-            text: transcript.text.clone(),
-        },
-        transcript: transcript.clone(),
-        route: Some(route.clone()),
-        inserted_text: inserted_text.clone(),
-    });
+    history
+        .try_push(HistoryEntry {
+            id: Uuid::new_v4(),
+            at: OffsetDateTime::now_utc(),
+            active_app: Some(target.name().to_owned()),
+            intent: FastIntent::Dictation {
+                text: transcript.text.clone(),
+            },
+            transcript: transcript.clone(),
+            route: Some(route.clone()),
+            inserted_text: inserted_text.clone(),
+        })
+        .map_err(PipelineError::History)?;
     Ok(DictationResult {
         transcript,
         inserted_text,
@@ -306,6 +325,27 @@ mod tests {
             &events,
         );
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn stale_provider_route_is_rejected_before_inference_or_injection() {
+        let history = crate::InMemoryHistory::default();
+        let events = crate::InMemoryEventBus::default();
+        let mut injector = InjectorFake { fail: false };
+        let mut stale = route();
+        stale.provider = "missing-provider".into();
+        let error = run_dictation(
+            &mut AudioFake { remaining: 1 },
+            &AsrFake,
+            &mut injector,
+            &TargetFake,
+            &stale,
+            &history,
+            &events,
+        )
+        .unwrap_err();
+        assert!(matches!(error, PipelineError::Route(_)));
+        assert!(history.recent(1).is_empty());
     }
 
     #[test]

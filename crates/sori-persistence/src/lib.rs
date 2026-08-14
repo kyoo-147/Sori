@@ -340,6 +340,11 @@ impl HistoryRepository for SqliteStore {
         let _ = self.try_push_history(&entry);
     }
 
+    fn try_push(&self, entry: HistoryEntry) -> std::result::Result<(), String> {
+        self.try_push_history(&entry)
+            .map_err(|error| error.to_string())
+    }
+
     fn recent(&self, limit: usize) -> Vec<HistoryEntry> {
         self.try_recent_history(limit).unwrap_or_default()
     }

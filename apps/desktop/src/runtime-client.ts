@@ -2,6 +2,7 @@ import { requestShape, responsePayload, type ConfigSummaryResponse, type Control
 import type { ModelRecord } from './types';
 export type { DoctorCheck, IpcOperation, IpcRequest } from './ipc-contract.js';
 export interface DaemonStatus { daemon: 'starting' | 'running' | 'stopping' | 'unavailable'; activity: 'idle' | 'paused' | 'error'; paused: boolean; hotkey: string; route: RouteSummary; profile: string; privacy: string; version: string | null; }
+export interface BenchmarkHistoryPayload { runs: unknown[]; recommendation: { run_id: string; model: string; provider: string } | null; }
 export type RuntimeSource = 'native' | 'backend' | 'mock' | 'unavailable';
 export interface RuntimeResult<T> { data: T; source: RuntimeSource; error: string | null; }
 export interface IpcTransport { request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown>; readonly source?: Exclude<RuntimeSource, 'unavailable'>; isAvailable?: () => boolean; }
@@ -47,8 +48,8 @@ export class RuntimeClient {
   async dictationCancel() { return this.control('dictation_cancel'); }
   async voiceEdit(selection: VoiceEditSelection, instruction: string, approved = false) { return this.call('voice_edit', (value) => (responsePayload(value, 'VoiceEdit') ?? null) as VoiceEditResponse | null, null, { selection, instruction, approved }); }
   async runBenchmark(model: string, audio: unknown[], reference: string | null, iterations = 5) { return this.call('run_benchmark', (v) => responsePayload(v, 'Benchmark') ?? null, null, { model, audio, reference, iterations }); }
-  async recentBenchmarks(limit = 20) { return this.call('recent_benchmarks', (v) => (responsePayload(v, 'Resource') as { value: unknown[] } | undefined)?.value ?? [], [], { limit }); }
-  async applyBenchmarkRecommendation(model: string) { return this.call('apply_benchmark_recommendation', (value) => (responsePayload(value, 'Resource') as { value: unknown } | undefined)?.value ?? null, null, { model }); }
+  async recentBenchmarks(limit = 20) { return this.call('recent_benchmarks', (v) => (responsePayload(v, 'Resource') as { value: BenchmarkHistoryPayload } | undefined)?.value ?? { runs: [], recommendation: null }, { runs: [], recommendation: null }, { limit }); }
+  async applyBenchmarkRecommendation() { return this.call('apply_benchmark_recommendation', (value) => (responsePayload(value, 'Resource') as { value: unknown } | undefined)?.value ?? null, null); }
   resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }
   models() { return this.call('models', mapModels, [] as ModelRecord[]); }
   installModel(model: string, source: string, expectedSha256: string) { return this.call('model_install', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model, source, expected_sha256: expectedSha256 }); }

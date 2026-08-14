@@ -12,6 +12,7 @@ use sori_core::{
 };
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -107,6 +108,17 @@ pub enum Request {
         command: String,
         input: serde_json::Value,
     },
+}
+
+impl Request {
+    /// Provider work gets one admission slot so a second long operation is
+    /// rejected promptly while status and cancellation stay responsive.
+    fn is_long_running(&self) -> bool {
+        matches!(
+            self,
+            Self::Dictation { .. } | Self::DictationStop | Self::RunBenchmark { .. }
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -401,6 +413,7 @@ impl LocalIpcServer {
         F: Fn(Request) -> Result<Response, IpcError> + Send + Sync + 'static,
     {
         let handler = Arc::new(handler);
+        let long_operation_gate = Arc::new(AtomicBool::new(false));
         loop {
             let (stream, _) = self
                 .listener
@@ -408,14 +421,19 @@ impl LocalIpcServer {
                 .await
                 .map_err(|e| IpcError::Transport(e.to_string()))?;
             let handler = Arc::clone(&handler);
+            let long_operation_gate = Arc::clone(&long_operation_gate);
             tokio::spawn(async move {
-                let _ = serve_connection(stream, handler).await;
+                let _ = serve_connection(stream, handler, long_operation_gate).await;
             });
         }
     }
 }
 
-async fn serve_connection<F>(mut stream: TokioTcpStream, handler: Arc<F>) -> Result<(), IpcError>
+async fn serve_connection<F>(
+    mut stream: TokioTcpStream,
+    handler: Arc<F>,
+    long_operation_gate: Arc<AtomicBool>,
+) -> Result<(), IpcError>
 where
     F: Fn(Request) -> Result<Response, IpcError> + Send + Sync + 'static,
 {
@@ -467,21 +485,23 @@ where
     // Runtime handlers may stop audio, run Whisper, inject text, or touch
     // SQLite. Keep that blocking work off Tokio's I/O workers so a stalled
     // operation cannot delay Status, Doctor, or RecentEvents connections.
-    let response = tokio::task::spawn_blocking(move || match handler(request) {
-        Ok(response) => response,
-        Err(error) => Response::Error(IpcErrorResponse {
-            code: match &error {
-                IpcError::Unavailable => "unavailable",
-                IpcError::Transport(_) => "transport",
-                IpcError::UnexpectedResponse { .. } => "unexpected_response",
-                IpcError::Protocol(_) => "protocol",
-            }
-            .into(),
-            detail: error.to_string(),
+    let permit = if request.is_long_running() {
+        Some(
+            long_operation_gate
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok(),
+        )
+    } else {
+        None
+    };
+    let response = match permit {
+        Some(true) => execute_handler(handler, request, Some(long_operation_gate)).await?,
+        Some(false) => Response::Error(IpcErrorResponse {
+            code: "operation_busy".into(),
+            detail: "another long-running dictation or benchmark operation is active".into(),
         }),
-    })
-    .await
-    .map_err(|error| IpcError::Transport(format!("IPC handler task failed: {error}")))?;
+        None => execute_handler(handler, request, None).await?,
+    };
     let body = serde_json::to_vec(&response).map_err(|e| IpcError::Protocol(e.to_string()))?;
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -496,6 +516,37 @@ where
         .await
         .map_err(|e| IpcError::Transport(e.to_string()))?;
     Ok(())
+}
+
+async fn execute_handler<F>(
+    handler: Arc<F>,
+    request: Request,
+    gate: Option<Arc<AtomicBool>>,
+) -> Result<Response, IpcError>
+where
+    F: Fn(Request) -> Result<Response, IpcError> + Send + Sync + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let response = match handler(request) {
+            Ok(response) => response,
+            Err(error) => Response::Error(IpcErrorResponse {
+                code: match &error {
+                    IpcError::Unavailable => "unavailable",
+                    IpcError::Transport(_) => "transport",
+                    IpcError::UnexpectedResponse { .. } => "unexpected_response",
+                    IpcError::Protocol(_) => "protocol",
+                }
+                .into(),
+                detail: error.to_string(),
+            }),
+        };
+        if let Some(gate) = gate {
+            gate.store(false, Ordering::Release);
+        }
+        response
+    })
+    .await
+    .map_err(|error| IpcError::Transport(format!("IPC handler task failed: {error}")))
 }
 
 #[derive(Debug, Clone)]
@@ -843,6 +894,77 @@ mod tests {
         assert!(matches!(status, Response::Status(status) if status.running));
         assert!(started.elapsed() < std::time::Duration::from_millis(150));
         assert!(matches!(stop.await.unwrap(), Response::Control(control) if control.accepted));
+        task.abort();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn concurrent_long_operation_is_rejected_without_blocking_status() {
+        let server = LocalIpcServer::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let endpoint = server.local_addr().unwrap();
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let handler_gate = Arc::clone(&gate);
+        let task = tokio::spawn(server.serve(move |request| match request {
+            Request::DictationStop => {
+                handler_gate.wait();
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                Ok(Response::Control(ControlResponse {
+                    accepted: true,
+                    detail: "done".into(),
+                }))
+            }
+            Request::Status => Ok(Response::Status(StatusResponse {
+                protocol_version: PROTOCOL_VERSION,
+                daemon_version: "test".into(),
+                running: true,
+                activity: RuntimeActivity::Idle,
+                paused: false,
+                hotkey: "Alt+Space".into(),
+                route: RouteSummary {
+                    prefer_local: true,
+                    allow_cloud: true,
+                    prefer_warm_runtime: false,
+                    optimize_battery: false,
+                },
+                profile: ProfileMode::Basic,
+                privacy: PrivacyMode::LocalOnly,
+            })),
+            _ => Err(IpcError::UnexpectedResponse {
+                request: Box::new(request),
+            }),
+        }));
+        let first = tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(Request::DictationStop)
+        });
+        tokio::task::spawn_blocking(move || gate.wait())
+            .await
+            .unwrap();
+        let started = std::time::Instant::now();
+        let second = tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(Request::DictationStop)
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_millis(150));
+        assert!(matches!(second, Response::Error(error) if error.code == "operation_busy"));
+        let status = tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(Request::Status)
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(matches!(status, Response::Status(status) if status.running));
+        assert!(
+            matches!(first.await.unwrap().unwrap(), Response::Control(control) if control.accepted)
+        );
         task.abort();
     }
 

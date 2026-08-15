@@ -11,10 +11,17 @@ pub enum HotkeyServiceStatus {
 
 #[cfg(windows)]
 pub struct HotkeyService {
-    stop: std::sync::mpsc::Sender<()>,
+    commands: std::sync::mpsc::Sender<HotkeyCommand>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
-
+#[cfg(windows)]
+enum HotkeyCommand {
+    Stop,
+    Rebind(
+        HotkeyCombination,
+        std::sync::mpsc::SyncSender<Result<(), HotkeyError>>,
+    ),
+}
 #[cfg(not(windows))]
 #[derive(Debug)]
 pub struct HotkeyService;
@@ -25,23 +32,22 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
     hotkey: HotkeyCombination,
     on_event: Arc<dyn Fn(HotkeyEvent) + Send + Sync>,
 ) -> Result<(HotkeyService, HotkeyServiceStatus), HotkeyError> {
-    use sori_core::{HotkeyBackend, HotkeyEvent, WindowsHotkeyBackend};
+    use sori_core::{HotkeyBackend, WindowsHotkeyBackend};
     use std::sync::mpsc;
     use std::time::Duration;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage, WM_HOTKEY, WM_QUIT,
     };
-
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-    let (stop_tx, stop_rx) = mpsc::channel();
+    let (command_tx, command_rx) = mpsc::channel();
     let thread = std::thread::spawn(move || {
         let mut backend = WindowsHotkeyBackend::new(hotkey);
         if let Err(error) = backend.start() {
             let _ = ready_tx.send(Err(error));
             return;
         }
+        let _ = ready_tx.send(Ok(()));
         let mut active_hotkey = backend.active_hotkey();
-        let _ = ready_tx.send(Ok(active_hotkey));
         let mut message = MSG {
             hwnd: std::ptr::null_mut(),
             message: 0,
@@ -51,8 +57,15 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
             pt: windows_sys::Win32::Foundation::POINT { x: 0, y: 0 },
         };
         'outer: loop {
-            if stop_rx.try_recv().is_ok() {
-                break;
+            while let Ok(command) = command_rx.try_recv() {
+                match command {
+                    HotkeyCommand::Stop => break 'outer,
+                    HotkeyCommand::Rebind(next, reply) => {
+                        let result = backend.rebind(next);
+                        active_hotkey = backend.active_hotkey();
+                        let _ = reply.send(result);
+                    }
+                }
             }
             while unsafe { PeekMessageW(&mut message, std::ptr::null_mut(), 0, 0, PM_REMOVE) } != 0
             {
@@ -60,34 +73,42 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
                     break 'outer;
                 }
                 if message.message == WM_HOTKEY {
-                    let handled = backend.handle_message(
+                    match backend.handle_message(
                         message.message,
                         message.wParam as usize,
                         message.lParam,
-                    );
-                    if handled.is_err() {
-                        // A thread-owned RegisterHotKey can become stale when
-                        // Explorer or another owner tears down the registration.
-                        // Re-register without requiring a daemon restart.
-                        if backend.recover().is_ok() {
+                    ) {
+                        Ok(Some(event)) => {
+                            events.publish(event.into_event());
+                            on_event(event);
+                            if event == HotkeyEvent::Pressed {
+                                while hotkey_is_down(active_hotkey) {
+                                    if let Ok(command) = command_rx.try_recv() {
+                                        match command {
+                                            HotkeyCommand::Stop => break 'outer,
+                                            HotkeyCommand::Rebind(next, reply) => {
+                                                let result = backend.rebind(next);
+                                                active_hotkey = backend.active_hotkey();
+                                                let _ = reply.send(result);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    std::thread::sleep(Duration::from_millis(10));
+                                }
+                                if let Ok(Some(released)) =
+                                    backend.handle_input(sori_core::HotkeyInput::Released)
+                                {
+                                    events.publish(released.into_event());
+                                    on_event(released);
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            let _ = backend.recover();
                             active_hotkey = backend.active_hotkey();
                         }
-                        continue;
-                    }
-                    if let Ok(Some(event)) = handled {
-                        events.publish(event.into_event());
-                        on_event(event);
-                        if event == HotkeyEvent::Pressed {
-                            while hotkey_is_down(active_hotkey) && stop_rx.try_recv().is_err() {
-                                std::thread::sleep(Duration::from_millis(10));
-                            }
-                            if let Ok(Some(released)) =
-                                backend.handle_input(sori_core::HotkeyInput::Released)
-                            {
-                                events.publish(released.into_event());
-                                on_event(released);
-                            }
-                        }
+                        _ => {}
                     }
                 } else {
                     unsafe {
@@ -101,16 +122,12 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
         let _ = backend.stop();
     });
     match ready_rx.recv().expect("hotkey worker startup response") {
-        Ok(active_hotkey) => Ok((
+        Ok(()) => Ok((
             HotkeyService {
-                stop: stop_tx,
+                commands: command_tx,
                 thread: Some(thread),
             },
-            if active_hotkey == hotkey {
-                HotkeyServiceStatus::Running
-            } else {
-                HotkeyServiceStatus::RunningWithFallback
-            },
+            HotkeyServiceStatus::Running,
         )),
         Err(error) => {
             let _ = thread.join();
@@ -128,16 +145,32 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
     Ok((HotkeyService, HotkeyServiceStatus::Unsupported))
 }
 
+#[cfg(not(windows))]
+impl HotkeyService {
+    pub fn rebind(&self, _hotkey: HotkeyCombination) -> Result<(), HotkeyError> {
+        Err(HotkeyError::Unsupported)
+    }
+}
+
+#[cfg(windows)]
+impl HotkeyService {
+    pub fn rebind(&self, hotkey: HotkeyCombination) -> Result<(), HotkeyError> {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        self.commands
+            .send(HotkeyCommand::Rebind(hotkey, tx))
+            .map_err(|_| HotkeyError::StaleListener)?;
+        rx.recv().map_err(|_| HotkeyError::StaleListener)?
+    }
+}
 #[cfg(windows)]
 impl Drop for HotkeyService {
     fn drop(&mut self) {
-        let _ = self.stop.send(());
+        let _ = self.commands.send(HotkeyCommand::Stop);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
     }
 }
-
 #[cfg(windows)]
 fn hotkey_is_down(hotkey: HotkeyCombination) -> bool {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;

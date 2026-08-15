@@ -284,13 +284,15 @@ async fn main() -> Result<()> {
             }
         }),
     );
-    let (_hotkey_service, hotkey_status) = match hotkey_result {
+    let (hotkey_service, hotkey_status) = match hotkey_result {
         Ok((service, status)) => (Some(service), status),
         Err(error) => {
             info!(detail = %error, "global hotkey adapter unavailable");
             (None, HotkeyServiceStatus::Unavailable(error.to_string()))
         }
     };
+    let hotkey_service = Arc::new(Mutex::new(hotkey_service));
+    let hotkey_status = Arc::new(Mutex::new(hotkey_status));
     let endpoint: SocketAddr = std::env::var("SORI_IPC_ADDR")
         .unwrap_or_else(|_| DEFAULT_ENDPOINT.to_owned())
         .parse()
@@ -314,6 +316,8 @@ async fn main() -> Result<()> {
     let handler_runtime = Arc::clone(&runtime);
     let handler_store = Arc::clone(&store);
     let handler_config = Arc::new(Mutex::new(config.clone()));
+    let handler_hotkey_service = Arc::clone(&hotkey_service);
+    let handler_hotkey_status = Arc::clone(&hotkey_status);
     let handler_privacy = Arc::new(Mutex::new(privacy_mode));
     let handler_model_provider = model_provider.clone();
     let benchmark_sessions: Arc<Mutex<HashMap<uuid::Uuid, CancellationToken>>> =
@@ -672,10 +676,10 @@ async fn main() -> Result<()> {
                         },
                         DoctorCheck {
                             name: "hotkey".into(),
-                            ok: matches!(hotkey_status, HotkeyServiceStatus::Running | HotkeyServiceStatus::RunningWithFallback),
-                            detail: match &hotkey_status {
+                            ok: matches!(*hotkey_status.lock().unwrap(), HotkeyServiceStatus::Running),
+                            detail: match &*hotkey_status.lock().unwrap() {
                                 HotkeyServiceStatus::Running => "Windows global hotkey listener registered; physical key proof requires a machine test".into(),
-                                HotkeyServiceStatus::RunningWithFallback => "requested global hotkey conflicted; fallback Ctrl+Alt+Space is registered; physical key proof requires a machine test".into(),
+                                HotkeyServiceStatus::RunningWithFallback => "legacy fallback state; choose another configurable hotkey".into(),
                                 HotkeyServiceStatus::Unsupported => "unsupported: native global hotkey adapter requires Windows".into(),
                                 HotkeyServiceStatus::Unavailable(detail) => format!("unavailable: {detail}"),
                             },
@@ -805,6 +809,15 @@ async fn main() -> Result<()> {
             }
             Request::SetConfig { key, value } => {
                 validate_setting(&key, &value).map_err(sori_ipc::IpcError::Transport)?;
+                if key == "hotkey.binding" {
+                    let binding = value.as_str().unwrap();
+                    let parsed = sorid::parse_hotkey_binding(binding).map_err(sori_ipc::IpcError::Transport)?;
+                    let service = handler_hotkey_service.lock().map_err(|_| sori_ipc::IpcError::Transport("hotkey service lock poisoned".into()))?;
+                    if let Some(service) = service.as_ref() {
+                        service.rebind(parsed).map_err(|error| sori_ipc::IpcError::Transport(format!("cannot register hotkey `{binding}`: {error}; choose another combination")))?;
+                    }
+                    handler_hotkey_status.lock().map_err(|_| sori_ipc::IpcError::Transport("hotkey status lock poisoned".into()))?.clone_from(&HotkeyServiceStatus::Running);
+                }
                 handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 publish_persisted_event(&handler_store, EventKind::SettingChanged, format!("set:{key}"));
                 if key == "hotkey.binding" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.hotkey.binding = value.as_str().unwrap().to_owned(); }

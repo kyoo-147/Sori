@@ -21,6 +21,13 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tracing::info;
+/// `activeModelId` is provider-qualified at the IPC boundary, while provider
+/// APIs receive the model filename only. Keep this conversion in one place so
+/// hotkey, dictation, lifecycle, and removal cannot disagree about the route.
+fn provider_model_id(provider: &str, model: &str) -> ModelId {
+    ModelId::from(model.strip_prefix(&format!("{provider}/")).unwrap_or(model))
+}
+
 struct RuntimeTarget {
     identity: Option<String>,
 }
@@ -249,7 +256,7 @@ async fn main() -> Result<()> {
             value
                 .get("activeModelId")
                 .and_then(|id| id.as_str())
-                .map(ModelId::from)
+                .map(|id| provider_model_id("whisper.cpp", id))
         })
         .unwrap_or_else(|| ModelId::from(whisper_model.as_str()));
     let hotkey = sorid::parse_hotkey_binding(&config.hotkey.binding).map_err(|error| {
@@ -324,7 +331,11 @@ async fn main() -> Result<()> {
                     let models = provider.manifests().iter().map(|manifest| sori_ipc::ModelRecord {
                         manifest: manifest.clone(), status: provider.runtime_status(&manifest.id),
                     }).collect::<Vec<_>>();
-                    let available = !models.is_empty();
+                    // A configured provider with zero installed artifacts is
+                    // operationally available: the UI must show an empty
+                    // registry and offer import/configuration, not report a
+                    // false provider outage.
+                    let available = true;
                     Response::Models(sori_ipc::ModelsResponse {
                         provider: Some(provider.provider_name().into()), available,
                         models, error: if !available { Some("no installed whisper.cpp models were discovered".into()) } else { None },

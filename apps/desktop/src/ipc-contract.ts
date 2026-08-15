@@ -25,7 +25,7 @@ export interface ConfigSummaryResponse { profile: ProfileMode; privacy: PrivacyM
 export interface RecentEventsResponse { events: IpcEvent[]; }
 export interface ResourceResponse { resource: string; value: unknown; }
 export interface ModelManifest { id: string; display_name: string; language: string; backend: string; quantization: string | null; disk_size_bytes: number | null; ram_bytes: number | null; license: { name: string; url: string | null; attribution: string | null }; }
-export interface ModelRuntimeStatus { model: string; installed: boolean; loaded: boolean; warm: boolean; memory_bytes: number | null; backend: string | null; }
+export interface ModelRuntimeStatus { model: string; installed: boolean; loaded: boolean; warm: boolean; memory_bytes: number | null; backend: string | null; phase?: string | null; progress_percent?: number | null; error?: string | null; }
 export interface DaemonModelRecord { manifest: ModelManifest; status: ModelRuntimeStatus; }
 export interface ModelsResponse { provider: string | null; available: boolean; models: DaemonModelRecord[]; error: string | null; }
 export interface HistoryEntry { id: string; at: string; active_app: string | null; transcript: TranscriptResponse; intent: unknown; route: unknown; inserted_text: string | null; }

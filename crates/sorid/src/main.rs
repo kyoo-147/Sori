@@ -347,10 +347,12 @@ async fn main() -> Result<()> {
             },
             Request::ModelStatus { model } => {
                 let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
-                if !provider.can_transcribe(&model) {
+                let status = provider.runtime_status(&model);
+                let operation_visible = matches!(status.phase.as_deref(), Some("Downloading") | Some("Failed"));
+                if !provider.can_transcribe(&model) && !operation_visible {
                     Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("model is not discovered and ready: {}", model.0) })
                 } else {
-                    Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+                    Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status })
                 }
             }
             Request::ModelLoad { model } => {
@@ -722,6 +724,9 @@ async fn main() -> Result<()> {
             }
             Request::ResourceSet { resource, value } => {
                 validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
+                if resource == "whisper" {
+                    persist_whisper_resource(&value).map_err(sori_ipc::IpcError::Transport)?;
+                }
                 if resource == "route" {
                     let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
                     validate_route_resource(&value, provider.as_ref()).map_err(|detail| sori_ipc::IpcError::Transport(detail))?;
@@ -1024,10 +1029,32 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
     }
 }
 
+fn persist_whisper_resource(value: &serde_json::Value) -> Result<(), String> {
+    let object = value
+        .as_object()
+        .ok_or("whisper runtime configuration must be an object")?;
+    let executable = object
+        .get("executable")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("whisper.executable must be a non-empty path")?;
+    let model_dir = object
+        .get("model_dir")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .map(std::path::Path::new);
+    sori_provider_whisper::WhisperCppConfig::persist_config(
+        std::path::Path::new(executable),
+        model_dir,
+    )
+    .map(|_| ())
+    .map_err(|error| error.to_string())
+}
+
 fn validate_resource(resource: &str) -> Result<(), String> {
     match resource {
         "settings" | "preferences" | "vocabulary" | "snippets" | "models" | "benchmarks"
-        | "extensions" | "permissions" | "privacy" | "onboarding" | "route" => Ok(()),
+        | "extensions" | "permissions" | "privacy" | "onboarding" | "route" | "whisper" => Ok(()),
         _ => Err(format!("unsupported resource: {resource}")),
     }
 }
@@ -1129,6 +1156,7 @@ fn default_resource(resource: &str) -> serde_json::Value {
             serde_json::json!([])
         }
         "settings" => serde_json::json!({}),
+        "whisper" => serde_json::json!({"executable": null, "model_dir": null}),
         "preferences" => serde_json::json!({}),
         "models" => serde_json::json!([]),
         "privacy" => {

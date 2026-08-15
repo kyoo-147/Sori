@@ -661,13 +661,10 @@ pub mod windows {
         fn send_direct_input(&mut self, text: &str) -> Result<(), String> {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
                 INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+                SendInput,
             };
-            let utf16_units = text.encode_utf16().count();
-            if utf16_units > (u32::MAX as usize / 2) {
-                return Err("text is too large for one SendInput request".into());
-            }
-            let mut inputs = Vec::with_capacity(utf16_units * 2);
-            for code_unit in text.encode_utf16() {
+            debug_assert_eq!(std::mem::size_of::<INPUT>(), 40);
+            for (index, code_unit) in text.encode_utf16().enumerate() {
                 let key = KEYBDINPUT {
                     wVk: 0,
                     wScan: code_unit,
@@ -675,11 +672,18 @@ pub mod windows {
                     time: 0,
                     dwExtraInfo: 0,
                 };
-                inputs.push(INPUT {
+                let down = INPUT {
                     r#type: INPUT_KEYBOARD,
                     Anonymous: INPUT_0 { ki: key },
-                });
-                inputs.push(INPUT {
+                };
+                let sent_down = unsafe { SendInput(1, &down, std::mem::size_of::<INPUT>() as i32) };
+                if sent_down != 1 {
+                    let error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+                    return Err(format!(
+                        "SendInput UTF-16 unit {index} U+{code_unit:04X} key-down sent {sent_down}/1 events (error {error})"
+                    ));
+                }
+                let up = INPUT {
                     r#type: INPUT_KEYBOARD,
                     Anonymous: INPUT_0 {
                         ki: KEYBDINPUT {
@@ -687,27 +691,16 @@ pub mod windows {
                             ..key
                         },
                     },
-                });
+                };
+                let sent_up = unsafe { SendInput(1, &up, std::mem::size_of::<INPUT>() as i32) };
+                if sent_up != 1 {
+                    let error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+                    return Err(format!(
+                        "SendInput UTF-16 unit {index} U+{code_unit:04X} key-up sent {sent_up}/1 events (error {error})"
+                    ));
+                }
             }
-            if inputs.is_empty() {
-                return Ok(());
-            }
-            let sent = unsafe {
-                windows_sys::Win32::UI::Input::KeyboardAndMouse::SendInput(
-                    inputs.len() as u32,
-                    inputs.as_ptr(),
-                    std::mem::size_of::<INPUT>() as i32,
-                )
-            };
-            if sent == inputs.len() as u32 {
-                Ok(())
-            } else {
-                let error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
-                Err(format!(
-                    "SendInput sent {sent}/{} events (error {error})",
-                    inputs.len()
-                ))
-            }
+            Ok(())
         }
         fn snapshot_clipboard(&mut self) -> Result<(), String> {
             use windows_sys::Win32::System::DataExchange::{

@@ -1780,6 +1780,13 @@ mod tests {
             provider.status(&ModelId::from("fixture.bin")).lifecycle,
             WhisperLifecycle::Ready
         );
+        assert_eq!(
+            provider.status(&ModelId::from("fixture.bin")).lifecycle,
+            WhisperLifecycle::Ready
+        );
+        let runtime_status = provider.runtime_status(&ModelId::from("fixture.bin"));
+        assert_eq!(runtime_status.phase.as_deref(), Some("Ready"));
+        assert_eq!(runtime_status.progress_percent, Some(100));
         let _ = std::fs::remove_dir_all(root);
     }
 

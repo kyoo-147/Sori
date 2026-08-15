@@ -39,21 +39,36 @@ impl DaemonSupervisor {
         }
     }
 
-    fn endpoint_occupied() -> bool {
-        std::net::TcpStream::connect_timeout(
-            &sori_ipc::DEFAULT_ENDPOINT
-                .parse()
-                .expect("valid daemon endpoint"),
-            std::time::Duration::from_millis(150),
-        )
-        .is_ok()
+    fn parse_endpoint(value: Option<String>) -> Result<std::net::SocketAddr, String> {
+        let endpoint: std::net::SocketAddr = value
+            .unwrap_or_else(|| sori_ipc::DEFAULT_ENDPOINT.to_owned())
+            .parse()
+            .map_err(|error| format!("invalid SORI_IPC_ADDR: {error}"))?;
+        if !endpoint.ip().is_loopback() {
+            return Err("SORI_IPC_ADDR must be a loopback address".into());
+        }
+        Ok(endpoint)
+    }
+
+    fn endpoint() -> Result<std::net::SocketAddr, String> {
+        Self::parse_endpoint(std::env::var("SORI_IPC_ADDR").ok())
+    }
+
+    fn endpoint_occupied(endpoint: std::net::SocketAddr) -> bool {
+        std::net::TcpStream::connect_timeout(&endpoint, std::time::Duration::from_millis(150)).is_ok()
     }
 
     fn start(&self) -> Result<(), String> {
-        if Self::endpoint_occupied() {
-            eprintln!(
-                "[sori] daemon endpoint is already occupied; refusing to launch an unknown sorid"
-            );
+        let endpoint = Self::endpoint()?;
+        let mut tracked = self.child.lock().map_err(|_| "daemon supervisor lock poisoned".to_string())?;
+        if let Some(child) = tracked.as_mut() {
+            if child.try_wait().map_err(|error| error.to_string())?.is_none() {
+                return Ok(());
+            }
+            tracked.take();
+        }
+        if Self::endpoint_occupied(endpoint) {
+            eprintln!("[sori] daemon endpoint {endpoint} is already occupied; refusing to launch an unknown sorid");
             return Ok(());
         }
         let path = Self::daemon_path();
@@ -70,16 +85,20 @@ impl DaemonSupervisor {
         }
         let mut command = Command::new(&path);
         let child = command
+            .env("SORI_IPC_ADDR", endpoint.to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
             .map_err(|error| format!("failed to launch sorid at {}: {error}", path.display()))?;
-        *self
-            .child
-            .lock()
-            .map_err(|_| "daemon supervisor lock poisoned".to_string())? = Some(child);
+        *tracked = Some(child);
         Ok(())
+    }
+
+    fn ensure_running(&self) -> Result<std::net::SocketAddr, String> {
+        let endpoint = Self::endpoint()?;
+        self.start()?;
+        Ok(endpoint)
     }
 
     fn stop(&self) {
@@ -168,9 +187,10 @@ mod commands {
         }
     }
 
-    async fn forward_ipc(request: Value, id: &str, runtime: &IpcRuntime) -> Result<Value, String> {
+    async fn forward_ipc(request: Value, id: &str, runtime: &IpcRuntime, supervisor: &DaemonSupervisor) -> Result<Value, String> {
         let request: Request =
             serde_json::from_value(request).map_err(|error| error.to_string())?;
+        let endpoint = supervisor.ensure_running()?;
         let permit = runtime
             .permits
             .clone()
@@ -189,7 +209,7 @@ mod commands {
                 if cancelled.load(Ordering::Acquire) {
                     return Err("IPC request cancelled".to_string());
                 }
-                let client = LocalIpcClient::connect().map_err(|error| error.to_string())?;
+                let client = LocalIpcClient::connect_to(endpoint).map_err(|error| error.to_string())?;
                 client.request(request).map_err(|error| error.to_string())
             }),
         )
@@ -204,10 +224,11 @@ mod commands {
         request: Value,
         request_id: Option<String>,
         state: tauri::State<'_, IpcRuntime>,
+        supervisor: tauri::State<'_, DaemonSupervisor>,
     ) -> Result<Value, String> {
         let id = normalize_request_id(request_id);
         let started = std::time::Instant::now();
-        let result = forward_ipc(request, &id, &state).await;
+        let result = forward_ipc(request, &id, &state, &supervisor).await;
         if let Ok(mut active) = state.cancellations.lock() {
             active.remove(&id);
         }
@@ -338,6 +359,27 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Sori desktop");
+}
+
+#[cfg(test)]
+mod supervisor_tests {
+    #[test]
+    fn endpoint_defaults_to_loopback() {
+        let endpoint = super::DaemonSupervisor::parse_endpoint(None).unwrap();
+        assert!(endpoint.ip().is_loopback());
+    }
+
+    #[test]
+    fn endpoint_rejects_non_loopback_owners() {
+        let error = super::DaemonSupervisor::parse_endpoint(Some("0.0.0.0:17373".into())).unwrap_err();
+        assert!(error.contains("loopback"));
+    }
+
+    #[test]
+    fn endpoint_accepts_isolated_loopback_recovery_port() {
+        let endpoint = super::DaemonSupervisor::parse_endpoint(Some("127.0.0.1:17375".into())).unwrap();
+        assert_eq!(endpoint.port(), 17375);
+    }
 }
 
 #[cfg(test)]

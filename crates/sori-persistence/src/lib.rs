@@ -533,6 +533,12 @@ mod tests {
             store
                 .set_resource("models", &serde_json::json!([{"id":"whisper.cpp/base"}]))
                 .unwrap();
+            store
+                .set_resource(
+                    "preferences",
+                    &serde_json::json!({"version":1,"sidebarCollapsed":true,"sidebarWidth":312}),
+                )
+                .unwrap();
         }
         let reopened = SqliteStore::open(database.path()).unwrap();
         assert_eq!(
@@ -554,6 +560,10 @@ mod tests {
         assert_eq!(
             reopened.resource("models").unwrap().unwrap()[0]["id"],
             "whisper.cpp/base"
+        );
+        assert_eq!(
+            reopened.resource("preferences").unwrap().unwrap()["sidebarWidth"],
+            312
         );
         store_resource_update(&reopened);
         assert_eq!(

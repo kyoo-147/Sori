@@ -40,6 +40,14 @@ export const applySidebarLiveWidth = (shell: Pick<HTMLElement, 'style'>, width: 
 import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
 import type { BenchmarkFixture } from './benchmark-fixture';
 
+type PersistedPreferences = {
+  version: 1;
+  sidebarCollapsed: boolean;
+  sidebarWidth: number;
+  assistantVoice: AssistantVoiceSettings;
+  voiceProfile: VoiceProfile;
+};
+
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
@@ -56,8 +64,9 @@ export default function App() {
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [trayOpen, setTrayOpen] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => window.localStorage.getItem('sori.sidebar.collapsed') === 'true');
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => Number(window.localStorage.getItem('sori.sidebar.width')) || 248);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(248);
+  const preferencesHydrated = useRef(false);
   const resizeFrame = useRef<number | null>(null);
   const resizeWidth = useRef(248);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -154,10 +163,31 @@ export default function App() {
   }, [runtimeClient]);
 
 
+  // Layout and optional voice preferences are user data too. Keep them in
+  // the same daemon-owned SQLite resource as the other product state so a
+  // reinstall/restart does not silently reset the workspace.
   useEffect(() => {
-    window.localStorage.setItem('sori.sidebar.collapsed', String(sidebarCollapsed));
-    window.localStorage.setItem('sori.sidebar.width', String(sidebarWidth));
-  }, [sidebarCollapsed, sidebarWidth]);
+    let cancelled = false;
+    runtimeClient.resource<Partial<PersistedPreferences>>('preferences').then((result) => {
+      if (cancelled) return;
+      if (result.error === null && result.data && typeof result.data === 'object') {
+        if (typeof result.data.sidebarCollapsed === 'boolean') setSidebarCollapsed(result.data.sidebarCollapsed);
+        if (typeof result.data.sidebarWidth === 'number' && result.data.sidebarWidth >= 180 && result.data.sidebarWidth <= 360) setSidebarWidth(result.data.sidebarWidth);
+        if (result.data.assistantVoice) setAssistantVoice((current) => ({ ...current, ...result.data.assistantVoice }));
+        if (result.data.voiceProfile) setVoiceProfile((current) => ({ ...current, ...result.data.voiceProfile }));
+      }
+      preferencesHydrated.current = true;
+    }).catch(() => { preferencesHydrated.current = true; });
+    return () => { cancelled = true; };
+  }, [runtimeClient]);
+
+  useEffect(() => {
+    if (!preferencesHydrated.current) return;
+    const preferences: PersistedPreferences = { version: 1, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile };
+    void runtimeClient.setResource('preferences', preferences).then((result) => {
+      if (result.error) setRuntimeError(`Preferences unavailable: ${result.error}`);
+    });
+  }, [runtimeClient, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile]);
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     if (sidebarCollapsed) return;

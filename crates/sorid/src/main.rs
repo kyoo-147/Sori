@@ -616,7 +616,7 @@ async fn main() -> Result<()> {
                 }
                 let target = RuntimeTarget::capture().map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
                 let mut injector = RuntimeInjector::new();
-                let route = ModelRoute { provider: provider.provider_name().into(), model: model.clone(), reason: "canonical audio acceptance".into(), fallback: Vec::new() };
+                let route = ModelRoute { provider: provider.provider_name().into(), model: model.clone(), reason: format!("canonical audio acceptance; target={}", target.identity.as_deref().unwrap_or("unknown")), fallback: Vec::new() };
                 let events = sori_core::InMemoryEventBus::default();
                 let result = sori_core::complete_dictation_with_vocabulary_options(
                     audio,

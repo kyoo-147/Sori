@@ -219,6 +219,16 @@ impl<A> AdapterTextInjector<A> {
     }
 }
 
+impl<A: TextInjectionAdapter> AdapterTextInjector<A> {
+    pub fn inject_clipboard(
+        &mut self,
+        target: &dyn TextTarget,
+        request: &TextInjectionRequest,
+    ) -> Result<TextInjectionResult, TextInjectionError> {
+        self.inject_with_strategy(target, request, Some(InjectionStrategy::ClipboardPaste))
+    }
+}
+
 impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
     fn capabilities(&self) -> InjectorCapabilities {
         self.capabilities
@@ -232,10 +242,29 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
         target: &dyn TextTarget,
         request: &TextInjectionRequest,
     ) -> Result<TextInjectionResult, TextInjectionError> {
+        self.inject_with_strategy(target, request, None)
+    }
+}
+
+impl<A: TextInjectionAdapter> AdapterTextInjector<A> {
+    fn inject_with_strategy(
+        &mut self,
+        target: &dyn TextTarget,
+        request: &TextInjectionRequest,
+        forced_strategy: Option<InjectionStrategy>,
+    ) -> Result<TextInjectionResult, TextInjectionError> {
         let _transaction = self.transaction_lock.lock().map_err(|_| {
             TextInjectionError::Adapter("injection transaction lock poisoned".into())
         })?;
-        let plan = self.make_plan(target);
+        let mut plan = self.make_plan(target);
+        if let Some(strategy) = forced_strategy {
+            plan.strategy = strategy;
+            plan.clipboard_policy = if strategy == InjectionStrategy::ClipboardPaste {
+                ClipboardPolicy::PreserveAndRestore
+            } else {
+                ClipboardPolicy::NotUsed
+            };
+        }
         if plan.strategy == InjectionStrategy::Unavailable {
             return Err(if !target.capabilities().accepts_text {
                 TextInjectionError::TargetDoesNotAcceptText
@@ -251,6 +280,7 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
                 diagnostics: vec!["dry-run: no OS or clipboard side effects".into()],
             });
         }
+        let mut diagnostics = Vec::new();
         let expected_identity = target.identity().map(str::to_owned);
         self.adapter
             .release_modifiers()
@@ -261,12 +291,17 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
                 .focused_target_identity()
                 .map_err(TextInjectionError::Adapter)?
             {
+                diagnostics.push(format!(
+                    "focused-target-before={actual}; expected={expected}"
+                ));
+                eprintln!(
+                    "[sori] native injection target before SendInput: actual={actual} expected={expected}"
+                );
                 if actual != expected {
                     return Err(TextInjectionError::FocusedTargetChanged);
                 }
             }
         }
-        let mut diagnostics = Vec::new();
         match plan.strategy {
             InjectionStrategy::DirectInput => {
                 if let Err(error) = self.adapter.send_direct_input(&request.text) {
@@ -324,6 +359,12 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
                 .focused_target_identity()
                 .map_err(TextInjectionError::Adapter)?
             {
+                diagnostics.push(format!(
+                    "focused-target-after={actual}; expected={expected}"
+                ));
+                eprintln!(
+                    "[sori] native injection target after SendInput: actual={actual} expected={expected}"
+                );
                 if actual != expected {
                     let release_error = self.adapter.release_modifiers().err();
                     return Err(match release_error {
@@ -738,13 +779,35 @@ pub mod windows {
             if capabilities.requires_elevation && !self.elevated_target_access {
                 return Err(TextInjectionError::ElevatedTargetDenied);
             }
-            self.inner.inject(target, request).map_err(|error| {
-                if matches!(&error, TextInjectionError::Adapter(detail) if detail.contains("error 5") || detail.contains("ACCESS_DENIED")) {
-                    TextInjectionError::PermissionDenied
-                } else {
-                    error
+            let direct_plan = self.inner.plan(target);
+            match self.inner.inject(target, request) {
+                Ok(result) => Ok(result),
+                Err(error)
+                    if direct_plan.strategy == InjectionStrategy::DirectInput
+                        && self.inner.capabilities().clipboard
+                        && matches!(&error, TextInjectionError::Adapter(_)) =>
+                {
+                    let mut fallback = self.inner.inject_clipboard(target, request).map_err(|fallback_error| {
+                        if matches!(&fallback_error, TextInjectionError::Adapter(detail) if detail.contains("error 5") || detail.contains("ACCESS_DENIED")) {
+                            TextInjectionError::PermissionDenied
+                        } else {
+                            fallback_error
+                        }
+                    })?;
+                    fallback.diagnostics.push(format!(
+                        "direct Unicode SendInput failed; clipboard fallback used: {error}"
+                    ));
+                    Ok(fallback)
                 }
-            })
+                Err(error) => Err(
+                    if matches!(&error, TextInjectionError::Adapter(detail) if detail.contains("error 5") || detail.contains("ACCESS_DENIED"))
+                    {
+                        TextInjectionError::PermissionDenied
+                    } else {
+                        error
+                    },
+                ),
+            }
         }
     }
 }
@@ -855,6 +918,7 @@ mod tests {
 
     #[derive(Default)]
     struct FakeAdapter {
+        direct_error: Option<String>,
         restore_error: Option<String>,
         focused_identity: Option<String>,
         focused_identities: Vec<Option<String>>,
@@ -864,7 +928,7 @@ mod tests {
     impl TextInjectionAdapter for FakeAdapter {
         fn send_direct_input(&mut self, _: &str) -> Result<(), String> {
             self.calls.push("direct");
-            Ok(())
+            self.direct_error.clone().map_or(Ok(()), Err)
         }
         fn snapshot_clipboard(&mut self) -> Result<(), String> {
             self.calls.push("snapshot");
@@ -1027,6 +1091,30 @@ mod tests {
             Err(TextInjectionError::UnsupportedTargetApp(
                 "test-target".into()
             ))
+        );
+    }
+
+    #[test]
+    fn windows_direct_failure_uses_safe_clipboard_fallback() {
+        let mut injector = windows::WindowsTextInjector::new(FakeAdapter {
+            direct_error: Some("SendInput failed".into()),
+            ..Default::default()
+        });
+        let result = injector
+            .inject(
+                &Target(TARGET),
+                &TextInjectionRequest {
+                    text: "fallback".into(),
+                    dry_run: false,
+                },
+            )
+            .unwrap();
+        assert_eq!(result.plan.strategy, InjectionStrategy::ClipboardPaste);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|item| item.contains("clipboard fallback used"))
         );
     }
 

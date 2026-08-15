@@ -2,6 +2,7 @@
 param(
   [Parameter(Mandatory = $true)] [string]$SoriExecutable,
   [Parameter(Mandatory = $true)] [string]$TargetExecutable,
+  [ValidateSet('notepad', 'win32-edit')] [string]$TargetKind = 'notepad',
   [Parameter(Mandatory = $true)] [string]$WavPath,
   [Parameter(Mandatory = $true)] [string]$Model,
   [Parameter(Mandatory = $true)] [string]$DataRoot,
@@ -55,6 +56,28 @@ function Read-WavAudio([string]$Path) {
   $samples = [Collections.Generic.List[double]]::new()
   for ($index = 0; $index + 1 -lt $dataSize; $index += 2) { [void]$samples.Add([BitConverter]::ToInt16($bytes, $dataOffset + $index) / 32767.0) }
   return @{ captured_at = (Get-Date).ToUniversalTime().ToString('o'); format = @{ sample_rate_hz = $rate; channels = 1; sample_format = 'F32' }; samples = $samples }
+}
+function Ensure-Win32EditTarget([string]$OutputPath) {
+  if (Test-Path -LiteralPath $OutputPath) { return (Resolve-Path -LiteralPath $OutputPath).Path }
+  $source = @'
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+public static class SoriEditTarget {
+  [STAThread]
+  public static void Main() {
+    Application.EnableVisualStyles();
+    Application.SetCompatibleTextRenderingDefault(false);
+    var form = new Form { Text = Environment.GetEnvironmentVariable("SORI_EDIT_TARGET_TITLE") ?? "Sori Native Edit Target", Width = 900, Height = 500 };
+    var edit = new TextBox { Multiline = true, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 16), Name = "Editor" };
+    form.Controls.Add(edit);
+    form.Shown += (sender, args) => edit.Focus();
+    Application.Run(form);
+  }
+}
+'@
+  Add-Type -TypeDefinition $source -OutputAssembly $OutputPath -OutputType WindowsApplication -ReferencedAssemblies @('System.Windows.Forms.dll', 'System.Drawing.dll')
+  return (Resolve-Path -LiteralPath $OutputPath).Path
 }
 
 Add-Type @'
@@ -126,7 +149,7 @@ function Read-TargetText([IntPtr]$Handle) {
 
 $artifact = [ordered]@{ status = 'FAILED'; steps = [Collections.Generic.List[string]]::new(); transcript = $null; history = $null; target_text = $null }
 $desktop = $null; $target = $null; $ownedDaemonPid = $null
-$oldIpcAddr = $env:SORI_IPC_ADDR; $oldIpcUrl = $env:SORI_IPC_URL; $oldDb = $env:SORI_DATABASE_PATH; $oldDbAlias = $env:SORI_DB_PATH
+$oldIpcAddr = $env:SORI_IPC_ADDR; $oldIpcUrl = $env:SORI_IPC_URL; $oldDb = $env:SORI_DATABASE_PATH; $oldDbAlias = $env:SORI_DB_PATH; $oldEditTitle = $env:SORI_EDIT_TARGET_TITLE
 try {
   Assert-EndpointFree
   $dataPath = (Resolve-Path -LiteralPath $DataRoot -ErrorAction SilentlyContinue)
@@ -149,17 +172,26 @@ try {
   $targetFileName = "sori-native-target-$([Guid]::NewGuid().ToString('N')).txt"
   $targetFile = Join-Path (Resolve-Path '.tmp').Path $targetFileName
   Set-Content -LiteralPath $targetFile -Value '' -Encoding Unicode
-  if (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "$targetFileName*" })) { Fail 'unique harness target title was already present before launch' }
-  $targetLaunch = Start-Process -FilePath $TargetExecutable -ArgumentList "`"$targetFile`"" -PassThru
+  if ($TargetKind -eq 'win32-edit') {
+    $targetTitle = "Sori Native Edit Target-$([Guid]::NewGuid().ToString('N'))"
+    $editExecutable = Ensure-Win32EditTarget (Join-Path (Resolve-Path '.tmp').Path 'sori-native-edit-target.exe')
+    $env:SORI_EDIT_TARGET_TITLE = $targetTitle
+    if (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq $targetTitle })) { Fail 'unique Win32 EDIT target title was already present before launch' }
+    $targetLaunch = Start-Process -FilePath $editExecutable -PassThru
+  } else {
+    $targetTitle = $targetFileName
+    if (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "$targetFileName*" })) { Fail 'unique harness target title was already present before launch' }
+    $targetLaunch = Start-Process -FilePath $TargetExecutable -ArgumentList "`"$targetFile`"" -PassThru
+  }
   for ($i=0; $i -lt 40; $i++) {
-    $target = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "$targetFileName*" } | Select-Object -First 1
+    $target = if ($TargetKind -eq 'win32-edit') { Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq $targetTitle } | Select-Object -First 1 } else { Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "$targetFileName*" } | Select-Object -First 1 }
     if ($target -and $target.MainWindowHandle -ne 0) { break }
     Start-Sleep -Milliseconds 250
   }
-  if (-not $target) { Fail 'harness-owned Notepad target did not expose a window' }
+  if (-not $target) { Fail "harness-owned $TargetKind target did not expose a window" }
   $artifact.steps.Add("started harness-owned target PID $($target.Id) via launcher PID $($targetLaunch.Id)")
-  if ($target.HasExited -or $target.MainWindowHandle -eq 0) { Fail 'harness-owned Notepad target did not expose a window' }
-  if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail 'could not focus harness-owned Notepad target' }
+  if ($target.HasExited -or $target.MainWindowHandle -eq 0) { Fail "harness-owned $TargetKind target did not expose a window" }
+  if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail "could not focus harness-owned $TargetKind target" }
   Start-Sleep -Milliseconds 300
   $artifact.steps.Add("focused harness-owned target PID $($target.Id) without claiming physical input")
   $audio = Read-WavAudio $WavPath
@@ -174,13 +206,16 @@ try {
   $entry = @($history.RecentHistory.entries | Where-Object { $_.transcript.text -eq $response.Transcript.text } | Select-Object -First 1)
   if (-not $entry) { Fail 'SQLite RecentHistory did not contain the real injected transcript' }
   if ($entry[0].inserted_text -ne $response.Transcript.text) { Fail 'SQLite history did not record inserted_text for the real target' }
+  if ($entry[0].inserted_text -ne $response.Transcript.text) { Fail 'SQLite history did not record inserted_text for the real target' }
+  if (-not $entry[0].route.reason -or $entry[0].route.reason -notmatch 'target=pid:\d+;hwnd:') { Fail 'backend history did not retain the immediate foreground target PID/HWND assertion' }
+  Pass "backend asserted focused target immediately before injection: $($entry[0].route.reason)"
   Pass 'SQLite history persisted transcript and inserted_text'
   $artifact.history = $entry[0]
   $artifact.steps.Add('canonical RecentHistory returned persisted SQLite evidence')
-  if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail 'harness-owned Notepad was not foreground for readback' }
+  if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail "harness-owned $TargetKind was not foreground for readback" }
   $target.Refresh(); $targetText = [SoriNativeText]::ReadText($target.MainWindowHandle)
   if (-not $targetText.Contains($response.Transcript.text)) { $targetText = Read-TargetText $target.MainWindowHandle }
-  if (-not $targetText.Contains($response.Transcript.text)) {
+  if ($TargetKind -eq 'notepad' -and -not $targetText.Contains($response.Transcript.text)) {
     [SoriNativeText]::Save(); Start-Sleep -Milliseconds 700
     $savedBytes = [IO.File]::ReadAllBytes($targetFile)
     $savedUnicode = [Text.Encoding]::Unicode.GetString($savedBytes)
@@ -188,7 +223,7 @@ try {
     if ($savedUnicode.Contains($response.Transcript.text)) { $targetText = $savedUnicode }
     elseif ($savedUtf8.Contains($response.Transcript.text)) { $targetText = $savedUtf8 }
   }
-  if (-not $targetText.Contains($response.Transcript.text)) {
+  if ($TargetKind -eq 'notepad' -and -not $targetText.Contains($response.Transcript.text)) {
     $clipboardBefore = Get-Clipboard -Raw -ErrorAction SilentlyContinue
     [System.Windows.Forms.SendKeys]::SendWait('^a'); [System.Windows.Forms.SendKeys]::SendWait('^c'); Start-Sleep -Milliseconds 400
     $clipboardText = Get-Clipboard -Raw -ErrorAction SilentlyContinue
@@ -196,8 +231,8 @@ try {
     if ($null -eq $clipboardBefore) { Set-Clipboard -Value '' } else { Set-Clipboard -Value $clipboardBefore }
   }
   $artifact.target_text = $targetText
-  if (-not $targetText.Contains($response.Transcript.text)) { Fail "harness-owned Notepad text did not contain the transcript. Captured text: $targetText" }
-  Pass 'harness-owned Notepad contained actual Unicode SendInput output'
+  if (-not $targetText.Contains($response.Transcript.text)) { Fail "harness-owned $TargetKind text did not contain the transcript. Captured text: $targetText" }
+  Pass "harness-owned $TargetKind contained actual Unicode SendInput output"
   $status = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body (ConvertTo-Json 'Status') -TimeoutSec 5
   if (-not $status.Status.running) { Fail 'runtime status did not report running after injection' }
   Pass 'FE/runtime reconnect refresh boundary remained healthy through canonical Status/History reads'
@@ -211,5 +246,5 @@ try {
   if ($desktop -and -not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue }
   if ($ownedDaemonPid) { Stop-Process -Id $ownedDaemonPid -Force -ErrorAction SilentlyContinue }
   if ($target -and -not $target.HasExited) { Stop-Process -Id $target.Id -Force -ErrorAction SilentlyContinue }
-  $env:SORI_IPC_ADDR = $oldIpcAddr; $env:SORI_IPC_URL = $oldIpcUrl; $env:SORI_DATABASE_PATH = $oldDb; $env:SORI_DB_PATH = $oldDbAlias
+  $env:SORI_IPC_ADDR = $oldIpcAddr; $env:SORI_IPC_URL = $oldIpcUrl; $env:SORI_DATABASE_PATH = $oldDb; $env:SORI_DB_PATH = $oldDbAlias; $env:SORI_EDIT_TARGET_TITLE = $oldEditTitle
 }

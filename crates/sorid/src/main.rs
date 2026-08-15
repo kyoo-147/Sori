@@ -183,6 +183,13 @@ async fn main() -> Result<()> {
             Err(error) => (None, format!("unavailable: {error}")),
         };
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
+    // Promote FE settings into daemon keys before runtime construction so a
+    // restart preserves the same canonical hotkey configuration.
+    if let Some(settings) = store.resource("settings")? {
+        if let Some(binding) = settings.get("hotkey").and_then(|value| value.as_str()) {
+            store.set_setting("hotkey.binding", &serde_json::json!(binding))?;
+        }
+    }
     if let Some(value) = store.setting("route.policy")? {
         if let Ok(preset) = serde_json::from_value::<sori_core::RoutePreset>(value) {
             config.route = preset.policy();
@@ -202,7 +209,9 @@ async fn main() -> Result<()> {
                 })
         });
         if !valid {
-            store.set_setting("resource.route", &serde_json::json!({"activeModelId": null, "policy": "LocalFirst", "fallbackModelIds": []}))?;
+            let empty_route = serde_json::json!({"activeModelId": null, "policy": "LocalFirst", "fallbackModelIds": []});
+            store.set_setting("resource.route", &empty_route)?;
+            store.set_resource("route", &empty_route)?;
         }
     }
     let benchmark_provider = whisper_provider.clone();
@@ -744,7 +753,14 @@ async fn main() -> Result<()> {
                 handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 if key == "hotkey.binding" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.hotkey.binding = value.as_str().unwrap().to_owned(); }
                 if key == "privacy.mode" { *handler_privacy.lock().map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))? = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
-                if key == "route.policy" { let preset: sori_core::RoutePreset = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.route = preset.policy(); }
+                if key == "route.policy" {
+                    let preset: sori_core::RoutePreset = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                    handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.route = preset.policy();
+                    let mut route = handler_store.resource("route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.unwrap_or_else(|| default_resource("route"));
+                    if let Some(object) = route.as_object_mut() { object.insert("policy".into(), value); }
+                    handler_store.set_resource("route", &route).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                    handler_store.set_setting("resource.route", &route).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                }
                 Response::Control(ControlResponse { accepted: true, detail: format!("setting {key} persisted") })
             }
             Request::RecentEvents { limit } => Response::RecentEvents(RecentEventsResponse {
@@ -999,8 +1015,8 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
 
 fn validate_resource(resource: &str) -> Result<(), String> {
     match resource {
-        "settings" | "vocabulary" | "snippets" | "models" | "benchmarks" | "extensions"
-        | "permissions" | "privacy" | "onboarding" | "route" => Ok(()),
+        "settings" | "preferences" | "vocabulary" | "snippets" | "models" | "benchmarks"
+        | "extensions" | "permissions" | "privacy" | "onboarding" | "route" => Ok(()),
         _ => Err(format!("unsupported resource: {resource}")),
     }
 }
@@ -1102,6 +1118,7 @@ fn default_resource(resource: &str) -> serde_json::Value {
             serde_json::json!([])
         }
         "settings" => serde_json::json!({}),
+        "preferences" => serde_json::json!({}),
         "models" => serde_json::json!([]),
         "privacy" => {
             serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})

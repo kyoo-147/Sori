@@ -100,6 +100,9 @@ pub enum Request {
         resource: String,
         value: serde_json::Value,
     },
+    ResourceDelete {
+        resource: String,
+    },
     RecentEvents {
         limit: u16,
     },
@@ -692,6 +695,11 @@ impl Transport for MockTransport {
             }),
             Request::ResourceSet { resource, value } => {
                 Response::Resource(ResourceResponse { resource, value })
+            }
+            Request::ResourceDelete { .. } => {
+                return Err(IpcError::Transport(
+                    "mock transport does not persist resources".into(),
+                ));
             }
             Request::RecentHistory { .. }
             | Request::PurgeHistory

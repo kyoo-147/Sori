@@ -574,3 +574,120 @@ async fn canonical_ipc_benchmark_cancel_retry_history_reload_and_concurrent_stat
     drop(reopened);
     std::fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn canonical_ipc_persistence_survives_daemon_restart_and_sqlite_reopen() {
+    let path = std::env::temp_dir().join(format!(
+        "sori-persistence-restart-{}.sqlite",
+        uuid::Uuid::new_v4()
+    ));
+    let store = Arc::new(SqliteStore::open(&path).unwrap());
+    let resource_value = serde_json::json!({"revision": 1, "items": ["persisted"]});
+    let make_server = |store: Arc<SqliteStore>| async move {
+        let server = LocalIpcServer::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let endpoint = server.local_addr().unwrap();
+        let task = tokio::spawn(server.serve(move |request| {
+            let response = match request {
+                Request::ResourceGet { resource } => {
+                    Response::Resource(sori_ipc::ResourceResponse {
+                        value: store
+                            .resource(&resource)
+                            .unwrap()
+                            .unwrap_or(serde_json::Value::Null),
+                        resource,
+                    })
+                }
+                Request::ResourceSet { resource, value } => {
+                    store.set_resource(&resource, &value).unwrap();
+                    Response::Resource(sori_ipc::ResourceResponse { resource, value })
+                }
+                Request::ResourceDelete { resource } => {
+                    Response::Control(sori_ipc::ControlResponse {
+                        accepted: store.delete_resource(&resource).unwrap(),
+                        detail: "deleted from SQLite".into(),
+                    })
+                }
+                Request::SetConfig { key, value } => {
+                    store.set_setting(&key, &value).unwrap();
+                    Response::Control(sori_ipc::ControlResponse {
+                        accepted: true,
+                        detail: "setting persisted".into(),
+                    })
+                }
+                Request::RecentHistory { limit } => {
+                    Response::RecentHistory(sori_ipc::RecentHistoryResponse {
+                        entries: store.try_recent_history(usize::from(limit)).unwrap(),
+                    })
+                }
+                Request::DeleteHistory { id } => Response::Control(sori_ipc::ControlResponse {
+                    accepted: store.try_delete_history(id).unwrap(),
+                    detail: "history deleted".into(),
+                }),
+                _ => {
+                    return Err(sori_ipc::IpcError::UnexpectedResponse {
+                        request: Box::new(request),
+                    });
+                }
+            };
+            Ok(response)
+        }));
+        (endpoint, task)
+    };
+    let (endpoint, first) = make_server(Arc::clone(&store)).await;
+    let request = |request| async move {
+        tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(request)
+        })
+        .await
+        .unwrap()
+        .unwrap()
+    };
+    for resource in ["settings", "vocabulary", "snippets", "route", "models"] {
+        assert!(matches!(
+            request(Request::ResourceSet {
+                resource: resource.into(),
+                value: resource_value.clone()
+            })
+            .await,
+            Response::Resource(_)
+        ));
+    }
+    assert!(
+        matches!(request(Request::SetConfig { key: "history.enabled".into(), value: serde_json::json!(true) }).await, Response::Control(control) if control.accepted)
+    );
+    first.abort();
+    let _ = first.await;
+    drop(store);
+
+    let reopened = Arc::new(SqliteStore::open(&path).unwrap());
+    let (restarted_endpoint, second) = make_server(Arc::clone(&reopened)).await;
+    let read = |resource: &'static str| async move {
+        tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(restarted_endpoint)
+                .unwrap()
+                .request(Request::ResourceGet {
+                    resource: resource.into(),
+                })
+        })
+        .await
+        .unwrap()
+        .unwrap()
+    };
+    for resource in ["settings", "vocabulary", "snippets", "route", "models"] {
+        assert!(
+            matches!(read(resource).await, Response::Resource(value) if value.value == resource_value)
+        );
+    }
+    assert!(
+        matches!(tokio::task::spawn_blocking(move || LocalIpcClient::connect_to(restarted_endpoint).unwrap().request(Request::ResourceDelete { resource: "snippets".into() })).await.unwrap().unwrap(), Response::Control(control) if control.accepted)
+    );
+    assert!(reopened.resource("snippets").unwrap().is_none());
+    second.abort();
+    let _ = second.await;
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
+}

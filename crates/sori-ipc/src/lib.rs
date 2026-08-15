@@ -546,19 +546,18 @@ where
     F: Fn(Request) -> Result<Response, IpcError> + Send + Sync + 'static,
 {
     tokio::task::spawn_blocking(move || {
-        let response = match handler(request) {
-            Ok(response) => response,
-            Err(error) => Response::Error(IpcErrorResponse {
-                code: match &error {
-                    IpcError::Unavailable => "unavailable",
-                    IpcError::Transport(_) => "transport",
-                    IpcError::UnexpectedResponse { .. } => "unexpected_response",
-                    IpcError::Protocol(_) => "protocol",
-                }
-                .into(),
-                detail: error.to_string(),
-            }),
-        };
+        // Keep the daemon alive when provider/adapter code panics. Releasing
+        // the gate is essential: otherwise every later long operation is
+        // permanently reported as operation_busy.
+        let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(request)))
+            .map_err(|_| IpcError::Transport("handler panicked; operation was discarded".into()))
+            .and_then(|result| result)
+            .unwrap_or_else(|error| {
+                Response::Error(IpcErrorResponse {
+                    code: "operation_failed".into(),
+                    detail: error.to_string(),
+                })
+            });
         if let Some(gate) = gate {
             gate.store(false, Ordering::Release);
         }

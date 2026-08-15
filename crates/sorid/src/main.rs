@@ -267,7 +267,13 @@ async fn main() -> Result<()> {
             (None, HotkeyServiceStatus::Unavailable(error.to_string()))
         }
     };
-    let endpoint: SocketAddr = DEFAULT_ENDPOINT.parse().expect("valid IPC endpoint");
+    let endpoint: SocketAddr = std::env::var("SORI_IPC_ADDR")
+        .unwrap_or_else(|_| DEFAULT_ENDPOINT.to_owned())
+        .parse()
+        .map_err(|error| anyhow::anyhow!("invalid SORI_IPC_ADDR: {error}"))?;
+    if !endpoint.ip().is_loopback() {
+        return Err(anyhow::anyhow!("SORI_IPC_ADDR must be a loopback address"));
+    }
     let server = LocalIpcServer::bind(endpoint).await.map_err(|error| {
         anyhow::anyhow!(
             "cannot bind local IPC endpoint {endpoint}: {error}; another process may own it. {}",
@@ -417,7 +423,8 @@ async fn main() -> Result<()> {
                 let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
                 let mut runtime = slot.take().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 drop(slot);
-                let operation: std::result::Result<Response, sori_ipc::IpcError> = (|| {
+                let operation: std::result::Result<Response, sori_ipc::IpcError> = std::panic::catch_unwind(
+                    std::panic::AssertUnwindSafe(|| (|| {
                 let history_enabled = handler_store
                     .setting("history.enabled")
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
@@ -489,7 +496,11 @@ async fn main() -> Result<()> {
                 if history_enabled { handler_store.try_retain_history(history_retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?; }
                 Ok(Response::Transcript(result.transcript))
                 }
-                })();
+                    })(),
+                ))
+                .unwrap_or_else(|_| Err(sori_ipc::IpcError::Transport(
+                    "provider panicked; dictation state was reset".into(),
+                )));
                 *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
                 handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                 operation?

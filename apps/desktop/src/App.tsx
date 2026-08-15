@@ -109,7 +109,13 @@ export default function App() {
   }, [runtimeClient]);
 
   useEffect(() => {
-    refreshRuntime().catch(() => undefined);
+    let disposed = false;
+    const refresh = () => { if (!disposed) refreshRuntime().catch(() => undefined); };
+    // Reconnect after an independently restarted daemon through canonical
+    // read operations only; destructive mutations are never retried.
+    refresh();
+    const timer = window.setInterval(refresh, 5_000);
+    return () => { disposed = true; window.clearInterval(timer); };
   }, [refreshRuntime]);
   const refreshBenchmarks = useCallback(async () => {
     const result = await runtimeClient.recentBenchmarks(20);

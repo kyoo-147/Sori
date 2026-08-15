@@ -11,6 +11,8 @@ describe('desktop runtime IPC boundary', () => {
     expect(JSON.stringify(requestShape('recent_events', { limit: 3 }))).toBe('{"RecentEvents":{"limit":3}}');
     expect(JSON.stringify(requestShape('pause'))).toBe('"Pause"');
     expect(JSON.stringify(requestShape('resume'))).toBe('"Resume"');
+    expect(JSON.stringify(requestShape('resume'))).toBe('"Resume"');
+    expect(JSON.stringify(requestShape('set_config', { key: 'hotkey.binding', value: 'Ctrl+Alt+K' }))).toBe('{"SetConfig":{"key":"hotkey.binding","value":"Ctrl+Alt+K"}}');
   });
 
   it('recognizes and unwraps every current Rust response variant', () => {

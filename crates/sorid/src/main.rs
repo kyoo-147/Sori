@@ -820,6 +820,11 @@ async fn main() -> Result<()> {
                 }
                 handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 publish_persisted_event(&handler_store, EventKind::SettingChanged, format!("set:{key}"));
+                if key == "hotkey.binding" {
+                    let mut settings = handler_store.resource("settings").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.unwrap_or_else(|| serde_json::json!({}));
+                    settings["hotkey"] = value.clone();
+                    handler_store.set_resource("settings", &settings).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                }
                 if key == "hotkey.binding" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.hotkey.binding = value.as_str().unwrap().to_owned(); }
                 if key == "audio.device_id" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.audio.device_id = value.as_str().map(str::to_owned); }
                 if key == "privacy.mode" { *handler_privacy.lock().map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))? = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }

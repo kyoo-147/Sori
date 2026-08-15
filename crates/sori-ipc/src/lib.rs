@@ -37,6 +37,12 @@ pub enum Request {
         model: ModelId,
         audio: Vec<AudioChunk>,
     },
+    /// Submit fixture/decoded audio through the canonical provider, focused-target,
+    /// Unicode SendInput, and SQLite history pipeline without microphone capture.
+    DictationAudio {
+        model: ModelId,
+        audio: Vec<AudioChunk>,
+    },
     VoiceEdit {
         selection: sori_core::VoiceEditSelection,
         instruction: String,
@@ -146,6 +152,7 @@ impl Request {
         matches!(
             self,
             Self::DictationStart
+                | Self::DictationAudio { .. }
                 | Self::Dictation { .. }
                 | Self::DictationStop
                 | Self::RunBenchmark { .. }
@@ -680,6 +687,7 @@ impl Transport for MockTransport {
             | Request::DictationStop
             | Request::DictationCancel
             | Request::Dictation { .. }
+            | Request::DictationAudio { .. }
             | Request::RunBenchmark { .. }
             | Request::CancelBenchmark { .. }
             | Request::RecentBenchmarks { .. }

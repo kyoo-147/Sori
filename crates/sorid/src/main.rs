@@ -609,6 +609,34 @@ async fn main() -> Result<()> {
                 }
                 Response::Control(ControlResponse { accepted: true, detail: "dictation cancellation requested; active provider work will be discarded".into() })
             }
+            Request::DictationAudio { model, audio } => {
+                let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("dictation audio unavailable: Whisper provider is not ready".into()))?;
+                if !provider.can_transcribe(&model) {
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("dictation audio model is not discovered and ready: {}", model.0) }));
+                }
+                let target = RuntimeTarget::capture().map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
+                let mut injector = RuntimeInjector::new();
+                let route = ModelRoute { provider: provider.provider_name().into(), model: model.clone(), reason: "canonical audio acceptance".into(), fallback: Vec::new() };
+                let events = sori_core::InMemoryEventBus::default();
+                let result = sori_core::complete_dictation_with_vocabulary_options(
+                    audio,
+                    provider.as_ref(),
+                    &mut injector,
+                    &target,
+                    &route,
+                    handler_store.as_ref(),
+                    &events,
+                    &Vocabulary::default(),
+                    &CancellationToken::new(),
+                    Some(std::time::Duration::from_secs(120)),
+                ).map_err(|error| sori_ipc::IpcError::Transport(format!("canonical audio dictation failed: {error}")))?;
+                if result.inserted_text.is_none() {
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "injection_failed".into(), detail: result.injection_error.unwrap_or_else(|| "focused target did not confirm text insertion".into()) }));
+                }
+                let retention = handler_store.setting("history.retention_limit").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+                handler_store.try_retain_history(retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?;
+                Response::Transcript(result.transcript)
+            }
             Request::Dictation { model, audio } => {
                 let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
                 let runtime = slot.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;

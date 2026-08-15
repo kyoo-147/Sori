@@ -222,6 +222,9 @@ async fn main() -> Result<()> {
             config.hotkey.binding = binding.to_owned();
         }
     }
+    if let Some(value) = store.setting("audio.device_id")? {
+        config.audio.device_id = value.as_str().map(str::to_owned);
+    }
     let privacy_mode = store
         .setting("privacy.mode")?
         .and_then(|value| serde_json::from_value::<PrivacyMode>(value).ok())
@@ -708,6 +711,7 @@ async fn main() -> Result<()> {
                 let value = handler_store
                     .resource(&resource)
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .or_else(|| if resource == "route" { handler_store.model_route("active").ok().flatten() } else { None })
                     .or(legacy)
                     .unwrap_or_else(|| default_resource(&resource));
                 Response::Resource(sori_ipc::ResourceResponse { resource, value })
@@ -721,6 +725,9 @@ async fn main() -> Result<()> {
                 handler_store
                     .set_resource(&resource, &value)
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if resource == "route" {
+                    handler_store.save_model_route("active", &value).map_err(|e| sori_ipc::IpcError::Transport(format!("route persistence failed: {e}")))?;
+                }
                 publish_persisted_event(&handler_store, EventKind::ResourceChanged, format!("set:{resource}"));
                 // Keep the legacy key readable by daemon startup code while all
                 // new writes are owned by the user_data resource table.
@@ -732,6 +739,9 @@ async fn main() -> Result<()> {
             Request::ResourceDelete { resource } => {
                 validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
                 let deleted = handler_store.delete_resource(&resource).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if resource == "route" {
+                    handler_store.delete_model_route("active").map_err(|e| sori_ipc::IpcError::Transport(format!("route deletion failed: {e}")))?;
+                }
                 handler_store.delete_setting(&format!("resource.{resource}")).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 if deleted {
                     publish_persisted_event(&handler_store, EventKind::ResourceChanged, format!("deleted:{resource}"));
@@ -755,11 +765,26 @@ async fn main() -> Result<()> {
                 publish_persisted_event(&handler_store, EventKind::HistoryChanged, "purged".into());
                 Response::Control(ControlResponse { accepted: true, detail: "history purged from SQLite".into() })
             }
+            Request::SettingGet { key } => {
+                validate_setting_key(&key).map_err(sori_ipc::IpcError::Transport)?;
+                let value = handler_store.setting(&key).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Setting(sori_ipc::SettingResponse { key, value })
+            }
+            Request::SettingDelete { key } => {
+                validate_setting_key(&key).map_err(sori_ipc::IpcError::Transport)?;
+                let deleted = handler_store.delete_setting(&key).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if deleted {
+                    Response::Setting(sori_ipc::SettingResponse { key, value: None })
+                } else {
+                    Response::Error(sori_ipc::IpcErrorResponse { code: "not_found".into(), detail: format!("setting {key} not found") })
+                }
+            }
             Request::SetConfig { key, value } => {
                 validate_setting(&key, &value).map_err(sori_ipc::IpcError::Transport)?;
                 handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 publish_persisted_event(&handler_store, EventKind::SettingChanged, format!("set:{key}"));
                 if key == "hotkey.binding" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.hotkey.binding = value.as_str().unwrap().to_owned(); }
+                if key == "audio.device_id" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.audio.device_id = value.as_str().map(str::to_owned); }
                 if key == "privacy.mode" { *handler_privacy.lock().map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))? = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
                 if key == "route.policy" {
                     let preset: sori_core::RoutePreset = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -993,6 +1018,14 @@ fn status_response<B: sori_core::EventBus>(
     }
 }
 
+fn validate_setting_key(key: &str) -> Result<(), String> {
+    match key {
+        "hotkey.binding" | "history.enabled" | "history.retention_limit" |
+        "route.policy" | "privacy.mode" | "audio.device_id" => Ok(()),
+        _ => Err(format!("unsupported setting: {key}")),
+    }
+}
+
 fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> {
     match key {
         "hotkey.binding" if value.as_str().is_some_and(|v| !v.trim().is_empty()) => Ok(()),
@@ -1008,6 +1041,7 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
         {
             Ok(())
         }
+        "audio.device_id" if value.as_str().is_some_and(|v| !v.trim().is_empty()) => Ok(()),
         "privacy.mode"
             if value
                 .as_str()
@@ -1022,6 +1056,7 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
             Err("history.retention_limit must be an integer from 1 to 10000".into())
         }
         "route.policy" => Err("route.policy must be a supported route preset".into()),
+        "audio.device_id" => Err("audio.device_id must be a non-empty string".into()),
         "privacy.mode" => {
             Err("privacy.mode must be Auto, LocalOnly, CloudAllowed, or NeverCloud".into())
         }

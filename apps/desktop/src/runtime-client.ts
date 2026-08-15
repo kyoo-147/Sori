@@ -1,4 +1,4 @@
-import { requestShape, responsePayload, type ConfigSummaryResponse, type ControlResponse, type DoctorCheck, type ExtensionManifest, type ExtensionRecord, type HistoryEntry, type IpcOperation, type IpcResponseMap, type ModelsResponse, type RouteSummary, type TranscriptResponse, type VoiceEditResponse, type VoiceEditSelection } from './ipc-contract.js';
+import { requestShape, responsePayload, type ConfigSummaryResponse, type ControlResponse, type DoctorCheck, type ExtensionManifest, type ExtensionRecord, type HistoryEntry, type IpcOperation, type IpcResponseMap, type ModelsResponse, type RouteSummary, type TranscriptResponse, type VoiceEditResponse, type VoiceEditSelection, type SettingResponse } from './ipc-contract.js';
 import type { ModelRecord } from './types';
 export type { DoctorCheck, IpcOperation, IpcRequest } from './ipc-contract.js';
 export interface DaemonStatus { daemon: 'starting' | 'running' | 'stopping' | 'unavailable'; activity: 'idle' | 'paused' | 'error'; paused: boolean; hotkey: string; route: RouteSummary; profile: string; privacy: string; version: string | null; }
@@ -39,6 +39,8 @@ export class RuntimeClient {
   doctor() { return this.call('doctor', mapDoctor, []); }
   modelReadiness() { return this.doctor().then((result) => ({ ...result, data: result.data.find((check) => check.name === 'whisper') ?? { name: 'whisper', ok: false, detail: 'UNVERIFIED: model readiness was not reported by sorid' } })); }
   configSummary() { return this.call('config_summary', (v) => unwrap(v, 'config_summary') as unknown as ConfigSummaryResponse, null); }
+  setting(key: string) { return this.call('setting_get', (v) => responsePayload(v, 'Setting') as SettingResponse, { key, value: null }); }
+  deleteSetting(key: string) { return this.call('setting_delete', (v) => responsePayload(v, 'Setting') as SettingResponse, { key, value: null }); }
   history(limit = 20) { return this.call('recent_history', mapHistory, [], { limit }); }
   async purgeHistory() { return this.control('purge_history'); }
   async deleteHistory(id: string) { return this.control('delete_history', { id }); }

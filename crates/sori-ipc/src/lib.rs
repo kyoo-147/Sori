@@ -92,6 +92,10 @@ pub enum Request {
     DeleteHistory {
         id: Uuid,
     },
+    /// Read one validated daemon setting from SQLite.
+    SettingGet { key: String },
+    /// Delete one validated daemon setting from SQLite.
+    SettingDelete { key: String },
     SetConfig {
         key: String,
         value: serde_json::Value,
@@ -150,6 +154,7 @@ pub enum Response {
     Status(StatusResponse),
     Doctor(DoctorResponse),
     ConfigSummary(ConfigSummaryResponse),
+    Setting(SettingResponse),
     Models(ModelsResponse),
     ModelStatus(ModelStatusResponse),
     RecentEvents(RecentEventsResponse),
@@ -215,6 +220,12 @@ pub struct ConfigSummaryResponse {
     pub history_retention_limit: u32,
     pub hotkey: String,
     pub route: RouteSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SettingResponse {
+    pub key: String,
+    pub value: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -708,6 +719,8 @@ impl Transport for MockTransport {
             Request::RecentHistory { .. }
             | Request::PurgeHistory
             | Request::DeleteHistory { .. }
+            | Request::SettingGet { .. }
+            | Request::SettingDelete { .. }
             | Request::SetConfig { .. } => {
                 return Err(IpcError::Transport(
                     "mock transport does not persist history/config".into(),
@@ -747,6 +760,14 @@ impl Transport for MockTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn setting_crud_contract_round_trips_and_preserves_null() {
+        let get = Request::SettingGet { key: "audio.device_id".into() };
+        assert!(matches!(serde_json::from_str::<Request>(&serde_json::to_string(&get).unwrap()).unwrap(), Request::SettingGet { key } if key == "audio.device_id"));
+        let response = Response::Setting(SettingResponse { key: "audio.device_id".into(), value: None });
+        assert_eq!(serde_json::from_str::<Response>(&serde_json::to_string(&response).unwrap()).unwrap(), response);
+    }
 
     #[test]
     fn model_install_and_remove_contract_round_trips() {

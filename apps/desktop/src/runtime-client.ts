@@ -25,7 +25,7 @@ export function mapModels(value: unknown): ModelRecord[] {
   return payload.models.map(({ manifest, status }) => {
     const provider = payload.provider ?? status.backend ?? manifest.backend;
     const id = provider ? `${provider}/${manifest.id}` : manifest.id;
-    return { id, name: manifest.display_name, provider, location: 'local', qualityTier: 'standard', recommended: false, available: status.installed, unavailableReason: status.installed ? null : 'Model files are not installed by the daemon' };
+    return { id, name: manifest.display_name, provider, location: 'local', qualityTier: 'standard', recommended: false, available: status.installed, installed: status.installed, loaded: status.loaded, warm: status.warm, unavailableReason: status.installed ? null : 'Model files are not installed by the daemon' };
   });
 }
 export class HttpIpcTransport implements IpcTransport { readonly source = 'backend' as const; constructor(private readonly url = endpoint, private readonly fetchImpl: typeof fetch = fetch) {} async request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown> { const response = await this.fetchImpl(this.url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(requestShape(operation, params)), signal: AbortSignal.timeout(2_000) }); if (!response.ok) throw new Error(`IPC request failed (${response.status})`); return response.json(); } }
@@ -53,8 +53,13 @@ export class RuntimeClient {
   async applyBenchmarkRecommendation() { return this.call('apply_benchmark_recommendation', (value) => (responsePayload(value, 'Resource') as { value: unknown } | undefined)?.value ?? null, null); }
   resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }
   models() { return this.call('models', mapModels, [] as ModelRecord[]); }
-  installModel(model: string, source: string, expectedSha256: string) { return this.call('model_install', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model, source, expected_sha256: expectedSha256 }); }
-  removeModel(model: string) { return this.call('model_remove', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model }); }
+  private modelKey(model: string) { return model.includes('/') ? model.slice(model.lastIndexOf('/') + 1) : model; }
+  installModel(model: string, source: string, expectedSha256: string) { return this.call('model_install', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model), source, expected_sha256: expectedSha256 }); }
+  modelStatus(model: string) { return this.call('model_status', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model) }); }
+  loadModel(model: string) { return this.call('model_load', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model) }); }
+  warmModel(model: string) { return this.call('model_warm', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model) }); }
+  unloadModel(model: string) { return this.call('model_unload', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model) }); }
+  removeModel(model: string) { return this.call('model_remove', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model) }); }
   route<T = unknown>() { return this.resource<T>('route'); }
   setActiveModel(modelId: string) { return this.setResource<{ activeModelId: string | null }>('route', { activeModelId: modelId }); }
   setRoutePolicy(policy: 'Performance' | 'Balanced' | 'Battery' | 'Privacy' | 'LocalFirst' | 'CloudAllowed' | 'NeverCloud') { return this.setConfig('route.policy', policy); }

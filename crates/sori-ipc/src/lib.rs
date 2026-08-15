@@ -71,6 +71,9 @@ pub enum Request {
     ModelLoad {
         model: ModelId,
     },
+    ModelWarm {
+        model: ModelId,
+    },
     ModelUnload {
         model: ModelId,
     },
@@ -666,6 +669,7 @@ impl Transport for MockTransport {
             | Request::Models
             | Request::ModelStatus { .. }
             | Request::ModelLoad { .. }
+            | Request::ModelWarm { .. }
             | Request::ModelUnload { .. }
             | Request::ModelInstall { .. }
             | Request::ModelRemove { .. } => {

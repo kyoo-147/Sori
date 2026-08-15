@@ -86,6 +86,22 @@ describe('desktop runtime IPC boundary', () => {
     ]);
   });
 
+  it('routes model lifecycle operations with canonical raw model ids', async () => {
+    const requests: Array<{ operation: string; params?: Record<string, unknown> }> = [];
+    const transport = { source: 'backend' as const, request: async (operation: string, params?: Record<string, unknown>) => { requests.push({ operation, params }); return { ModelStatus: { provider: 'whisper.cpp', status: { model: 'small.en.bin', installed: true, loaded: true, warm: true, memory_bytes: null, backend: 'whisper.cpp' } } }; } };
+    const client = new RuntimeClient(transport);
+    await client.loadModel('whisper.cpp/small.en.bin');
+    await client.warmModel('whisper.cpp/small.en.bin');
+    await client.unloadModel('whisper.cpp/small.en.bin');
+    await client.removeModel('whisper.cpp/small.en.bin');
+    expect(requests.map(({ operation, params }) => ({ operation, params }))).toEqual([
+      { operation: 'model_load', params: { model: 'small.en.bin' } },
+      { operation: 'model_warm', params: { model: 'small.en.bin' } },
+      { operation: 'model_unload', params: { model: 'small.en.bin' } },
+      { operation: 'model_remove', params: { model: 'small.en.bin' } },
+    ]);
+  });
+
 describe('desktop benchmark input contract', () => {
   it('accepts only a real mono PCM16 WAV and preserves its samples', async () => {
     const bytes = new Uint8Array(48);

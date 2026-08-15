@@ -144,6 +144,9 @@ pub trait ModelProvider: Send + Sync {
             self.provider_name()
         )))
     }
+    fn warm(&self, model: &ModelId) -> Result<(), ModelError> {
+        self.load(model)
+    }
     fn unload(&self, _model: &ModelId) -> Result<(), ModelError> {
         Err(ModelError::Inference(format!(
             "provider {} does not support model unloading",

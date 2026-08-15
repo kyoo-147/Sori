@@ -57,6 +57,7 @@ export default function App() {
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
   const [assistantVoice, setAssistantVoice] = useState<AssistantVoiceSettings>(defaultAssistantVoice);
@@ -80,8 +81,9 @@ export default function App() {
   const [runtimeClient] = useState(() => new RuntimeClient());
 
   const refreshHistory = useCallback(async () => {
+    setHistoryState('loading');
     const result = await runtimeClient.history(50);
-    if (result.error !== null) return false;
+    if (result.error !== null) { setHistoryState('error'); return false; }
     setHistory(result.data.map((entry) => ({
       id: entry.id,
       timestamp: entry.at,
@@ -92,6 +94,7 @@ export default function App() {
       latencyMs: 0,
       modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
     })));
+    setHistoryState('ready');
     return true;
   }, [runtimeClient]);
 
@@ -115,7 +118,8 @@ export default function App() {
         latencyMs: 0,
         modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
       })));
-    }
+      setHistoryState('ready');
+    } else setHistoryState('error');
   }, [runtimeClient]);
 
   useEffect(() => {
@@ -394,7 +398,7 @@ export default function App() {
             )}
 
             {activeScreen === 'transcripts' && (
-              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} />
+              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} loadState={historyState} />
             )}
 
             {activeScreen === 'onboarding' && (

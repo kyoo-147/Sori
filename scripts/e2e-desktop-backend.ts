@@ -81,7 +81,7 @@ async function main(): Promise<void> {
   const db = join(resolve('.tmp'), `sori-e2e-${process.pid}.db`);
   const daemon = spawn(sorid, [], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host, SORI_DATABASE_PATH: db, SORI_DB_PATH: db, SORI_E2E: '1' },
+    env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: `${endpoint.hostname}:${endpoint.port || '80'}`, SORI_DATABASE_PATH: db, SORI_DB_PATH: db, SORI_E2E: '1' },
     shell: false,
   });
   daemon.stdout.on('data', (chunk) => process.stdout.write(`[sorid] ${chunk}`));
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
     if (!(await waitForEndpoint(endpoint))) throw new Error('sorid IPC did not become ready; daemon startup failed or endpoint ownership is stale');
 
     for (const name of ['status', 'doctor']) {
-      const result = await run(sori, [name], { SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host });
+      const result = await run(sori, [name], { SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: `${endpoint.hostname}:${endpoint.port || '80'}` });
       if (result.code !== 0 || (name === 'status' && !result.output.includes('running')) || (name === 'doctor' && (!result.output.includes('- daemon: ok') || !result.output.includes('- sqlite: ok')))) {
         throw new Error(`sori ${name} did not report a healthy daemon`);
       }

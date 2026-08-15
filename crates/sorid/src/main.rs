@@ -232,6 +232,9 @@ async fn main() -> Result<()> {
     if let Some(value) = store.setting("audio.device_id")? {
         config.audio.device_id = value.as_str().map(str::to_owned);
     }
+    if let Some(binding) = std::env::var_os("SORI_HOTKEY_OVERRIDE") {
+        config.hotkey.binding = binding.to_string_lossy().into_owned();
+    }
     let privacy_mode = store
         .setting("privacy.mode")?
         .and_then(|value| serde_json::from_value::<PrivacyMode>(value).ok())

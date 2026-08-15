@@ -66,9 +66,25 @@ try {
   $psi.UseShellExecute = $false
   $psi.EnvironmentVariables['SORI_IPC_ADDR'] = $ipcEndpoint
   $psi.EnvironmentVariables['SORI_IPC_URL'] = "http://$ipcEndpoint/ipc"
+  $psi.EnvironmentVariables['SORI_HOTKEY_OVERRIDE'] = $Hotkey
   $ownedSori = [Diagnostics.Process]::Start($psi)
   $artifact.started_sori_pid = $ownedSori.Id
-  $artifact.steps += "started Sori pid $($ownedSori.Id); daemon configuration must use $Hotkey"
+  $artifact.steps += "started Sori pid $($ownedSori.Id); requested isolated binding $Hotkey"
+  $statusBody = ConvertTo-Json 'Status'
+  $statusBody = ConvertTo-Json 'Status'
+  $statusResponse = $null
+  $deadline = (Get-Date).AddSeconds(30)
+  do {
+    if ($ownedSori.HasExited) { throw "owned Sori exited before IPC became ready (exit=$($ownedSori.ExitCode))" }
+    try { $statusResponse = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $statusBody -TimeoutSec 2; break } catch { Start-Sleep -Milliseconds 250 }
+  } while ((Get-Date) -lt $deadline)
+  if (-not $statusResponse) { throw "isolated Sori IPC endpoint did not become ready: $ipcUrl" }
+  $rebindBody = @{ SetConfig = @{ key = 'hotkey.binding'; value = $Hotkey } } | ConvertTo-Json -Compress
+  $rebindResponse = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $rebindBody -TimeoutSec 2
+  if (-not $rebindResponse.Control.accepted) { throw "runtime rebind was rejected: $($rebindResponse | ConvertTo-Json -Compress)" }
+  $verifiedStatus = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $statusBody -TimeoutSec 2
+  if ($verifiedStatus.Status.hotkey -ne $Hotkey) { throw "daemon reported hotkey '$($verifiedStatus.Status.hotkey)' instead of '$Hotkey' after rebind" }
+  $artifact.steps += "canonical IPC rebind accepted and Status reported $Hotkey"
   Write-Host "Sori is running with owned target PID $($ownedTarget.Id)."
   Write-Host "Perform exactly one physical action now: focus the target, hold $Hotkey, speak the configured phrase, then release it."
   Write-Host "The harness will not synthesize the hotkey or microphone input. Waiting up to $TimeoutSeconds seconds..."

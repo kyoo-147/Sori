@@ -57,6 +57,7 @@ export default function App() {
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
+  const [benchmarkSessionId, setBenchmarkSessionId] = useState<string | null>(null);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
   const [assistantVoice, setAssistantVoice] = useState<AssistantVoiceSettings>(defaultAssistantVoice);
 
@@ -283,12 +284,24 @@ export default function App() {
   };
   const runBenchmark = async (fixture: BenchmarkFixture) => {
     if (!activeModel) return 'Benchmark unavailable: no available active model is configured.';
-    const result = await runtimeClient.runBenchmark(activeModel.id, fixture.audio, fixture.reference, 5);
+    const readiness = await runtimeClient.modelStatus(activeModel.id);
+    const providerStatus = readiness.data as { status?: { installed?: boolean; error?: string | null } } | null;
+    if (readiness.error || providerStatus?.status?.installed !== true) return `Benchmark unavailable: provider readiness is not confirmed${readiness.error ? ` (${readiness.error})` : ''}.`;
+    const sessionId = crypto.randomUUID();
+    setBenchmarkSessionId(sessionId);
+    const result = await runtimeClient.runBenchmark(activeModel.id, fixture.audio, fixture.reference, 5, sessionId, 60_000);
     setRuntimeSource(result.source);
-    if (result.error) { setRuntimeError(result.error); return `Benchmark unavailable: ${result.error}`; }
+    if (result.error) { setRuntimeError(result.error); setBenchmarkSessionId(null); return `Benchmark failed and was not persisted: ${result.error}`; }
     const refreshError = await refreshBenchmarks();
+    setBenchmarkSessionId(null);
     if (refreshError) { setRuntimeError(refreshError); return `Benchmark completed, but persisted results could not refresh: ${refreshError}`; }
     return 'Benchmark completed and persisted results refreshed.';
+  };
+  const cancelBenchmark = async () => {
+    if (!benchmarkSessionId) return;
+    const result = await runtimeClient.cancelBenchmark(benchmarkSessionId);
+    setRuntimeError(result.error);
+    if (result.error) await refreshRuntime();
   };
 
   return (
@@ -414,6 +427,7 @@ export default function App() {
                 activeModelId={activeModel?.id ?? null}
                 onApplyPolicy={handleApplyRecommendedPolicy}
                 onRun={runBenchmark}
+                onCancel={cancelBenchmark}
               />
             )}
 

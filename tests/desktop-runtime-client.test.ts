@@ -131,7 +131,13 @@ describe('desktop benchmark input contract', () => {
     const transport = { source: 'backend' as const, request: async (operation: string, params?: Record<string, unknown>) => { requests.push({ operation, params }); return { Benchmark: { model: 'local-whisper' } }; } };
     const client = new RuntimeClient(transport);
     await client.runBenchmark('local-whisper', [{ captured_at: 'now', format: { sample_rate_hz: 16_000, channels: 1, sample_format: 'F32' }, samples: [0, 0.5] }], 'hello', 3);
-    expect(requests).toEqual([{ operation: 'run_benchmark', params: { model: 'local-whisper', audio: [{ captured_at: 'now', format: { sample_rate_hz: 16_000, channels: 1, sample_format: 'F32' }, samples: [0, 0.5] }], reference: 'hello', iterations: 3 } }]);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ operation: 'run_benchmark', params: { model: 'local-whisper', audio: [{ captured_at: 'now', format: { sample_rate_hz: 16_000, channels: 1, sample_format: 'F32' }, samples: [0, 0.5] }], reference: 'hello', iterations: 3, timeout_ms: 60_000 } });
+    expect(typeof requests[0].params?.session_id).toBe('string');
     expect(JSON.stringify(requestShape('run_benchmark', requests[0].params))).toContain('"RunBenchmark"');
+    expect(JSON.stringify(requestShape('run_benchmark', requests[0].params))).toContain('"RunBenchmark"');
+    const cancelled = await client.cancelBenchmark(String(requests[0].params?.session_id));
+    expect(cancelled.error).toBeNull();
+    expect(requests[1].operation).toBe('cancel_benchmark');
   });
 });

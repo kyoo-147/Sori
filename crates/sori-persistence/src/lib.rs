@@ -265,6 +265,10 @@ impl SqliteStore {
         Ok(())
     }
 
+    pub fn delete_model_route(&self, name: &str) -> Result<bool> {
+        Ok(self.connection()?.execute("DELETE FROM model_routes WHERE name = ?1", [name])? == 1)
+    }
+
     pub fn model_route(&self, name: &str) -> Result<Option<serde_json::Value>> {
         let connection = self.connection()?;
         let value = connection
@@ -628,6 +632,7 @@ mod tests {
         store
             .save_model_manifest("whisper", &serde_json::json!({"version": 1}))
             .unwrap();
+        assert_eq!(store.model_manifests().unwrap().len(), 1);
         store
             .save_model_route("default", &serde_json::json!({"model": "whisper"}))
             .unwrap();
@@ -657,6 +662,8 @@ mod tests {
             reopened.model_route("default").unwrap(),
             Some(serde_json::json!({"model": "whisper"}))
         );
+        assert!(reopened.delete_model_route("default").unwrap());
+        assert!(reopened.model_route("default").unwrap().is_none());
         assert!(reopened.delete_model_manifest("whisper").unwrap());
         assert!(!reopened.delete_model_manifest("whisper").unwrap());
         drop(reopened);

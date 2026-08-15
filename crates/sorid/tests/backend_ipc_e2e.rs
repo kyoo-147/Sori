@@ -609,6 +609,18 @@ async fn canonical_ipc_persistence_survives_daemon_restart_and_sqlite_reopen() {
                         detail: "deleted from SQLite".into(),
                     })
                 }
+                Request::SettingGet { key } => Response::Setting(sori_ipc::SettingResponse {
+                    value: store.setting(&key).unwrap(),
+                    key,
+                }),
+                Request::SettingDelete { key } => {
+                    let deleted = store.delete_setting(&key).unwrap();
+                    if deleted {
+                        Response::Setting(sori_ipc::SettingResponse { key, value: None })
+                    } else {
+                        Response::Error(sori_ipc::IpcErrorResponse { code: "not_found".into(), detail: "setting not found".into() })
+                    }
+                },
                 Request::SetConfig { key, value } => {
                     store.set_setting(&key, &value).unwrap();
                     Response::Control(sori_ipc::ControlResponse {
@@ -659,6 +671,11 @@ async fn canonical_ipc_persistence_survives_daemon_restart_and_sqlite_reopen() {
     assert!(
         matches!(request(Request::SetConfig { key: "history.enabled".into(), value: serde_json::json!(true) }).await, Response::Control(control) if control.accepted)
     );
+    assert!(
+        matches!(request(Request::SetConfig { key: "history.enabled".into(), value: serde_json::json!(true) }).await, Response::Control(control) if control.accepted)
+    );
+    assert!(matches!(request(Request::SettingGet { key: "history.enabled".into() }).await, Response::Setting(setting) if setting.value == Some(serde_json::json!(true))));
+    assert!(matches!(request(Request::SettingGet { key: "audio.device_id".into() }).await, Response::Setting(setting) if setting.value.is_none()));
     first.abort();
     let _ = first.await;
     drop(store);
@@ -682,6 +699,13 @@ async fn canonical_ipc_persistence_survives_daemon_restart_and_sqlite_reopen() {
             matches!(read(resource).await, Response::Resource(value) if value.value == resource_value)
         );
     }
+    for resource in ["settings", "vocabulary", "snippets", "route", "models"] {
+        assert!(
+            matches!(read(resource).await, Response::Resource(value) if value.value == resource_value)
+        );
+    }
+    assert!(matches!(tokio::task::spawn_blocking(move || LocalIpcClient::connect_to(restarted_endpoint).unwrap().request(Request::SettingGet { key: "history.enabled".into() })).await.unwrap().unwrap(), Response::Setting(setting) if setting.value == Some(serde_json::json!(true))));
+    assert!(matches!(tokio::task::spawn_blocking(move || LocalIpcClient::connect_to(restarted_endpoint).unwrap().request(Request::SettingDelete { key: "history.enabled".into() })).await.unwrap().unwrap(), Response::Setting(setting) if setting.value.is_none()));
     assert!(
         matches!(tokio::task::spawn_blocking(move || LocalIpcClient::connect_to(restarted_endpoint).unwrap().request(Request::ResourceDelete { resource: "snippets".into() })).await.unwrap().unwrap(), Response::Control(control) if control.accepted)
     );

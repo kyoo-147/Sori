@@ -6,7 +6,7 @@ const configPath = resolve(root, 'apps/desktop/src-tauri/tauri.conf.json');
 const packagePath = resolve(root, 'apps/desktop/package.json');
 const config = JSON.parse(readFileSync(configPath, 'utf8'));
 const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
-const resources = config.bundle?.resources ?? [];
+const resources = config.bundle?.resources ?? {};
 const fail = (message) => {
   throw new Error(`Windows packaging contract failed: ${message}`);
 };
@@ -15,10 +15,10 @@ if (!config.bundle?.active) fail('Tauri bundling is disabled');
 for (const target of ['nsis', 'msi']) {
   if (!config.bundle.targets?.includes(target)) fail(`missing ${target} target`);
 }
-if (resources.length !== 1 || resources[0] !== '../../../target/debug/sorid.exe') {
+if (Object.keys(resources).length !== 1 || resources['../../../target/debug/sorid.exe'] !== 'sorid.exe') {
   fail(`expected only the staged sorid resource, got ${JSON.stringify(resources)}`);
 }
-if (resources.some((resource) => /whisper|ggml|\.bin/i.test(resource))) {
+if (Object.keys(resources).some((resource) => /whisper|ggml|\.bin/i.test(resource)) || Object.values(resources).some((resource) => /whisper|ggml|\.bin/i.test(resource))) {
   fail('Whisper executables, libraries, or models must remain external');
 }
 const bundleScript = packageJson.scripts?.['build:bundle'] ?? '';

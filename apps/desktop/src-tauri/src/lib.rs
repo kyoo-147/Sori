@@ -4,12 +4,14 @@ use std::sync::Mutex as StdMutex;
 
 struct DaemonSupervisor {
     child: StdMutex<Option<Child>>,
+    resource_dir: StdMutex<Option<PathBuf>>,
 }
 
 impl Default for DaemonSupervisor {
     fn default() -> Self {
         Self {
             child: StdMutex::new(None),
+            resource_dir: StdMutex::new(None),
         }
     }
 }
@@ -22,7 +24,7 @@ impl DaemonSupervisor {
             Some("Whisper runtime is external and user-owned; configure SORI_WHISPER_CPP_BIN or Sori's whisper.json when voice is required")
         }
     }
-    fn daemon_path() -> PathBuf {
+    fn daemon_path(resource_dir: Option<&std::path::Path>) -> PathBuf {
         if let Some(path) = std::env::var_os("SORI_DAEMON_PATH") {
             return PathBuf::from(path);
         }
@@ -34,6 +36,8 @@ impl DaemonSupervisor {
         let sibling = parent.join(executable_name);
         if sibling.is_file() {
             sibling
+        } else if let Some(resource_dir) = resource_dir {
+            resource_dir.join(executable_name)
         } else {
             parent.join("resources").join(executable_name)
         }
@@ -58,7 +62,10 @@ impl DaemonSupervisor {
         std::net::TcpStream::connect_timeout(&endpoint, std::time::Duration::from_millis(150)).is_ok()
     }
 
-    fn start(&self) -> Result<(), String> {
+    fn start(&self, resource_dir: Option<&std::path::Path>) -> Result<(), String> {
+        if let Some(resource_dir) = resource_dir {
+            *self.resource_dir.lock().map_err(|_| "daemon resource lock poisoned".to_string())? = Some(resource_dir.to_path_buf());
+        }
         let endpoint = Self::endpoint()?;
         let mut tracked = self.child.lock().map_err(|_| "daemon supervisor lock poisoned".to_string())?;
         if let Some(child) = tracked.as_mut() {
@@ -71,12 +78,9 @@ impl DaemonSupervisor {
             eprintln!("[sori] daemon endpoint {endpoint} is already occupied; refusing to launch an unknown sorid");
             return Ok(());
         }
-        let path = Self::daemon_path();
+        let path = Self::daemon_path(resource_dir);
         if !path.is_file() {
-            eprintln!(
-                "[sori] sorid is not bundled or configured at {}; desktop remains offline",
-                path.display()
-            );
+            eprintln!("[sori] sorid is not bundled or configured at {}; desktop remains offline", path.display());
             return Ok(());
         }
         let configured_whisper = std::env::var_os("SORI_WHISPER_CPP_BIN").is_some();
@@ -97,10 +101,10 @@ impl DaemonSupervisor {
 
     fn ensure_running(&self) -> Result<std::net::SocketAddr, String> {
         let endpoint = Self::endpoint()?;
-        self.start()?;
+        let resource_dir = self.resource_dir.lock().map_err(|_| "daemon resource lock poisoned".to_string())?.clone();
+        self.start(resource_dir.as_deref())?;
         Ok(endpoint)
     }
-
     fn stop(&self) {
         let Ok(mut child) = self.child.lock() else {
             return;
@@ -227,6 +231,7 @@ mod commands {
         supervisor: tauri::State<'_, DaemonSupervisor>,
     ) -> Result<Value, String> {
         let id = normalize_request_id(request_id);
+        #[cfg(debug_assertions)]
         let started = std::time::Instant::now();
         let result = forward_ipc(request, &id, &state, &supervisor).await;
         if let Ok(mut active) = state.cancellations.lock() {
@@ -330,8 +335,9 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let supervisor = app.state::<DaemonSupervisor>();
+            let resource_dir = app.path().resource_dir().ok();
             supervisor
-                .start()
+                .start(resource_dir.as_deref())
                 .map_err(|error| tauri::Error::Anyhow(anyhow::anyhow!(error)))?;
             let window = app
                 .get_webview_window("main")
@@ -465,12 +471,8 @@ mod titlebar_tests {
     #[test]
     fn packaging_keeps_user_owned_whisper_runtime_out_of_tauri_resources() {
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        let resources = config["bundle"]["resources"].as_array().unwrap();
-        assert!(resources
-            .iter()
-            .any(|item| item == "../../../target/debug/sorid.exe"));
-        assert!(!resources
-            .iter()
-            .any(|item| item.as_str().is_some_and(|item| item.contains("whisper"))));
+        let resources = config["bundle"]["resources"].as_object().unwrap();
+        assert_eq!(resources.get("../../../target/debug/sorid.exe").and_then(|item| item.as_str()), Some("sorid.exe"));
+        assert!(!resources.keys().any(|item| item.contains("whisper")));
     }
 }

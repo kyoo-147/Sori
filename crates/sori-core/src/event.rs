@@ -25,6 +25,14 @@ pub enum EventKind {
     ActionAfter,
     PermissionRequested,
     ModelFallback,
+    /// A daemon-owned SQLite resource changed through canonical IPC.
+    ResourceChanged,
+    /// A daemon-owned setting changed through canonical IPC.
+    SettingChanged,
+    /// A provider/model registry entry changed.
+    ModelChanged,
+    /// Durable history changed.
+    HistoryChanged,
     ExtensionInvoked,
     TtsStarted,
     TtsFinished,

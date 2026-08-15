@@ -198,6 +198,14 @@ export default function App() {
     owner.addEventListener('lostpointercapture', stop);
   };
 
+  const reconnectRuntime = async () => {
+    const result = await runtimeClient.reconnect();
+    setRuntimeStatus(result.data);
+    setRuntimeSource(result.source);
+    setRuntimeError(result.error);
+    if (!result.error) await refreshRuntime();
+  };
+
   const setPaused = async (paused: boolean) => {
     const result = await (paused ? runtimeClient.pause() : runtimeClient.resume());
     setRuntimeStatus(result.data);
@@ -264,6 +272,7 @@ export default function App() {
           runtimeError={runtimeError}
           onWindowError={setErrorMessage}
           onTogglePaused={() => setPaused(!runtimeStatus.paused)}
+          onReconnect={() => void reconnectRuntime()}
           sidebarOpen={sidebarOpen}
           onToggleMobileSidebar={() => setSidebarOpen((open) => !open)}
           onToggleSidebarCollapse={() => setSidebarCollapsed((collapsed) => !collapsed)}

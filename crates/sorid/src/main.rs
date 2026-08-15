@@ -342,6 +342,15 @@ async fn main() -> Result<()> {
                     Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
                 }
             }
+            Request::ModelWarm { model } => {
+                let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
+                if !provider.can_transcribe(&model) {
+                    Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("cannot warm unavailable model: {}", model.0) })
+                } else {
+                    provider.warm(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model warm failed: {error}")))?;
+                    Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+                }
+            }
             Request::ModelUnload { model } => {
                 let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
                 if !provider.can_transcribe(&model) {

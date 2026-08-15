@@ -1039,6 +1039,9 @@ impl ModelProvider for WhisperCppProvider {
     fn load(&self, model: &ModelId) -> Result<(), ModelError> {
         WhisperCppProvider::load(self, model)
     }
+    fn warm(&self, model: &ModelId) -> Result<(), ModelError> {
+        WhisperCppProvider::warm(self, model)
+    }
     fn unload(&self, model: &ModelId) -> Result<(), ModelError> {
         self.unload(model);
         Ok(())

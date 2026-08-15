@@ -281,7 +281,12 @@ impl CpalAudioEngine {
         };
         while self.pending.len() < self.config.chunk_size_samples as usize {
             if stop.try_recv().is_ok() {
-                return Ok(None);
+                // Quiesce the native callback before reading the handoff queue,
+                // but do not discard packets that were accepted before stop.
+                // The previous early return caused short speech samples to be
+                // reported as capture_signal_unavailable.
+                self.stop();
+                return self.next_chunk();
             }
             if let Some(errors) = &self.errors {
                 if let Ok(error) = errors.try_recv() {
@@ -764,6 +769,37 @@ mod lifecycle_tests {
         drop(packet_tx);
         drop(error_tx);
         assert!(engine.next_chunk_until_stopped(&stop_rx).unwrap().is_none());
+    }
+
+    #[test]
+    fn stop_drains_callback_packet_accepted_before_teardown() {
+        let config = CaptureConfig::default();
+        let (packet_tx, packet_rx) = mpsc::sync_channel(1);
+        let (error_tx, error_rx) = mpsc::sync_channel(1);
+        let (stop_tx, stop_rx) = mpsc::channel();
+        packet_tx.send(vec![0.25; 320]).unwrap();
+        drop(packet_tx);
+        drop(error_tx);
+        stop_tx.send(()).unwrap();
+        let mut engine = CpalAudioEngine {
+            provider: CpalAudioDeviceProvider::new(),
+            input_format: config.format.clone(),
+            native_format: config.format.clone(),
+            config,
+            stream: None,
+            packets: Some(packet_rx),
+            dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default()).unwrap(),
+            errors: Some(error_rx),
+            pending: VecDeque::new(),
+            callback_active: None,
+        };
+
+        let chunk = engine
+            .next_chunk_until_stopped(&stop_rx)
+            .unwrap()
+            .expect("accepted callback packet must survive stop");
+        assert_eq!(chunk.samples.len(), 320);
+        assert!(chunk.samples.iter().all(|sample| *sample == 0.25));
     }
 
     #[test]

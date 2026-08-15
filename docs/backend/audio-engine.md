@@ -22,8 +22,10 @@ and stream errors to `AudioError` and keeps CPAL types out of `sori-core`.
 starts a callback-backed bounded channel, and `stop` drops the stream.
 `CpalAudioController` owns the CPAL stream on a worker thread and exposes an
 explicit callback-quiesce phase: teardown marks the callback inactive, pauses
-the native stream, then drops the stream and joins the worker. Dropping the
-controller performs the same shutdown, preventing orphaned native streams.
+the native stream, then drops the stream and joins the worker. The worker drains
+packets already accepted by the bounded callback handoff after quiescing,
+including a final partial chunk, before it reports the capture stopped. Dropping
+the controller performs the same shutdown, preventing orphaned native streams.
 
 `crates/sori-audio/tests/native_harness.rs` is an opt-in start/stop/restart
 harness. It requires `SORI_NATIVE_AUDIO_HARNESS=1` and `--ignored`; it reports
@@ -33,7 +35,8 @@ transcription evidence.
 It exposes an `Idle -> Starting -> Recording -> Stopping` lifecycle. Each
 successful capture has a monotonically increasing generation/session ID; stop and cancel are
 idempotent. The callback uses `try_send`, so a slow consumer drops packets
-rather than blocking the audio thread. Native stream disconnects are surfaced
+rather than blocking the audio thread; packets accepted before stop are not
+discarded during teardown. Native stream disconnects are surfaced
 as `DeviceUnavailable` rather than a fabricated success.
 
 `next_chunk` drains the channel into a mono 16 kHz VAD-ready `f32` shape.

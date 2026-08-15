@@ -1,3 +1,4 @@
+use sori_core::{EventBus, EventKind};
 use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
@@ -379,6 +380,7 @@ async fn main() -> Result<()> {
                     .ok_or_else(|| sori_ipc::IpcError::Transport("model install succeeded but registry did not expose the model".into()))?;
                 handler_store.save_model_manifest(&model.0, &serde_json::to_value(&manifest).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?)
                     .map_err(|e| sori_ipc::IpcError::Transport(format!("model manifest persistence failed: {e}")))?;
+                publish_persisted_event(&handler_store, EventKind::ModelChanged, format!("installed:{}", model.0));
                 Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
             }
             Request::ModelRemove { model } => {
@@ -392,6 +394,7 @@ async fn main() -> Result<()> {
                 } else {
                     provider.remove_model(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model removal failed: {error}")))?;
                     handler_store.delete_model_manifest(&model.0).map_err(|error| sori_ipc::IpcError::Transport(format!("model manifest removal failed: {error}")))?;
+                    publish_persisted_event(&handler_store, EventKind::ModelChanged, format!("removed:{}", model.0));
                     Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
                 }
             }
@@ -718,6 +721,7 @@ async fn main() -> Result<()> {
                 handler_store
                     .set_resource(&resource, &value)
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                publish_persisted_event(&handler_store, EventKind::ResourceChanged, format!("set:{resource}"));
                 // Keep the legacy key readable by daemon startup code while all
                 // new writes are owned by the user_data resource table.
                 handler_store
@@ -730,6 +734,7 @@ async fn main() -> Result<()> {
                 let deleted = handler_store.delete_resource(&resource).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 handler_store.delete_setting(&format!("resource.{resource}")).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 if deleted {
+                    publish_persisted_event(&handler_store, EventKind::ResourceChanged, format!("deleted:{resource}"));
                     Response::Control(ControlResponse { accepted: true, detail: format!("resource {resource} deleted from SQLite") })
                 } else {
                     Response::Error(sori_ipc::IpcErrorResponse { code: "not_found".into(), detail: format!("resource {resource} not found") })
@@ -742,15 +747,18 @@ async fn main() -> Result<()> {
                 if !deleted {
                     return Err(sori_ipc::IpcError::Transport("history entry not found".into()));
                 }
+                publish_persisted_event(&handler_store, EventKind::HistoryChanged, format!("deleted:{id}"));
                 Response::Control(ControlResponse { accepted: true, detail: "history entry deleted from SQLite".into() })
             }
             Request::PurgeHistory => {
                 handler_store.try_purge_history().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                publish_persisted_event(&handler_store, EventKind::HistoryChanged, "purged".into());
                 Response::Control(ControlResponse { accepted: true, detail: "history purged from SQLite".into() })
             }
             Request::SetConfig { key, value } => {
                 validate_setting(&key, &value).map_err(sori_ipc::IpcError::Transport)?;
                 handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                publish_persisted_event(&handler_store, EventKind::SettingChanged, format!("set:{key}"));
                 if key == "hotkey.binding" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.hotkey.binding = value.as_str().unwrap().to_owned(); }
                 if key == "privacy.mode" { *handler_privacy.lock().map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))? = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
                 if key == "route.policy" {
@@ -920,7 +928,15 @@ fn extension_state(
     }))
 }
 
-#[cfg(windows)]
+fn publish_persisted_event(store: &SqliteStore, kind: EventKind, detail: String) {
+    store.publish(sori_core::Event {
+        id: uuid::Uuid::new_v4(),
+        at: time::OffsetDateTime::now_utc(),
+        kind,
+        payload: sori_core::event::serde_json_like::Value::String(detail),
+    });
+}
+
 #[cfg(windows)]
 fn native_text_injection_detail() -> &'static str {
     sori_core::WindowsSendInputAdapter::diagnostic()

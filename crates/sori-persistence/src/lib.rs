@@ -228,6 +228,19 @@ impl SqliteStore {
             == 1)
     }
 
+    /// Return all persisted manifests in stable id order for restart/reopen audits.
+    pub fn model_manifests(&self) -> Result<Vec<(String, serde_json::Value)>> {
+        let connection = self.connection()?;
+        let mut statement = connection.prepare(
+            "SELECT id, manifest_json FROM model_manifests ORDER BY id",
+        )?;
+        let rows = statement.query_map([], |row| {
+            let value = serde_json::from_str(&row.get::<_, String>(1)?).map_err(to_sqlite_error)?;
+            Ok((row.get(0)?, value))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
     pub fn model_manifest(&self, id: &str) -> Result<Option<serde_json::Value>> {
         let connection = self.connection()?;
         let value = connection

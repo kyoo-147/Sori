@@ -117,6 +117,8 @@ pub enum TextInjectionError {
     UnsupportedTargetApp(String),
     #[error("target requires elevated access")]
     ElevatedTargetDenied,
+    #[error("text injection permission was denied")]
+    PermissionDenied,
     #[error("no usable text injection strategy for target")]
     NoUsableStrategy,
     #[error("clipboard restore failed: {0}")]
@@ -281,45 +283,33 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
                     .adapter
                     .set_clipboard_text(&request.text)
                     .and_then(|()| self.adapter.paste_from_clipboard());
-                let restore = if self
+                let payload_remains = self
                     .adapter
                     .clipboard_contains_text(&request.text)
-                    .map_err(TextInjectionError::Adapter)?
-                {
-                    self.adapter.restore_clipboard()
+                    .map_err(TextInjectionError::Adapter)?;
+                if payload_remains {
+                    self.adapter
+                        .restore_clipboard()
+                        .map_err(TextInjectionError::ClipboardRestoreFailed)?;
                 } else {
                     diagnostics.push("clipboard changed after paste; restore skipped".into());
-                    Ok(())
-                };
-                if let Err(error) = restore {
-                    // Never report success after replacing the user's clipboard. The
-                    // restore error is deliberately distinct so callers can warn the
-                    // user and avoid retrying destructively.
-                    return Err(TextInjectionError::ClipboardRestoreFailed(error));
                 }
                 if let Err(error) = operation {
-                    if self
-                        .adapter
-                        .clipboard_contains_text(&request.text)
-                        .unwrap_or(false)
-                    {
-                        diagnostics.push(format!(
-                            "paste failed; text remains available in clipboard: {error}"
-                        ));
-                        self.adapter
-                            .release_modifiers()
-                            .map_err(TextInjectionError::Adapter)?;
-                        return Ok(TextInjectionResult {
-                            dry_run_output: None,
-                            plan,
-                            outcome: InjectionOutcome::CopiedFallback,
-                            diagnostics,
-                        });
-                    }
                     return Err(TextInjectionError::Adapter(error));
                 }
             }
             InjectionStrategy::Unavailable => unreachable!(),
+        }
+        if let Some(expected) = expected_identity.as_deref() {
+            if let Some(actual) = self
+                .adapter
+                .focused_target_identity()
+                .map_err(TextInjectionError::Adapter)?
+            {
+                if actual != expected {
+                    return Err(TextInjectionError::FocusedTargetChanged);
+                }
+            }
         }
         self.adapter
             .release_modifiers()
@@ -720,7 +710,13 @@ pub mod windows {
             if capabilities.requires_elevation && !self.elevated_target_access {
                 return Err(TextInjectionError::ElevatedTargetDenied);
             }
-            self.inner.inject(target, request)
+            self.inner.inject(target, request).map_err(|error| {
+                if matches!(&error, TextInjectionError::Adapter(detail) if detail.contains("error 5") || detail.contains("ACCESS_DENIED")) {
+                    TextInjectionError::PermissionDenied
+                } else {
+                    error
+                }
+            })
         }
     }
 }
@@ -833,6 +829,7 @@ mod tests {
     struct FakeAdapter {
         restore_error: Option<String>,
         focused_identity: Option<String>,
+        focused_identities: Vec<Option<String>>,
         calls: Vec<&'static str>,
     }
 
@@ -862,6 +859,9 @@ mod tests {
             Ok(())
         }
         fn focused_target_identity(&mut self) -> Result<Option<String>, String> {
+            if !self.focused_identities.is_empty() {
+                return Ok(self.focused_identities.remove(0));
+            }
             Ok(self.focused_identity.clone())
         }
     }
@@ -888,6 +888,62 @@ mod tests {
             },
         );
         assert_eq!(result, Err(TextInjectionError::FocusedTargetChanged));
+    }
+
+    #[test]
+    fn rechecks_foreground_after_input_and_rejects_stale_target() {
+        let mut injector = AdapterTextInjector::new(
+            FakeAdapter {
+                focused_identities: vec![
+                    Some("pid:1;hwnd:10".into()),
+                    Some("pid:2;hwnd:20".into()),
+                ],
+                ..Default::default()
+            },
+            InjectorCapabilities {
+                direct_input: true,
+                clipboard: false,
+                clipboard_restore: false,
+                undo: false,
+            },
+        );
+        let result = injector.inject(
+            &IdentityTarget("pid:1;hwnd:10"),
+            &TextInjectionRequest {
+                text: "stale".into(),
+                dry_run: false,
+            },
+        );
+        assert_eq!(result, Err(TextInjectionError::FocusedTargetChanged));
+    }
+
+    #[test]
+    fn clipboard_payload_is_restored_after_successful_paste() {
+        let mut injector = AdapterTextInjector::new(
+            FakeAdapter {
+                ..Default::default()
+            },
+            InjectorCapabilities {
+                direct_input: false,
+                clipboard: true,
+                clipboard_restore: true,
+                undo: false,
+            },
+        );
+        let target = Target(TextTargetCapabilities {
+            supports_direct_input: false,
+            ..TARGET
+        });
+        let result = injector
+            .inject(
+                &target,
+                &TextInjectionRequest {
+                    text: "copy me".into(),
+                    dry_run: false,
+                },
+            )
+            .unwrap();
+        assert_eq!(result.outcome, InjectionOutcome::Inserted);
     }
 
     #[test]

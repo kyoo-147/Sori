@@ -188,7 +188,10 @@ async fn main() -> Result<()> {
             config.route = preset.policy();
         }
     }
-    if let Some(route) = store.setting("resource.route")? {
+    if let Some(route) = store
+        .resource("route")?
+        .or(store.setting("resource.route")?)
+    {
         let valid = whisper_provider.as_ref().is_some_and(|provider| {
             route
                 .get("activeModelId")
@@ -231,7 +234,8 @@ async fn main() -> Result<()> {
     let runtime = Arc::new(Mutex::new(Some(daemon)));
     let hotkey_runtime = Arc::clone(&runtime);
     let hotkey_model = store
-        .setting("resource.route")?
+        .resource("route")?
+        .or(store.setting("resource.route")?)
         .and_then(|value| {
             value
                 .get("activeModelId")
@@ -452,7 +456,7 @@ async fn main() -> Result<()> {
                         detail: format!("captured signal is below audibility threshold: samples={sample_count}, rate={sample_rate}, peak={peak:.9}, rms={rms:.9}; verify the selected microphone and Windows permission"),
                     }))
                 } else {
-                let route_config = handler_store.setting("resource.route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.unwrap_or_else(|| default_resource("route"));
+                let route_config = handler_store.resource("route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.or(handler_store.setting("resource.route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?).unwrap_or_else(|| default_resource("route"));
                 let selected_model = route_config.get("activeModelId").and_then(|id| id.as_str()).unwrap_or(whisper_model.as_str());
                 let selected_model = selected_model.strip_prefix("whisper.cpp/").unwrap_or(selected_model);
                 let selected_model = if selected_model == "ggml-base.en" && whisper_model != "ggml-base.en" { whisper_model.as_str() } else { selected_model };
@@ -588,7 +592,8 @@ async fn main() -> Result<()> {
                     if requested != selected.model { return Err(sori_ipc::IpcError::Transport("requested model is not the backend-selected benchmark recommendation".into())); }
                 }
                 let route = validated_benchmark_route(&selected.model, provider.as_ref()).map_err(sori_ipc::IpcError::Transport)?;
-                handler_store.set_setting("resource.route", &route).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark recommendation persistence failed: {e}")))?;
+                handler_store.set_resource("route", &route).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark recommendation persistence failed: {e}")))?;
+                handler_store.set_setting("resource.route", &route).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark recommendation compatibility persistence failed: {e}")))?;
                 Response::Resource(sori_ipc::ResourceResponse { resource: "route".into(), value: route })
             }
             Request::Doctor => {
@@ -701,6 +706,16 @@ async fn main() -> Result<()> {
                     .set_setting(&format!("resource.{resource}"), &value)
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Response::Resource(sori_ipc::ResourceResponse { resource, value })
+            }
+            Request::ResourceDelete { resource } => {
+                validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
+                let deleted = handler_store.delete_resource(&resource).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                handler_store.delete_setting(&format!("resource.{resource}")).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if deleted {
+                    Response::Control(ControlResponse { accepted: true, detail: format!("resource {resource} deleted from SQLite") })
+                } else {
+                    Response::Error(sori_ipc::IpcErrorResponse { code: "not_found".into(), detail: format!("resource {resource} not found") })
+                }
             }
             Request::DeleteHistory { id } => {
                 let deleted = handler_store

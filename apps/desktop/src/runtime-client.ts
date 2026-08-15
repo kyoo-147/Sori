@@ -59,6 +59,7 @@ export class RuntimeClient {
   setActiveModel(modelId: string) { return this.setResource<{ activeModelId: string | null }>('route', { activeModelId: modelId }); }
   setRoutePolicy(policy: 'Performance' | 'Balanced' | 'Battery' | 'Privacy' | 'LocalFirst' | 'CloudAllowed' | 'NeverCloud') { return this.setConfig('route.policy', policy); }
   private readonly resourceWrites = new Map<string, Promise<unknown>>();
+  async deleteResource(name: string) { return this.control('resource_delete', { resource: name }); }
   async setResource<T>(name: string, value: T) {
     const previous = this.resourceWrites.get(name) ?? Promise.resolve();
     const write = previous.catch(() => undefined).then(() => this.call('resource_set', (response) => (responsePayload(response, 'Resource') as { value: T }).value, value, { resource: name, value }));

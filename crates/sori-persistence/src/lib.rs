@@ -109,6 +109,13 @@ impl SqliteStore {
         Ok(())
     }
 
+    pub fn delete_resource(&self, resource: &str) -> Result<bool> {
+        Ok(self
+            .connection()?
+            .execute("DELETE FROM user_data WHERE resource = ?1", [resource])?
+            == 1)
+    }
+
     pub fn resource(&self, resource: &str) -> Result<Option<serde_json::Value>> {
         let connection = self.connection()?;
         let value = connection
@@ -131,6 +138,13 @@ impl SqliteStore {
             params![key, serde_json::to_string(value)?, unix_timestamp()],
         )?;
         Ok(())
+    }
+
+    pub fn delete_setting(&self, key: &str) -> Result<bool> {
+        Ok(self
+            .connection()?
+            .execute("DELETE FROM settings WHERE key = ?1", [key])?
+            == 1)
     }
 
     pub fn setting(&self, key: &str) -> Result<Option<serde_json::Value>> {
@@ -510,6 +524,15 @@ mod tests {
                     &serde_json::json!([{"id":"snippet-1","text":"hello"}]),
                 )
                 .unwrap();
+            store
+                .set_resource(
+                    "route",
+                    &serde_json::json!({"activeModelId":"whisper.cpp/base"}),
+                )
+                .unwrap();
+            store
+                .set_resource("models", &serde_json::json!([{"id":"whisper.cpp/base"}]))
+                .unwrap();
         }
         let reopened = SqliteStore::open(database.path()).unwrap();
         assert_eq!(
@@ -524,11 +547,22 @@ mod tests {
             reopened.resource("snippets").unwrap().unwrap()[0]["text"],
             "hello"
         );
+        assert_eq!(
+            reopened.resource("route").unwrap().unwrap()["activeModelId"],
+            "whisper.cpp/base"
+        );
+        assert_eq!(
+            reopened.resource("models").unwrap().unwrap()[0]["id"],
+            "whisper.cpp/base"
+        );
         store_resource_update(&reopened);
         assert_eq!(
             reopened.resource("settings").unwrap().unwrap()["hotkey"],
             "Ctrl+Space"
         );
+        assert!(reopened.delete_resource("snippets").unwrap());
+        assert!(reopened.resource("snippets").unwrap().is_none());
+        assert!(!reopened.delete_resource("snippets").unwrap());
     }
 
     fn store_resource_update(store: &SqliteStore) {

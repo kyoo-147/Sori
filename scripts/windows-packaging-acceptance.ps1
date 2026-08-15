@@ -20,9 +20,9 @@ function Assert-ExternalRuntimeBoundary([string]$Root) {
   Pass 'external Whisper executable and model boundary is preserved'
 }
 function Get-InstalledExecutables([string]$Root) {
-  $desktop = Get-ChildItem -LiteralPath $Root -Recurse -File -Filter 'Sori.exe' | Select-Object -First 1
+  $desktop = Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.Name -in @('Sori.exe', 'sori-desktop.exe') } | Select-Object -First 1
   $daemon = Get-ChildItem -LiteralPath $Root -Recurse -File -Filter 'sorid.exe' | Select-Object -First 1
-  if (-not $desktop) { Fail 'installed Sori.exe was not found' }
+  if (-not $desktop) { Fail 'installed desktop executable (Sori.exe or sori-desktop.exe) was not found' }
   if (-not $daemon) { Fail 'installed sorid.exe resource was not found' }
   return @($desktop, $daemon)
 }

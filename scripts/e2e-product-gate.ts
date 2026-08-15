@@ -221,7 +221,7 @@ async function runProductGate(): Promise<void> {
 
     daemon = start(sorid, [], {
       SORI_IPC_URL: endpoint.toString(),
-      SORI_IPC_ADDR: endpoint.host,
+      SORI_IPC_ADDR: `${endpoint.hostname}:${endpoint.port || '80'}`,
       SORI_DATABASE_PATH: db,
       SORI_DB_PATH: db,
       SORI_E2E: '1',
@@ -278,21 +278,14 @@ async function runProductGate(): Promise<void> {
     assertIncludes(state, 'UNVERIFIED', 'first-run setup capability boundary');
     console.log('PASS: First Run Setup renders truthful microphone/permission/hotkey states; physical hardware remains SKIP/UNVERIFIED.');
 
-    // Resilient transcript states are real controls in the product surface, not source-only assertions.
+    // Empty history is rendered from the real SQLite-backed response; state
+    // controls are not exposed in production as mock fixtures.
     state = await snapshot(session);
     await clickLabel(state, 'Transcripts', session);
     state = await waitForText(session, 'Transcripts timeline');
-    await clickLabel(state, 'Empty', session);
-    state = await waitForText(session, 'No transcripts yet');
-    assertNotIncludes(state, 'Transcript details', 'empty transcripts state');
-    await clickLabel(state, 'Loading', session);
-    const loadingPulseCount = Number(await evalBrowser(session, '() => document.querySelectorAll(".animate-pulse").length'));
-    if (loadingPulseCount < 1) throw new Error('loading transcripts state did not render skeleton rows');
-    await clickLabel(await snapshot(session), 'Error', session);
-    state = await waitForText(session, 'History could not be loaded');
-    await clickLabel(state, 'Retry', session);
-    state = await waitForText(session, 'No transcripts yet');
-    console.log('PASS: empty, loading, error, and retry transcript states.');
+    assertIncludes(state, 'No transcripts yet', 'real empty transcripts state');
+    assertIncludes(state, 'Retry', 'real empty transcripts retry control');
+    console.log('PASS: real empty transcript state and retry control.');
 
     // Destructive state: confirm the explicit DELETE guard, then prove the list is empty.
     await clickLabel(await snapshot(session), 'Privacy', session);

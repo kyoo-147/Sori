@@ -412,7 +412,7 @@ pub mod windows {
         elevated_target_access: bool,
     }
 
-    impl<A> WindowsTextInjector<A> {
+    impl<A: TextInjectionAdapter> WindowsTextInjector<A> {
         pub fn new(adapter: A) -> Self {
             Self::with_capabilities(
                 adapter,
@@ -434,6 +434,23 @@ pub mod windows {
 
         /// Opt in only after the host has explicitly established matching
         /// integrity/elevation. This does not attempt to bypass UAC.
+        pub fn inject_clipboard(
+            &mut self,
+            target: &dyn TextTarget,
+            request: &TextInjectionRequest,
+        ) -> Result<TextInjectionResult, TextInjectionError> {
+            let capabilities = target.capabilities();
+            if !capabilities.accepts_text {
+                return Err(TextInjectionError::UnsupportedTargetApp(
+                    target.name().into(),
+                ));
+            }
+            if capabilities.requires_elevation && !self.elevated_target_access {
+                return Err(TextInjectionError::ElevatedTargetDenied);
+            }
+            self.inner.inject_clipboard(target, request)
+        }
+
         pub fn with_elevated_target_access(mut self, permitted: bool) -> Self {
             self.elevated_target_access = permitted;
             self
@@ -459,8 +476,8 @@ pub mod windows {
             GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
         };
         use windows_sys::Win32::UI::WindowsAndMessaging::{
-            GUITHREADINFO, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
-            GetWindowThreadProcessId,
+            GA_ROOT, GUITHREADINFO, GetAncestor, GetClassNameW, GetForegroundWindow,
+            GetGUIThreadInfo, GetWindowThreadProcessId,
         };
         fn hwnd_hex(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
             format!("{:x}", hwnd as usize)
@@ -591,6 +608,15 @@ pub mod windows {
                     target_name
                 ));
             }
+            if GetAncestor(info.hwndFocus, GA_ROOT) != foreground {
+                return Err(format!(
+                    "input_blocked: focused HWND is not a child of foreground (foreground=0x{} focus=0x{} focus_root=0x{} class={})",
+                    hwnd_hex(foreground),
+                    hwnd_hex(info.hwndFocus),
+                    hwnd_hex(GetAncestor(info.hwndFocus, GA_ROOT)),
+                    class_name(info.hwndFocus)
+                ));
+            }
             if target_name != input_name {
                 return Err(format!(
                     "input_blocked: target desktop differs from input desktop (foreground=0x{} pid={} focus=0x{} class={} integrity={} current_integrity={} input_desktop={} target_desktop={})",
@@ -639,6 +665,7 @@ pub mod windows {
         // `Some(None)` represents an empty/non-text clipboard and must still be
         // restored. `None` means no transaction is currently open.
         clipboard_snapshot: Option<Option<Vec<u16>>>,
+        clipboard_sequence: Option<u32>,
     }
 
     #[cfg(windows)]
@@ -646,6 +673,7 @@ pub mod windows {
         pub fn new() -> Self {
             Self {
                 clipboard_snapshot: None,
+                clipboard_sequence: None,
             }
         }
 
@@ -704,7 +732,8 @@ pub mod windows {
         }
         fn snapshot_clipboard(&mut self) -> Result<(), String> {
             use windows_sys::Win32::System::DataExchange::{
-                CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+                CloseClipboard, GetClipboardData, GetClipboardSequenceNumber,
+                IsClipboardFormatAvailable, OpenClipboard,
             };
             const CF_UNICODETEXT: u32 = 13;
             use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
@@ -736,12 +765,14 @@ pub mod windows {
                     };
                 CloseClipboard();
                 self.clipboard_snapshot = Some(result?);
+                self.clipboard_sequence = Some(GetClipboardSequenceNumber());
                 Ok(())
             }
         }
         fn set_clipboard_text(&mut self, text: &str) -> Result<(), String> {
             use windows_sys::Win32::System::DataExchange::{
-                CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+                CloseClipboard, EmptyClipboard, GetClipboardSequenceNumber, OpenClipboard,
+                SetClipboardData,
             };
             const CF_UNICODETEXT: u32 = 13;
             use windows_sys::Win32::System::Memory::{
@@ -749,6 +780,14 @@ pub mod windows {
             };
             let value: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
             unsafe {
+                if let Some(expected) = self.clipboard_sequence {
+                    let actual = GetClipboardSequenceNumber();
+                    if actual != expected {
+                        return Err(format!(
+                            "clipboard_race: sequence changed before replacement ({expected}->{actual})"
+                        ));
+                    }
+                }
                 if OpenClipboard(std::ptr::null_mut()) == 0 {
                     return Err("OpenClipboard failed".into());
                 }
@@ -773,14 +812,33 @@ pub mod windows {
                     return Err("SetClipboardData failed".into());
                 }
                 CloseClipboard();
+                self.clipboard_sequence = Some(GetClipboardSequenceNumber());
                 Ok(())
             }
         }
         fn paste_from_clipboard(&mut self) -> Result<(), String> {
+            use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
                 INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_CONTROL,
                 VK_V,
             };
+            if let Some(expected) = self.clipboard_sequence {
+                let actual = unsafe { GetClipboardSequenceNumber() };
+                if actual != expected {
+                    return Err(format!(
+                        "clipboard_race: sequence changed before paste ({expected}->{actual})"
+                    ));
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(75));
+            if let Some(expected) = self.clipboard_sequence {
+                let actual = unsafe { GetClipboardSequenceNumber() };
+                if actual != expected {
+                    return Err(format!(
+                        "clipboard_race: sequence changed during paste delay ({expected}->{actual})"
+                    ));
+                }
+            }
             let key = |vk: u16, flags: u32| INPUT {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
@@ -807,6 +865,7 @@ pub mod windows {
                 )
             };
             if sent == inputs.len() as u32 {
+                std::thread::sleep(std::time::Duration::from_millis(500));
                 Ok(())
             } else {
                 Err(format!(
@@ -816,6 +875,16 @@ pub mod windows {
             }
         }
         fn restore_clipboard(&mut self) -> Result<(), String> {
+            if let Some(expected) = self.clipboard_sequence {
+                let actual = unsafe {
+                    windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber()
+                };
+                if actual != expected {
+                    return Err(format!(
+                        "clipboard_race: refusing restore after external clipboard change ({expected}->{actual})"
+                    ));
+                }
+            }
             let Some(snapshot) = self.clipboard_snapshot.clone() else {
                 return Ok(());
             };

@@ -7,8 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 use sori_core::{
-    AudioChunk, BenchmarkResult, Event, EventKind, ModelId, PrivacyMode, ProfileMode, Transcript,
-    event::serde_json_like,
+    AudioChunk, BenchmarkResult, Event, EventKind, InjectionStrategy, ModelId, PrivacyMode,
+    ProfileMode, Transcript, event::serde_json_like,
 };
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
@@ -42,6 +42,8 @@ pub enum Request {
     DictationAudio {
         model: ModelId,
         audio: Vec<AudioChunk>,
+        #[serde(default)]
+        injection_strategy: Option<InjectionStrategy>,
     },
     VoiceEdit {
         selection: sori_core::VoiceEditSelection,

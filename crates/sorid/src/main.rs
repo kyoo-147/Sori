@@ -125,9 +125,13 @@ struct RuntimeInjector {
     inner: sori_core::WindowsTextInjector<sori_core::WindowsSendInputAdapter>,
     #[cfg(not(windows))]
     inner: sori_core::AdapterTextInjector<UnavailableInjectionAdapter>,
+    strategy: Option<sori_core::InjectionStrategy>,
 }
 impl RuntimeInjector {
     fn new() -> Self {
+        Self::with_strategy(None)
+    }
+    fn with_strategy(strategy: Option<sori_core::InjectionStrategy>) -> Self {
         Self {
             #[cfg(windows)]
             inner: sori_core::WindowsTextInjector::native(),
@@ -141,6 +145,7 @@ impl RuntimeInjector {
                     undo: false,
                 },
             ),
+            strategy,
         }
     }
 }
@@ -156,7 +161,18 @@ impl sori_core::TextInjector for RuntimeInjector {
         target: &dyn sori_core::TextTarget,
         request: &sori_core::TextInjectionRequest,
     ) -> Result<sori_core::TextInjectionResult, sori_core::TextInjectionError> {
-        self.inner.inject(target, request)
+        if self.strategy == Some(sori_core::InjectionStrategy::ClipboardPaste) {
+            #[cfg(windows)]
+            {
+                self.inner.inject_clipboard(target, request)
+            }
+            #[cfg(not(windows))]
+            {
+                self.inner.inject(target, request)
+            }
+        } else {
+            self.inner.inject(target, request)
+        }
     }
 }
 struct NoopHistory;
@@ -609,13 +625,13 @@ async fn main() -> Result<()> {
                 }
                 Response::Control(ControlResponse { accepted: true, detail: "dictation cancellation requested; active provider work will be discarded".into() })
             }
-            Request::DictationAudio { model, audio } => {
+            Request::DictationAudio { model, audio, injection_strategy } => {
                 let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("dictation audio unavailable: Whisper provider is not ready".into()))?;
                 if !provider.can_transcribe(&model) {
                     return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("dictation audio model is not discovered and ready: {}", model.0) }));
                 }
                 let target = RuntimeTarget::capture().map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
-                let mut injector = RuntimeInjector::new();
+                let mut injector = RuntimeInjector::with_strategy(injection_strategy);
                 let route = ModelRoute { provider: provider.provider_name().into(), model: model.clone(), reason: format!("canonical audio acceptance; target={}", target.identity.as_deref().unwrap_or("unknown")), fallback: Vec::new() };
                 let events = sori_core::InMemoryEventBus::default();
                 let result = sori_core::complete_dictation_with_vocabulary_options(

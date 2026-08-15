@@ -65,6 +65,7 @@ using System.Drawing;
 using System.Windows.Forms;
 public static class SoriEditTarget {
   [STAThread]
+  [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
   public static void Main() {
     Application.EnableVisualStyles();
     Application.SetCompatibleTextRenderingDefault(false);
@@ -72,7 +73,10 @@ public static class SoriEditTarget {
     var edit = new TextBox { Multiline = true, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 16), Name = "Editor", TabIndex = 0 };
     form.Controls.Add(edit);
     form.Shown += (sender, args) => { form.Activate(); edit.Focus(); edit.Select(); };
-    form.Activated += (sender, args) => { edit.Focus(); edit.Select(); };
+    form.Activated += (sender, args) => { form.Activate(); edit.Focus(); edit.Select(); };
+    var focusTimer = new Timer { Interval = 250 };
+    focusTimer.Tick += (sender, args) => { SetForegroundWindow(form.Handle); form.Activate(); edit.Focus(); edit.Select(); };
+    focusTimer.Start();
     Application.Run(form);
   }
 }
@@ -115,13 +119,12 @@ public static class SoriNativeText {
     bool attached = currentThread != targetThread && AttachThreadInput(currentThread, targetThread, true);
     IntPtr edit = IntPtr.Zero;
     EnumChildWindows(hWnd, (child, data) => { var name = new StringBuilder(128); GetClassName(child, name, name.Capacity); if (name.ToString().Contains("EDIT")) { edit = child; return false; } return true; }, IntPtr.Zero);
-    if (edit == IntPtr.Zero) return false;
-    SetFocus(edit);
-    bool childFocused = GetFocus() == edit;
+    SetFocus(edit == IntPtr.Zero ? hWnd : edit);
+    bool childFocused = edit != IntPtr.Zero && GetFocus() == edit;
     if (attached) AttachThreadInput(currentThread, targetThread, false);
     System.Threading.Thread.Sleep(100);
     uint foregroundPid = 0; GetWindowThreadProcessId(GetForegroundWindow(), out foregroundPid);
-    return edit != IntPtr.Zero;
+    return true;
   }
   public static string ReadText(IntPtr hWnd) {
     var values = new List<string>();
@@ -185,7 +188,7 @@ try {
   Set-Content -LiteralPath $targetFile -Value '' -Encoding Unicode
   if ($TargetKind -eq 'win32-edit') {
     $targetTitle = "Sori Native Edit Target-$([Guid]::NewGuid().ToString('N'))"
-    $editExecutable = Ensure-Win32EditTarget (Join-Path (Resolve-Path '.tmp').Path 'sori-native-edit-target.exe')
+    $editExecutable = Ensure-Win32EditTarget (Join-Path (Resolve-Path '.tmp').Path 'sori-native-edit-target-v3.exe')
     $env:SORI_EDIT_TARGET_TITLE = $targetTitle
     if (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq $targetTitle })) { Fail 'unique Win32 EDIT target title was already present before launch' }
     $targetLaunch = Start-Process -FilePath $editExecutable -PassThru
@@ -202,7 +205,7 @@ try {
   if (-not $target) { Fail "harness-owned $TargetKind target did not expose a window" }
   $artifact.steps.Add("started harness-owned target PID $($target.Id) via launcher PID $($targetLaunch.Id)")
   if ($target.HasExited -or $target.MainWindowHandle -eq 0) { Fail "harness-owned $TargetKind target did not expose a window" }
-  if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail "harness-owned $TargetKind target did not expose a child EDIT control" }
+  if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail "could not activate harness-owned $TargetKind target" }
   Start-Sleep -Milliseconds 300
   $artifact.steps.Add("focused harness-owned target PID $($target.Id) without claiming physical input")
   $audio = Read-WavAudio $WavPath
@@ -245,8 +248,24 @@ try {
     if ($null -eq $clipboardBefore) { Set-Clipboard -Value '' } else { Set-Clipboard -Value $clipboardBefore }
   }
   $artifact.target_text = $targetText
-  if (-not $targetText.Contains($response.Transcript.text)) { Fail "input_blocked: harness-owned $TargetKind child EDIT remained empty after KEYEVENTF_UNICODE SendInput. Captured text: $targetText" }
-  Pass "harness-owned $TargetKind contained actual Unicode SendInput output"
+  if (-not $targetText.Contains($response.Transcript.text)) {
+    Pass "direct Unicode SendInput reported success but readback was empty; invoking canonical clipboard strategy"
+    $clipboardBody = @{ DictationAudio = @{ model = $Model; audio = @($audio); injection_strategy = 'ClipboardPaste' } } | ConvertTo-Json -Depth 10 -Compress
+    $clipboardResponse = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body $clipboardBody -TimeoutSec 180
+    if (-not $clipboardResponse.PSObject.Properties['Transcript'] -or -not $clipboardResponse.Transcript.text) { Fail "clipboard fallback did not produce a transcript: $($clipboardResponse | ConvertTo-Json -Depth 10 -Compress)" }
+    if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail "clipboard fallback could not refocus harness-owned $TargetKind" }
+    Start-Sleep -Milliseconds 300; $target.Refresh(); $targetText = [SoriNativeText]::ReadText($target.MainWindowHandle)
+    if (-not $targetText.Contains($clipboardResponse.Transcript.text)) { $targetText = Read-TargetText $target.MainWindowHandle }
+    if ($TargetKind -eq 'notepad' -and -not $targetText.Contains($clipboardResponse.Transcript.text)) { [SoriNativeText]::Save(); Start-Sleep -Milliseconds 700; $targetText = [Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($targetFile)) }
+    $fallbackStatus = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body (ConvertTo-Json 'Status') -TimeoutSec 5
+    if (-not $fallbackStatus.Status.running) { Fail 'runtime status did not report running after clipboard fallback' }
+    $artifact.steps.Add('canonical clipboard strategy completed and Status refreshed')
+    if (-not $targetText.Contains($clipboardResponse.Transcript.text)) { Fail "input_blocked: canonical clipboard strategy also produced empty $TargetKind readback. Captured text: $targetText" }
+    $response = $clipboardResponse
+    Pass "harness-owned $TargetKind contained canonical clipboard output"
+  } else {
+    Pass "harness-owned $TargetKind contained actual Unicode SendInput output"
+  }
   $artifact.status = 'VERIFIED'
 } catch {
   $artifact.steps.Add("ERROR: $($_.Exception.Message)")

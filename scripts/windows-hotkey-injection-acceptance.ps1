@@ -43,7 +43,24 @@ $ipcEndpoint = "127.0.0.1:$IpcPort"
 $artifact.ipc_endpoint = $ipcEndpoint
 $ownedTarget = $null
 $ownedSori = $null
- $ownedDaemonPid = $null
+  $ownedDaemonPid = $null
+function Get-PositiveOwnedDaemonPid([int]$Port, [string]$DaemonPath, $Listener) {
+  if (-not $Listener) { throw 'refusing daemon cleanup: no listener was observed' }
+  $leasePath = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Sori\daemon-owner.json' } else { Join-Path (Get-Location) 'sori-daemon-owner.json' }
+  if (-not (Test-Path -LiteralPath $leasePath)) { throw "refusing daemon cleanup: ownership lease is absent ($leasePath)" }
+  $lease = Get-Content -LiteralPath $leasePath -Raw | ConvertFrom-Json
+  $expectedEndpoint = "127.0.0.1:$Port"
+  if ($lease.endpoint -ne $expectedEndpoint) { throw "refusing daemon cleanup: lease endpoint '$($lease.endpoint)' does not match '$expectedEndpoint'" }
+  $expectedPath = (Resolve-Path -LiteralPath $DaemonPath).Path
+  $leasedPath = (Resolve-Path -LiteralPath $lease.executable).Path
+  if (-not [String]::Equals($expectedPath, $leasedPath, [StringComparison]::OrdinalIgnoreCase)) { throw "refusing daemon cleanup: lease executable '$leasedPath' is not expected daemon '$expectedPath'" }
+  $daemonPid = [int]$lease.pid
+  if ($daemonPid -ne [int]$Listener[0].OwningProcess) { throw "refusing daemon cleanup: lease PID $daemonPid does not own listener PID $($Listener[0].OwningProcess)" }
+  $process = Get-Process -Id $daemonPid -ErrorAction SilentlyContinue
+  if (-not $process) { throw "refusing daemon cleanup: leased daemon PID $daemonPid is not running" }
+  if (-not [String]::Equals((Resolve-Path -LiteralPath $process.Path).Path, $expectedPath, [StringComparison]::OrdinalIgnoreCase)) { throw "refusing daemon cleanup: live PID $daemonPid executable does not match expected daemon" }
+  return $daemonPid
+}
 try {
   $ownedTarget = Start-Process -FilePath $TargetExecutable -PassThru
   $artifact.target_pid = $ownedTarget.Id
@@ -87,8 +104,10 @@ try {
   if (-not $statusResponse) { throw "isolated Sori IPC endpoint did not become ready: $ipcUrl" }
   $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
   if (-not $listener) { throw "isolated endpoint became reachable but has no owned listener: $ipcEndpoint" }
-  $ownedDaemonPid = $listener[0].OwningProcess
-  $artifact.steps += "recorded harness-owned daemon pid $ownedDaemonPid"
+  $daemonPath = Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $SoriExecutable).Path) 'sorid.exe'
+  if (-not (Test-Path -LiteralPath $daemonPath)) { throw "refusing daemon cleanup: expected sibling daemon is absent: $daemonPath" }
+  $ownedDaemonPid = Get-PositiveOwnedDaemonPid -Port $IpcPort -DaemonPath $daemonPath -Listener $listener
+  $artifact.steps += "recorded positively correlated harness-owned daemon pid $ownedDaemonPid"
   $rebindBody = @{ SetConfig = @{ key = 'hotkey.binding'; value = $Hotkey } } | ConvertTo-Json -Compress
   $rebindResponse = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $rebindBody -TimeoutSec 2
   if (-not $rebindResponse.Control.accepted) { throw "runtime rebind was rejected: $($rebindResponse | ConvertTo-Json -Compress)" }

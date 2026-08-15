@@ -27,6 +27,23 @@ function Get-InstalledExecutables([string]$Root) {
   if (-not $daemon) { Fail 'installed sorid.exe resource was not found' }
   return @($desktop, $daemon)
 }
+function Get-PositiveOwnedDaemonPid([int]$Port, [string]$DaemonPath, $Listener) {
+  if (-not $Listener) { Fail 'refusing daemon cleanup: no listener was observed' }
+  $leasePath = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Sori\daemon-owner.json' } else { Join-Path (Get-Location) 'sori-daemon-owner.json' }
+  if (-not (Test-Path -LiteralPath $leasePath)) { Fail "refusing daemon cleanup: ownership lease is absent ($leasePath)" }
+  $lease = Get-Content -LiteralPath $leasePath -Raw | ConvertFrom-Json
+  $expectedEndpoint = "127.0.0.1:$Port"
+  if ($lease.endpoint -ne $expectedEndpoint) { Fail "refusing daemon cleanup: lease endpoint '$($lease.endpoint)' does not match '$expectedEndpoint'" }
+  $expectedPath = (Resolve-Path -LiteralPath $DaemonPath).Path
+  $leasedPath = (Resolve-Path -LiteralPath $lease.executable).Path
+  if (-not [String]::Equals($expectedPath, $leasedPath, [StringComparison]::OrdinalIgnoreCase)) { Fail "refusing daemon cleanup: lease executable '$leasedPath' is not installed daemon '$expectedPath'" }
+  $daemonPid = [int]$lease.pid
+  if ($daemonPid -ne [int]$Listener[0].OwningProcess) { Fail "refusing daemon cleanup: lease PID $daemonPid does not own listener PID $($Listener[0].OwningProcess)" }
+  $process = Get-Process -Id $daemonPid -ErrorAction SilentlyContinue
+  if (-not $process) { Fail "refusing daemon cleanup: leased daemon PID $daemonPid is not running" }
+  if (-not [String]::Equals((Resolve-Path -LiteralPath $process.Path).Path, $expectedPath, [StringComparison]::OrdinalIgnoreCase)) { Fail "refusing daemon cleanup: live PID $daemonPid executable does not match installed daemon" }
+  return $daemonPid
+}
 function Assert-EndpointFree {
   $owner = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
   if ($owner) { Fail "refusing to touch endpoint owned by PID $($owner[0].OwningProcess); inspect it before retrying" }
@@ -77,6 +94,7 @@ $desktop = $executables[0]
 $passes = if ($Phase -eq 'restart') { 2 } else { 1 }
 for ($attempt = 1; $attempt -le $passes; $attempt++) {
   $oldIpcAddr = $env:SORI_IPC_ADDR
+  $ownedDaemonPid = $null
   $oldIpcUrl = $env:SORI_IPC_URL
   $oldDbPath = $env:SORI_DATABASE_PATH
   $oldDbPathAlias = $env:SORI_DB_PATH
@@ -94,8 +112,8 @@ for ($attempt = 1; $attempt -le $passes; $attempt++) {
     if ($process.HasExited) { Fail "Sori exited during launch with code $($process.ExitCode)" }
     $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
     if (-not $listener) { Fail 'Sori launched but sorid did not bind the loopback endpoint' }
+    $ownedDaemonPid = Get-PositiveOwnedDaemonPid -Port $IpcPort -DaemonPath $executables[1].FullName -Listener $listener
     $ipcUrl = "http://127.0.0.1:$IpcPort/ipc"
-    $setBody = @{ SetConfig = @{ key = 'history.retention_limit'; value = 37 } } | ConvertTo-Json -Compress
     $setBody = @{ SetConfig = @{ key = 'history.retention_limit'; value = 37 } } | ConvertTo-Json -Compress
     $setResponse = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $setBody -TimeoutSec 5
     if (-not $setResponse.Control.accepted) { Fail "installed daemon rejected SQLite-backed setting write: $($setResponse | ConvertTo-Json -Compress)" }
@@ -112,9 +130,9 @@ for ($attempt = 1; $attempt -le $passes; $attempt++) {
       Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
       Pass "stopped only the acceptance-owned desktop PID $($process.Id)"
     }
-    if ($listener -and $listener[0].OwningProcess -ne $process.Id) {
-      Stop-Process -Id $listener[0].OwningProcess -Force -ErrorAction SilentlyContinue
-      Pass "stopped only the acceptance-owned daemon PID $($listener[0].OwningProcess)"
+    if ($ownedDaemonPid) {
+      Stop-Process -Id $ownedDaemonPid -Force -ErrorAction SilentlyContinue
+      Pass "stopped only the positively correlated acceptance-owned daemon PID $ownedDaemonPid"
     }
     $env:SORI_IPC_ADDR = $oldIpcAddr
     $env:SORI_IPC_URL = $oldIpcUrl

@@ -6,7 +6,8 @@ param(
   [string]$ExpectedText = '',
   [int]$TimeoutSeconds = 180,
   [string]$ArtifactPath = 'artifacts/windows-hotkey-injection-acceptance.json',
-  [int]$IpcPort = 0
+  [int]$IpcPort = 0,
+  [switch]$PreflightOnly
 )
 
 Set-StrictMode -Version Latest
@@ -42,24 +43,29 @@ $ipcEndpoint = "127.0.0.1:$IpcPort"
 $artifact.ipc_endpoint = $ipcEndpoint
 $ownedTarget = $null
 $ownedSori = $null
+ $ownedDaemonPid = $null
 try {
   $ownedTarget = Start-Process -FilePath $TargetExecutable -PassThru
   $artifact.target_pid = $ownedTarget.Id
   $artifact.steps += "started owned target pid $($ownedTarget.Id)"
   $ownedTarget.WaitForInputIdle(10000)
   Start-Sleep -Milliseconds 500
-  $hwnd = [SoriAcceptanceNative]::GetForegroundWindow()
-  [uint32]$foregroundPid = 0
-  [SoriAcceptanceNative]::GetWindowThreadProcessId($hwnd, [ref]$foregroundPid) | Out-Null
-  if ($foregroundPid -ne $ownedTarget.Id) {
-    [SoriAcceptanceNative]::SetForegroundWindow($ownedTarget.MainWindowHandle) | Out-Null
-    Start-Sleep -Milliseconds 250
+  if ($PreflightOnly) {
+    $artifact.steps += 'foreground target guard deferred; preflight does not synthesize focus or key input'
+  } else {
     $hwnd = [SoriAcceptanceNative]::GetForegroundWindow()
+    [uint32]$foregroundPid = 0
     [SoriAcceptanceNative]::GetWindowThreadProcessId($hwnd, [ref]$foregroundPid) | Out-Null
+    if ($foregroundPid -ne $ownedTarget.Id) {
+      [SoriAcceptanceNative]::SetForegroundWindow($ownedTarget.MainWindowHandle) | Out-Null
+      Start-Sleep -Milliseconds 250
+      $hwnd = [SoriAcceptanceNative]::GetForegroundWindow()
+      [SoriAcceptanceNative]::GetWindowThreadProcessId($hwnd, [ref]$foregroundPid) | Out-Null
+    }
+    if ($foregroundPid -ne $ownedTarget.Id) { throw "owned target could not become foreground (pid=$foregroundPid expected=$($ownedTarget.Id))" }
+    $artifact.target_hwnd = ('0x{0:X}' -f $hwnd.ToInt64())
+    $artifact.steps += "foreground PID guard passed for owned target $foregroundPid"
   }
-  if ($foregroundPid -ne $ownedTarget.Id) { throw "owned target could not become foreground (pid=$foregroundPid expected=$($ownedTarget.Id))" }
-  $artifact.target_hwnd = ('0x{0:X}' -f $hwnd.ToInt64())
-  $artifact.steps += "foreground PID guard passed for owned target $foregroundPid"
 
   $psi = [Diagnostics.ProcessStartInfo]::new()
   $psi.FileName = (Resolve-Path -LiteralPath $SoriExecutable).Path
@@ -71,7 +77,7 @@ try {
   $artifact.started_sori_pid = $ownedSori.Id
   $artifact.steps += "started Sori pid $($ownedSori.Id); requested isolated binding $Hotkey"
   $statusBody = ConvertTo-Json 'Status'
-  $statusBody = ConvertTo-Json 'Status'
+  $ipcUrl = "http://$ipcEndpoint/ipc"
   $statusResponse = $null
   $deadline = (Get-Date).AddSeconds(30)
   do {
@@ -79,12 +85,21 @@ try {
     try { $statusResponse = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $statusBody -TimeoutSec 2; break } catch { Start-Sleep -Milliseconds 250 }
   } while ((Get-Date) -lt $deadline)
   if (-not $statusResponse) { throw "isolated Sori IPC endpoint did not become ready: $ipcUrl" }
+  $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
+  if (-not $listener) { throw "isolated endpoint became reachable but has no owned listener: $ipcEndpoint" }
+  $ownedDaemonPid = $listener[0].OwningProcess
+  $artifact.steps += "recorded harness-owned daemon pid $ownedDaemonPid"
   $rebindBody = @{ SetConfig = @{ key = 'hotkey.binding'; value = $Hotkey } } | ConvertTo-Json -Compress
   $rebindResponse = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $rebindBody -TimeoutSec 2
   if (-not $rebindResponse.Control.accepted) { throw "runtime rebind was rejected: $($rebindResponse | ConvertTo-Json -Compress)" }
   $verifiedStatus = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $statusBody -TimeoutSec 2
   if ($verifiedStatus.Status.hotkey -ne $Hotkey) { throw "daemon reported hotkey '$($verifiedStatus.Status.hotkey)' instead of '$Hotkey' after rebind" }
   $artifact.steps += "canonical IPC rebind accepted and Status reported $Hotkey"
+  if ($PreflightOnly) {
+    $artifact.status = 'UNVERIFIED'
+    $artifact.steps += 'physical hotkey, microphone speech, and visible injection left for captain interaction'
+    return
+  }
   Write-Host "Sori is running with owned target PID $($ownedTarget.Id)."
   Write-Host "Perform exactly one physical action now: focus the target, hold $Hotkey, speak the configured phrase, then release it."
   Write-Host "The harness will not synthesize the hotkey or microphone input. Waiting up to $TimeoutSeconds seconds..."
@@ -119,5 +134,6 @@ finally {
   $artifact | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 -LiteralPath $ArtifactPath
   # Stop only processes created by this invocation, never a pre-existing PID.
   if ($ownedSori -and -not $ownedSori.HasExited) { Stop-Process -Id $ownedSori.Id -Force -ErrorAction SilentlyContinue }
+  if ($ownedDaemonPid) { Stop-Process -Id $ownedDaemonPid -Force -ErrorAction SilentlyContinue }
   if ($ownedTarget -and -not $ownedTarget.HasExited) { Stop-Process -Id $ownedTarget.Id -Force -ErrorAction SilentlyContinue }
 }

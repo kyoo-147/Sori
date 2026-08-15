@@ -4,7 +4,8 @@ param(
   [ValidateSet('bundle', 'installed', 'launch', 'restart', 'reinstall')]
   [string]$Phase = 'bundle',
   [string]$InstalledRoot,
-  [string]$DataRoot
+  [string]$DataRoot,
+  [int]$IpcPort = 17373
 )
 
 Set-StrictMode -Version Latest
@@ -27,11 +28,12 @@ function Get-InstalledExecutables([string]$Root) {
   return @($desktop, $daemon)
 }
 function Assert-EndpointFree {
-  $owner = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 17373 -State Listen -ErrorAction SilentlyContinue)
+  $owner = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
   if ($owner) { Fail "refusing to touch endpoint owned by PID $($owner[0].OwningProcess); inspect it before retrying" }
 }
 function Assert-UserDataOutsideInstall([string]$Install, [string]$Data) {
   if (-not $Data) { Skip 'user-data location not supplied; set -DataRoot for persistence evidence'; return }
+  if (-not (Test-Path -LiteralPath $Data)) { New-Item -ItemType Directory -Force -Path $Data | Out-Null }
   $installPath = (Resolve-Path $Install).Path.TrimEnd('\')
   $dataPath = [IO.Path]::GetFullPath((Resolve-Path $Data).Path).TrimEnd('\')
   if ($dataPath.StartsWith($installPath, [StringComparison]::OrdinalIgnoreCase)) {
@@ -74,12 +76,35 @@ Assert-EndpointFree
 $desktop = $executables[0]
 $passes = if ($Phase -eq 'restart') { 2 } else { 1 }
 for ($attempt = 1; $attempt -le $passes; $attempt++) {
+  $oldIpcAddr = $env:SORI_IPC_ADDR
+  $oldIpcUrl = $env:SORI_IPC_URL
+  $oldDbPath = $env:SORI_DATABASE_PATH
+  $oldDbPathAlias = $env:SORI_DB_PATH
+  $env:SORI_IPC_ADDR = "127.0.0.1:$IpcPort"
+  $env:SORI_IPC_URL = "http://127.0.0.1:$IpcPort/ipc"
+  if ($DataRoot) {
+    New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
+    $env:SORI_DATABASE_PATH = [IO.Path]::Combine((Resolve-Path $DataRoot).Path, 'sori.db')
+    $env:SORI_DB_PATH = $env:SORI_DATABASE_PATH
+  }
   $process = Start-Process -FilePath $desktop.FullName -WorkingDirectory $desktop.DirectoryName -PassThru
+  $listener = @()
   try {
     Start-Sleep -Seconds 3
     if ($process.HasExited) { Fail "Sori exited during launch with code $($process.ExitCode)" }
-    $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 17373 -State Listen -ErrorAction SilentlyContinue)
+    $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
     if (-not $listener) { Fail 'Sori launched but sorid did not bind the loopback endpoint' }
+    $ipcUrl = "http://127.0.0.1:$IpcPort/ipc"
+    $setBody = @{ SetConfig = @{ key = 'history.retention_limit'; value = 37 } } | ConvertTo-Json -Compress
+    $setBody = @{ SetConfig = @{ key = 'history.retention_limit'; value = 37 } } | ConvertTo-Json -Compress
+    $setResponse = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $setBody -TimeoutSec 5
+    if (-not $setResponse.Control.accepted) { Fail "installed daemon rejected SQLite-backed setting write: $($setResponse | ConvertTo-Json -Compress)" }
+    Pass "installed product persisted setting through canonical IPC on launch $attempt/$passes"
+    if ($attempt -gt 1) {
+      $summary = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body (ConvertTo-Json 'ConfigSummary') -TimeoutSec 5
+      if ($summary.ConfigSummary.history_retention_limit -ne 37) { Fail 'installed product did not restore persisted setting after restart' }
+      Pass 'installed product restored SQLite-backed setting after restart'
+    }
     Pass "installed product launch $attempt/$passes bound endpoint with PID $($listener[0].OwningProcess)"
   } finally {
     if (-not $process.HasExited) {
@@ -87,6 +112,14 @@ for ($attempt = 1; $attempt -le $passes; $attempt++) {
       Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
       Pass "stopped only the acceptance-owned desktop PID $($process.Id)"
     }
+    if ($listener -and $listener[0].OwningProcess -ne $process.Id) {
+      Stop-Process -Id $listener[0].OwningProcess -Force -ErrorAction SilentlyContinue
+      Pass "stopped only the acceptance-owned daemon PID $($listener[0].OwningProcess)"
+    }
+    $env:SORI_IPC_ADDR = $oldIpcAddr
+    $env:SORI_IPC_URL = $oldIpcUrl
+    $env:SORI_DATABASE_PATH = $oldDbPath
+    $env:SORI_DB_PATH = $oldDbPathAlias
   }
   if ($attempt -lt $passes) { Assert-EndpointFree }
 }

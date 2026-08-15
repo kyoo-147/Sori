@@ -268,10 +268,17 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
         }
         let mut diagnostics = Vec::new();
         match plan.strategy {
-            InjectionStrategy::DirectInput => self
-                .adapter
-                .send_direct_input(&request.text)
-                .map_err(TextInjectionError::Adapter)?,
+            InjectionStrategy::DirectInput => {
+                if let Err(error) = self.adapter.send_direct_input(&request.text) {
+                    let release_error = self.adapter.release_modifiers().err();
+                    return Err(match release_error {
+                        Some(release) => TextInjectionError::Adapter(format!(
+                            "{error}; modifier recovery failed: {release}"
+                        )),
+                        None => TextInjectionError::Adapter(error),
+                    });
+                }
+            }
             InjectionStrategy::ClipboardPaste => {
                 // Snapshot/restore belongs to the platform adapter. This API deliberately
                 // has no implicit clipboard access, making tests side-effect free. Restore is
@@ -283,16 +290,27 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
                     .adapter
                     .set_clipboard_text(&request.text)
                     .and_then(|()| self.adapter.paste_from_clipboard());
-                let payload_remains = self
-                    .adapter
-                    .clipboard_contains_text(&request.text)
-                    .map_err(TextInjectionError::Adapter)?;
-                if payload_remains {
-                    self.adapter
-                        .restore_clipboard()
-                        .map_err(TextInjectionError::ClipboardRestoreFailed)?;
+                let payload_check = self.adapter.clipboard_contains_text(&request.text);
+                let should_restore = match payload_check {
+                    Ok(true) => true,
+                    Ok(false) => {
+                        diagnostics.push("clipboard changed after paste; restore skipped".into());
+                        false
+                    }
+                    Err(error) => {
+                        diagnostics.push(format!(
+                            "clipboard payload could not be inspected; restore attempted: {error}"
+                        ));
+                        true
+                    }
+                };
+                let restore_error = if should_restore {
+                    self.adapter.restore_clipboard().err()
                 } else {
-                    diagnostics.push("clipboard changed after paste; restore skipped".into());
+                    None
+                };
+                if let Some(error) = restore_error {
+                    return Err(TextInjectionError::ClipboardRestoreFailed(error));
                 }
                 if let Err(error) = operation {
                     return Err(TextInjectionError::Adapter(error));
@@ -307,7 +325,13 @@ impl<A: TextInjectionAdapter> TextInjector for AdapterTextInjector<A> {
                 .map_err(TextInjectionError::Adapter)?
             {
                 if actual != expected {
-                    return Err(TextInjectionError::FocusedTargetChanged);
+                    let release_error = self.adapter.release_modifiers().err();
+                    return Err(match release_error {
+                        Some(release) => TextInjectionError::Adapter(format!(
+                            "focused target changed during injection; modifier recovery failed: {release}"
+                        )),
+                        None => TextInjectionError::FocusedTargetChanged,
+                    });
                 }
             }
         }
@@ -555,10 +579,10 @@ pub mod windows {
             }
         }
         fn restore_clipboard(&mut self) -> Result<(), String> {
-            let Some(snapshot) = self.clipboard_snapshot.take() else {
+            let Some(snapshot) = self.clipboard_snapshot.clone() else {
                 return Ok(());
             };
-            match snapshot {
+            let result = match snapshot {
                 Some(snapshot) => self.set_clipboard_text(&String::from_utf16_lossy(&snapshot)),
                 None => {
                     use windows_sys::Win32::System::DataExchange::{
@@ -577,7 +601,11 @@ pub mod windows {
                         result
                     }
                 }
+            };
+            if result.is_ok() {
+                self.clipboard_snapshot = None;
             }
+            result
         }
         fn request_undo(&mut self) -> Result<(), String> {
             Err("Windows undo is not wired".into())

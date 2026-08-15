@@ -40,6 +40,7 @@ use sorid::{
 };
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tracing::info;
 /// `activeModelId` is provider-qualified at the IPC boundary, while provider
@@ -639,11 +640,21 @@ async fn main() -> Result<()> {
                 let session_id = session_id.unwrap_or_else(uuid::Uuid::new_v4);
                 let cancellation = CancellationToken::new();
                 handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.insert(session_id, cancellation.clone());
-                if let Some(timeout_ms) = timeout_ms { let timer = cancellation.clone(); std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_millis(timeout_ms)); timer.cancel(); }); }
+                let timeout_triggered = Arc::new(AtomicBool::new(false));
+                if let Some(timeout_ms) = timeout_ms {
+                    let timer = cancellation.clone();
+                    let timed_out = Arc::clone(&timeout_triggered);
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(timeout_ms));
+                        timed_out.store(true, Ordering::Release);
+                        timer.cancel();
+                    });
+                }
                 let result = run_benchmark_with_options(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }, &BenchmarkOptions { cancellation: cancellation.clone(), timeout: timeout_ms.map(std::time::Duration::from_millis) });
                 handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.remove(&session_id);
                 let result = match result {
                     Ok(result) => result,
+                    Err(sori_core::ModelError::Inference(detail)) if timeout_triggered.load(Ordering::Acquire) => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_timed_out".into(), detail: format!("benchmark timed out: {detail}") })),
                     Err(sori_core::ModelError::Inference(detail)) if detail.contains("cancelled") => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_cancelled".into(), detail })),
                     Err(sori_core::ModelError::Inference(detail)) if detail.contains("timed out") => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_timed_out".into(), detail })),
                     Err(error) => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_failed".into(), detail: error.to_string() })),

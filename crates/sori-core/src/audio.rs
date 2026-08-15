@@ -22,6 +22,7 @@ pub enum SampleFormat {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioChunk {
+    #[serde(with = "time::serde::rfc3339")]
     pub captured_at: OffsetDateTime,
     pub format: AudioFormat,
     pub samples: Vec<f32>,

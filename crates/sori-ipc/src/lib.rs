@@ -506,7 +506,10 @@ where
                 .and_then(|v| v.trim().parse::<usize>().ok())
         })
         .ok_or_else(|| IpcError::Protocol("missing content length".into()))?;
-    if length > 1024 * 1024 {
+    // Real benchmark WAVs are expanded to F32 samples in the desktop IPC
+    // contract; a short speech fixture can legitimately exceed 1 MiB once
+    // JSON encoded. Keep a bounded request while leaving room for fixtures.
+    if length > 8 * 1024 * 1024 {
         return Err(IpcError::Protocol("request body too large".into()));
     }
     let body_start = header_end + 4;

@@ -63,6 +63,42 @@ struct WhisperFileConfig {
     model_dir: Option<PathBuf>,
 }
 
+fn local_appdata_executable() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(|root| {
+                PathBuf::from(root)
+                    .join("Sori")
+                    .join("whisper")
+                    .join("whisper-cli.exe")
+            })
+            .filter(|path| path.is_file())
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+fn local_appdata_model_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(|root| {
+                PathBuf::from(root)
+                    .join("Sori")
+                    .join("whisper")
+                    .join("models")
+            })
+            .filter(|path| path.is_dir())
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 fn default_config_path() -> Option<PathBuf> {
     #[cfg(windows)]
     {
@@ -131,6 +167,7 @@ impl WhisperCppConfig {
             .or_else(|| std::env::var_os("WHISPER_CPP_BIN"))
             .map(PathBuf::from)
             .or_else(|| file_config.as_ref().and_then(|config| config.executable.clone()))
+            .or_else(local_appdata_executable)
             .or_else(|| find_on_path(if cfg!(windows) { "whisper-cli.exe" } else { "whisper-cli" }))
             .or_else(|| find_on_path(if cfg!(windows) { "main.exe" } else { "main" }))
             .ok_or_else(|| ModelError::Inference("whisper.cpp executable was not found; set SORI_WHISPER_CPP_BIN or configure Sori's whisper.json".into()))?;
@@ -143,7 +180,8 @@ impl WhisperCppConfig {
         let model_dir = std::env::var_os("SORI_WHISPER_MODEL_DIR")
             .or_else(|| std::env::var_os("WHISPER_CPP_MODEL_DIR"))
             .map(PathBuf::from)
-            .or_else(|| file_config.and_then(|config| config.model_dir));
+            .or_else(|| file_config.and_then(|config| config.model_dir))
+            .or_else(local_appdata_model_dir);
         if let Some(dir) = &model_dir {
             if !dir.is_dir() {
                 return Err(ModelError::Inference(format!(

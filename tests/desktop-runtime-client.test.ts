@@ -17,7 +17,7 @@ describe('desktop runtime IPC boundary', () => {
     const responses: IpcResponse[] = [
       { Status: { protocol_version: 1, daemon_version: 'test', running: true, activity: 'Idle', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly' } },
       { Doctor: { status: { protocol_version: 1, daemon_version: 'test', running: true, activity: 'Paused', paused: true, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly' }, checks: [] } },
-      { ConfigSummary: { profile: 'Basic', privacy: 'LocalOnly', history_enabled: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false } } },
+      { ConfigSummary: { profile: 'Basic', privacy: 'LocalOnly', history_enabled: false, history_retention_limit: 20, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false } } },
       { RecentEvents: { events: [] } },
       { Control: { accepted: true, detail: 'accepted' } }
     ];
@@ -48,11 +48,12 @@ describe('desktop runtime IPC boundary', () => {
     expect(calls).toEqual([['sori_ipc', { request: 'Status', request_id: 'ui-1' }]]);
   });
 
-  it('does not hide a native daemon error behind a sequential HTTP retry', async () => {
+  it('reconnects through the backend when the native shell loses sorid', async () => {
     const native = new NativeIpcTransport(async () => { throw new Error('daemon unavailable'); }, () => true);
     const http = { source: 'backend' as const, request: async () => ({ Status: { running: true } }) };
     const transport = new DesktopIpcTransport(native, http);
-    await expect(transport.request('status')).rejects.toThrow('daemon unavailable');
+    await expect(transport.request('status')).resolves.toEqual({ Status: { running: true } });
+    expect(transport.source).toBe('backend');
   });
 
   it('uses HTTP directly when the native runtime is absent', async () => {

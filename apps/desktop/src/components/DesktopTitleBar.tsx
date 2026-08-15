@@ -36,6 +36,7 @@ interface DesktopTitleBarProps {
   runtimeError: string | null;
   onWindowError: (message: string) => void;
   onTogglePaused: () => void;
+  onReconnect: () => void;
   sidebarOpen: boolean;
   onToggleMobileSidebar: () => void;
   onToggleSidebarCollapse: () => void;
@@ -54,6 +55,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   runtimeError,
   onWindowError,
   onTogglePaused,
+  onReconnect,
   sidebarOpen,
   onToggleMobileSidebar,
   onToggleSidebarCollapse,
@@ -185,6 +187,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
 
       {/* Right: Quick Tools and native window controls */}
       <div data-sori-no-drag className="sori-titlebar__actions flex items-center gap-2">
+        {!runtimeConnected && <button type="button" onClick={onReconnect} className="sori-tactile-btn rounded-[9px] px-2.5 py-1.5 text-[11px]" aria-label="Reconnect to Sori daemon">Reconnect</button>}
         {/* Tray Toggle */}
         <button
           type="button"

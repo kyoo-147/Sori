@@ -44,7 +44,7 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
   }, [runtimeClient, setSettings]);
 
   const saveHotkey = async () => {
-    const result = await runtimeClient.setConfig('hotkey', settings.hotkey);
+    const result = await runtimeClient.setConfig('hotkey.binding', settings.hotkey);
     setConfigMsg(result.error || !result.data.accepted ? `Unavailable: ${result.error ?? result.data.detail}` : 'Hotkey saved through sorid.');
   };
 

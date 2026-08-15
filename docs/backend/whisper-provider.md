@@ -121,8 +121,9 @@ manifest id is resolved as a file name below that directory (for example,
 reported as provider errors before a process is launched.
 
 The command builder passes arguments directly (never through a shell), including
-`-m <model> -f <wav> -otxt|-oj|-osrt -of <output-prefix>`. Use
-`transcribe_audio_with_runner_options` with `CommandProcessRunner` for production;
+`-m <model> -f <wav> -otxt|-oj|-osrt -of <output-prefix>`.
+The production runner drains stdout and stderr concurrently, supervises the child without shell interpolation, and joins its readers after normal exit, cancellation, or timeout so verbose sidecars cannot deadlock the daemon. A successful process normally produces the requested output file; compatible builds that emit the selected format only on stdout are parsed as a fallback. Non-zero exit status, empty output, malformed output, timeout, and cancellation remain errors.
+Use `transcribe_audio_with_runner_options` with `CommandProcessRunner` for production;
 the provider removes temporary input/output files on every return path and reports
 cleanup failures. Text, whisper.cpp JSON, and SRT output are parsed only after a
 successful exit status. Cancellation and timeout errors do not produce a transcript.

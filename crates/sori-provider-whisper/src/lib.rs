@@ -704,13 +704,27 @@ impl WhisperCppProvider {
             }));
         }
         let actual = output_with_extension(output, format.arguments().1);
-        let content = fs::read_to_string(&actual).map_err(|error| {
-            ModelError::Inference(format!(
+        match fs::read_to_string(&actual) {
+            Ok(content) => parse_transcript(&content, format),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // Compatible whisper.cpp builds may emit the selected format
+                // to stdout even when they accept -of. Accept that real
+                // process output only when the output file is absent.
+                if !result.stdout.trim().is_empty() {
+                    parse_transcript(&result.stdout, format)
+                } else {
+                    Err(ModelError::Inference(format!(
+                        "whisper.cpp output was not produced ({}): {}",
+                        actual.display(),
+                        error
+                    )))
+                }
+            }
+            Err(error) => Err(ModelError::Inference(format!(
                 "whisper.cpp output could not be read ({}): {error}",
                 actual.display()
-            ))
-        })?;
-        parse_transcript(&content, format)
+            ))),
+        }
     }
 }
 
@@ -822,11 +836,30 @@ impl ProcessRunner for CommandProcessRunner {
                 spec.executable.display()
             ))
         })?;
+        // Drain both pipes immediately so verbose native builds cannot deadlock.
+        let stdout = child.stdout.take().ok_or_else(|| {
+            ModelError::Inference("whisper.cpp stdout pipe was unavailable".into())
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            ModelError::Inference("whisper.cpp stderr pipe was unavailable".into())
+        })?;
+        let stdout_reader = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut std::io::BufReader::new(stdout), &mut bytes)
+                .map(|_| bytes)
+        });
+        let stderr_reader = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut std::io::BufReader::new(stderr), &mut bytes)
+                .map(|_| bytes)
+        });
         let started = std::time::Instant::now();
         loop {
             if options.cancelled.load(Ordering::Relaxed) {
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
                 return Err(ModelError::Inference(
                     "whisper.cpp process cancelled".into(),
                 ));
@@ -835,6 +868,8 @@ impl ProcessRunner for CommandProcessRunner {
                 if started.elapsed() >= timeout {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = stdout_reader.join();
+                    let _ = stderr_reader.join();
                     return Err(ModelError::Inference(format!(
                         "whisper.cpp process timed out after {timeout:?}"
                     )));
@@ -851,13 +886,25 @@ impl ProcessRunner for CommandProcessRunner {
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        let output = child.wait_with_output().map_err(|error| {
-            ModelError::Inference(format!("could not collect whisper.cpp output: {error}"))
+        let status = child.wait().map_err(|error| {
+            ModelError::Inference(format!("could not collect whisper.cpp status: {error}"))
         })?;
+        let stdout = stdout_reader
+            .join()
+            .map_err(|_| ModelError::Inference("could not collect whisper.cpp stdout".into()))?
+            .map_err(|error| {
+                ModelError::Inference(format!("could not read whisper.cpp stdout: {error}"))
+            })?;
+        let stderr = stderr_reader
+            .join()
+            .map_err(|_| ModelError::Inference("could not collect whisper.cpp stderr".into()))?
+            .map_err(|error| {
+                ModelError::Inference(format!("could not read whisper.cpp stderr: {error}"))
+            })?;
         Ok(ProcessOutput {
-            status: output.status,
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            status,
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
         })
     }
 }

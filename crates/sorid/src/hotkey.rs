@@ -40,7 +40,7 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
             let _ = ready_tx.send(Err(error));
             return;
         }
-        let active_hotkey = backend.active_hotkey();
+        let mut active_hotkey = backend.active_hotkey();
         let _ = ready_tx.send(Ok(active_hotkey));
         let mut message = MSG {
             hwnd: std::ptr::null_mut(),
@@ -60,11 +60,21 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
                     break 'outer;
                 }
                 if message.message == WM_HOTKEY {
-                    if let Ok(Some(event)) = backend.handle_message(
+                    let handled = backend.handle_message(
                         message.message,
                         message.wParam as usize,
                         message.lParam,
-                    ) {
+                    );
+                    if handled.is_err() {
+                        // A thread-owned RegisterHotKey can become stale when
+                        // Explorer or another owner tears down the registration.
+                        // Re-register without requiring a daemon restart.
+                        if backend.recover().is_ok() {
+                            active_hotkey = backend.active_hotkey();
+                        }
+                        continue;
+                    }
+                    if let Ok(Some(event)) = handled {
                         events.publish(event.into_event());
                         on_event(event);
                         if event == HotkeyEvent::Pressed {

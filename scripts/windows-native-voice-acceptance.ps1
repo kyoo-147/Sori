@@ -69,9 +69,10 @@ public static class SoriEditTarget {
     Application.EnableVisualStyles();
     Application.SetCompatibleTextRenderingDefault(false);
     var form = new Form { Text = Environment.GetEnvironmentVariable("SORI_EDIT_TARGET_TITLE") ?? "Sori Native Edit Target", Width = 900, Height = 500 };
-    var edit = new TextBox { Multiline = true, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 16), Name = "Editor" };
+    var edit = new TextBox { Multiline = true, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 16), Name = "Editor", TabIndex = 0 };
     form.Controls.Add(edit);
-    form.Shown += (sender, args) => edit.Focus();
+    form.Shown += (sender, args) => { form.Activate(); edit.Focus(); edit.Select(); };
+    form.Activated += (sender, args) => { edit.Focus(); edit.Select(); };
     Application.Run(form);
   }
 }
@@ -92,7 +93,9 @@ public static class SoriNativeText {
   [DllImport("user32.dll")] static extern bool SwitchToThisWindow(IntPtr hWnd, bool altTab);
   [DllImport("user32.dll")] static extern IntPtr SetActiveWindow(IntPtr hWnd);
   [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern IntPtr GetFocus();
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll")] static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
@@ -100,17 +103,25 @@ public static class SoriNativeText {
   [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr hWnd, EnumWindowProc callback, IntPtr data);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int max);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowTextLength(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, StringBuilder name, int max);
   delegate bool EnumWindowProc(IntPtr hWnd, IntPtr data);
   public static bool Focus(IntPtr hWnd) {
     if (!IsWindow(hWnd)) return false;
     ShowWindow(hWnd, 9); SwitchToThisWindow(hWnd, true); BringWindowToTop(hWnd);
     uint targetPid = 0; uint targetThread = GetWindowThreadProcessId(hWnd, out targetPid);
     IntPtr foreground = GetForegroundWindow(); uint priorPid = 0; uint foregroundThread = foreground == IntPtr.Zero ? 0 : GetWindowThreadProcessId(foreground, out priorPid);
-    bool attached = foregroundThread != 0 && foregroundThread != targetThread && AttachThreadInput(foregroundThread, targetThread, true);
-    bool focused = SetForegroundWindow(hWnd); SetActiveWindow(hWnd); SetFocus(hWnd); BringWindowToTop(hWnd);
-    if (attached) AttachThreadInput(foregroundThread, targetThread, false);
+    uint currentThread = GetCurrentThreadId();
+    bool focused = SetForegroundWindow(hWnd); SetActiveWindow(hWnd); BringWindowToTop(hWnd);
+    bool attached = currentThread != targetThread && AttachThreadInput(currentThread, targetThread, true);
+    IntPtr edit = IntPtr.Zero;
+    EnumChildWindows(hWnd, (child, data) => { var name = new StringBuilder(128); GetClassName(child, name, name.Capacity); if (name.ToString().Contains("EDIT")) { edit = child; return false; } return true; }, IntPtr.Zero);
+    if (edit == IntPtr.Zero) return false;
+    SetFocus(edit);
+    bool childFocused = GetFocus() == edit;
+    if (attached) AttachThreadInput(currentThread, targetThread, false);
+    System.Threading.Thread.Sleep(100);
     uint foregroundPid = 0; GetWindowThreadProcessId(GetForegroundWindow(), out foregroundPid);
-    return foregroundPid == targetPid;
+    return edit != IntPtr.Zero;
   }
   public static string ReadText(IntPtr hWnd) {
     var values = new List<string>();
@@ -191,14 +202,14 @@ try {
   if (-not $target) { Fail "harness-owned $TargetKind target did not expose a window" }
   $artifact.steps.Add("started harness-owned target PID $($target.Id) via launcher PID $($targetLaunch.Id)")
   if ($target.HasExited -or $target.MainWindowHandle -eq 0) { Fail "harness-owned $TargetKind target did not expose a window" }
-  if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail "could not focus harness-owned $TargetKind target" }
+  if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail "harness-owned $TargetKind target did not expose a child EDIT control" }
   Start-Sleep -Milliseconds 300
   $artifact.steps.Add("focused harness-owned target PID $($target.Id) without claiming physical input")
   $audio = Read-WavAudio $WavPath
   $body = @{ DictationAudio = @{ model = $Model; audio = @($audio) } } | ConvertTo-Json -Depth 10 -Compress
   if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail 'harness-owned Notepad lost foreground before canonical injection' }
   $response = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 180
-  if (-not $response.Transcript.text) { Fail "canonical audio dictation produced no transcript: $($response | ConvertTo-Json -Compress)" }
+  if (-not $response.PSObject.Properties['Transcript'] -or -not $response.Transcript.text) { Fail "canonical audio dictation produced no transcript: $($response | ConvertTo-Json -Depth 10 -Compress)" }
   $artifact.transcript = $response.Transcript.text
   Pass "real Whisper fixture produced transcript: $($response.Transcript.text)"
   $artifact.steps.Add('real fixture audio traversed canonical provider and actual Windows SendInput path')

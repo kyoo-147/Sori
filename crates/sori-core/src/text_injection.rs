@@ -125,6 +125,8 @@ pub enum TextInjectionError {
     ClipboardRestoreFailed(String),
     #[error("text injection adapter failed: {0}")]
     Adapter(String),
+    #[error("input_blocked: {0}")]
+    InputBlocked(String),
     #[error("focused target changed during injection")]
     FocusedTargetChanged,
 }
@@ -286,11 +288,13 @@ impl<A: TextInjectionAdapter> AdapterTextInjector<A> {
             .release_modifiers()
             .map_err(TextInjectionError::Adapter)?;
         if let Some(expected) = expected_identity.as_deref() {
-            if let Some(actual) = self
-                .adapter
-                .focused_target_identity()
-                .map_err(TextInjectionError::Adapter)?
-            {
+            if let Some(actual) = self.adapter.focused_target_identity().map_err(|error| {
+                if error.contains("input_blocked") {
+                    TextInjectionError::InputBlocked(error)
+                } else {
+                    TextInjectionError::Adapter(error)
+                }
+            })? {
                 diagnostics.push(format!(
                     "focused-target-before={actual}; expected={expected}"
                 ));
@@ -298,7 +302,9 @@ impl<A: TextInjectionAdapter> AdapterTextInjector<A> {
                     "[sori] native injection target before SendInput: actual={actual} expected={expected}"
                 );
                 if actual != expected {
-                    return Err(TextInjectionError::FocusedTargetChanged);
+                    return Err(TextInjectionError::InputBlocked(format!(
+                        "focused target changed before injection (expected={expected} actual={actual})"
+                    )));
                 }
             }
         }
@@ -354,11 +360,13 @@ impl<A: TextInjectionAdapter> AdapterTextInjector<A> {
             InjectionStrategy::Unavailable => unreachable!(),
         }
         if let Some(expected) = expected_identity.as_deref() {
-            if let Some(actual) = self
-                .adapter
-                .focused_target_identity()
-                .map_err(TextInjectionError::Adapter)?
-            {
+            if let Some(actual) = self.adapter.focused_target_identity().map_err(|error| {
+                if error.contains("input_blocked") {
+                    TextInjectionError::InputBlocked(error)
+                } else {
+                    TextInjectionError::Adapter(error)
+                }
+            })? {
                 diagnostics.push(format!(
                     "focused-target-after={actual}; expected={expected}"
                 ));
@@ -371,7 +379,9 @@ impl<A: TextInjectionAdapter> AdapterTextInjector<A> {
                         Some(release) => TextInjectionError::Adapter(format!(
                             "focused target changed during injection; modifier recovery failed: {release}"
                         )),
-                        None => TextInjectionError::FocusedTargetChanged,
+                        None => TextInjectionError::InputBlocked(format!(
+                            "focused target changed during injection (expected={expected} actual={actual})"
+                        )),
                     });
                 }
             }
@@ -431,6 +441,199 @@ pub mod windows {
     }
 
     #[cfg(windows)]
+    #[allow(unsafe_op_in_unsafe_fn)]
+    fn native_focus_diagnostics(
+        expected_hwnd: windows_sys::Win32::Foundation::HWND,
+    ) -> Result<String, String> {
+        use std::ptr::null_mut;
+        use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+        use windows_sys::Win32::Security::{
+            GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation,
+            TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TokenIntegrityLevel,
+        };
+        use windows_sys::Win32::System::StationsAndDesktops::{
+            CloseDesktop, DESKTOP_READOBJECTS, GetThreadDesktop, GetUserObjectInformationW,
+            OpenInputDesktop, UOI_NAME,
+        };
+        use windows_sys::Win32::System::Threading::{
+            GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GUITHREADINFO, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
+            GetWindowThreadProcessId,
+        };
+        fn hwnd_hex(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
+            format!("{:x}", hwnd as usize)
+        }
+        fn class_name(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
+            let mut buffer = [0u16; 256];
+            let length = unsafe { GetClassNameW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+            String::from_utf16_lossy(&buffer[..length.max(0) as usize])
+        }
+        unsafe fn desktop_name(
+            desktop: windows_sys::Win32::System::StationsAndDesktops::HDESK,
+        ) -> Result<String, String> {
+            if desktop.is_null() {
+                return Err("input_blocked: desktop handle is null".into());
+            }
+            let mut buffer = [0u16; 256];
+            let mut needed = 0u32;
+            if GetUserObjectInformationW(
+                desktop,
+                UOI_NAME,
+                buffer.as_mut_ptr().cast(),
+                (buffer.len() * 2) as u32,
+                &mut needed,
+            ) == 0
+            {
+                return Err("input_blocked: GetUserObjectInformationW failed".into());
+            }
+            Ok(String::from_utf16_lossy(
+                &buffer[..buffer.iter().position(|c| *c == 0).unwrap_or(buffer.len())],
+            ))
+        }
+        unsafe fn integrity_rid(process: HANDLE) -> Result<u32, String> {
+            let mut token = null_mut();
+            if OpenProcessToken(process, TOKEN_QUERY, &mut token) == 0 {
+                return Err("input_blocked: OpenProcessToken failed".into());
+            }
+            let result = (|| {
+                let mut length = 0u32;
+                GetTokenInformation(token, TokenIntegrityLevel, null_mut(), 0, &mut length);
+                if length == 0 {
+                    return Err("input_blocked: token integrity length unavailable".into());
+                }
+                let mut bytes = vec![0u8; length as usize];
+                if GetTokenInformation(
+                    token,
+                    TokenIntegrityLevel,
+                    bytes.as_mut_ptr().cast(),
+                    length,
+                    &mut length,
+                ) == 0
+                {
+                    return Err("input_blocked: GetTokenInformation integrity failed".into());
+                }
+                let label = &*(bytes.as_ptr() as *const TOKEN_MANDATORY_LABEL);
+                let count = *GetSidSubAuthorityCount(label.Label.Sid) as u32;
+                if count == 0 {
+                    return Err("input_blocked: integrity SID has no authority".into());
+                }
+                Ok(*GetSidSubAuthority(label.Label.Sid, count - 1))
+            })();
+            CloseHandle(token);
+            result
+        }
+        unsafe {
+            let foreground = GetForegroundWindow();
+            if foreground.is_null() {
+                return Err("input_blocked: no foreground HWND".into());
+            }
+            let mut foreground_pid = 0u32;
+            let foreground_thread = GetWindowThreadProcessId(foreground, &mut foreground_pid);
+            let mut info = GUITHREADINFO {
+                cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                flags: 0,
+                hwndActive: null_mut(),
+                hwndFocus: null_mut(),
+                hwndCapture: null_mut(),
+                hwndMenuOwner: null_mut(),
+                hwndMoveSize: null_mut(),
+                hwndCaret: null_mut(),
+                rcCaret: std::mem::zeroed(),
+            };
+            if GetGUIThreadInfo(foreground_thread, &mut info) == 0 {
+                return Err("input_blocked: GetGUIThreadInfo failed".into());
+            }
+            let target_process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, foreground_pid);
+            if target_process.is_null() {
+                return Err(format!(
+                    "input_blocked: OpenProcess failed (foreground=0x{} pid={} thread={} focus=0x{} class={})",
+                    hwnd_hex(foreground),
+                    foreground_pid,
+                    foreground_thread,
+                    hwnd_hex(info.hwndFocus),
+                    class_name(info.hwndFocus)
+                ));
+            }
+            let target_integrity_result = integrity_rid(target_process);
+            CloseHandle(target_process);
+            let target_integrity = target_integrity_result?;
+            let current_integrity = integrity_rid(GetCurrentProcess())?;
+            let input_desktop = OpenInputDesktop(0, 0, DESKTOP_READOBJECTS);
+            let input_name = desktop_name(input_desktop)?;
+            let target_desktop = GetThreadDesktop(foreground_thread);
+            let target_name = desktop_name(target_desktop)?;
+            if foreground != expected_hwnd {
+                return Err(format!(
+                    "input_blocked: foreground HWND changed (expected=0x{} actual=0x{} pid={} thread={} focus=0x{} class={} integrity={} current_integrity={} input_desktop={} target_desktop={})",
+                    hwnd_hex(expected_hwnd),
+                    hwnd_hex(foreground),
+                    foreground_pid,
+                    foreground_thread,
+                    hwnd_hex(info.hwndFocus),
+                    class_name(info.hwndFocus),
+                    target_integrity,
+                    current_integrity,
+                    input_name,
+                    target_name
+                ));
+            }
+            if info.hwndFocus.is_null() {
+                return Err(format!(
+                    "input_blocked: GUI thread has no focused child (foreground=0x{} pid={} class={} integrity={} current_integrity={} input_desktop={} target_desktop={})",
+                    hwnd_hex(foreground),
+                    foreground_pid,
+                    class_name(foreground),
+                    target_integrity,
+                    current_integrity,
+                    input_name,
+                    target_name
+                ));
+            }
+            if target_name != input_name {
+                return Err(format!(
+                    "input_blocked: target desktop differs from input desktop (foreground=0x{} pid={} focus=0x{} class={} integrity={} current_integrity={} input_desktop={} target_desktop={})",
+                    hwnd_hex(foreground),
+                    foreground_pid,
+                    hwnd_hex(info.hwndFocus),
+                    class_name(info.hwndFocus),
+                    target_integrity,
+                    current_integrity,
+                    input_name,
+                    target_name
+                ));
+            }
+            if target_integrity > current_integrity {
+                return Err(format!(
+                    "input_blocked: target integrity is higher (foreground=0x{} pid={} focus=0x{} class={} integrity={} current_integrity={} input_desktop={} target_desktop={})",
+                    hwnd_hex(foreground),
+                    foreground_pid,
+                    hwnd_hex(info.hwndFocus),
+                    class_name(info.hwndFocus),
+                    target_integrity,
+                    current_integrity,
+                    input_name,
+                    target_name
+                ));
+            }
+            let detail = format!(
+                "foreground=0x{} pid={} thread={} focus=0x{} class={} integrity={} current_integrity={} input_desktop={} target_desktop={}",
+                hwnd_hex(foreground),
+                foreground_pid,
+                foreground_thread,
+                hwnd_hex(info.hwndFocus),
+                class_name(info.hwndFocus),
+                target_integrity,
+                current_integrity,
+                input_name,
+                target_name
+            );
+            CloseDesktop(input_desktop);
+            Ok(detail)
+        }
+    }
+
     #[derive(Debug, Default)]
     pub struct WindowsSendInputAdapter {
         // `Some(None)` represents an empty/non-text clipboard and must still be
@@ -696,6 +899,8 @@ pub mod windows {
             if hwnd.is_null() {
                 Ok(None)
             } else {
+                let diagnostics = native_focus_diagnostics(hwnd)?;
+                eprintln!("[sori] native focus before/after Unicode input: {diagnostics}");
                 let mut pid = 0;
                 unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
                 if pid == 0 {
@@ -785,7 +990,7 @@ pub mod windows {
                 Err(error)
                     if direct_plan.strategy == InjectionStrategy::DirectInput
                         && self.inner.capabilities().clipboard
-                        && matches!(&error, TextInjectionError::Adapter(_)) =>
+                        && matches!(&error, TextInjectionError::Adapter(detail) if !detail.contains("input_blocked")) =>
                 {
                     let mut fallback = self.inner.inject_clipboard(target, request).map_err(|fallback_error| {
                         if matches!(&fallback_error, TextInjectionError::Adapter(detail) if detail.contains("error 5") || detail.contains("ACCESS_DENIED")) {
@@ -979,7 +1184,9 @@ mod tests {
                 dry_run: false,
             },
         );
-        assert_eq!(result, Err(TextInjectionError::FocusedTargetChanged));
+        assert!(
+            matches!(result, Err(TextInjectionError::InputBlocked(detail)) if detail.contains("focused target changed before injection"))
+        );
     }
 
     #[test]
@@ -1006,7 +1213,9 @@ mod tests {
                 dry_run: false,
             },
         );
-        assert_eq!(result, Err(TextInjectionError::FocusedTargetChanged));
+        assert!(
+            matches!(result, Err(TextInjectionError::InputBlocked(detail)) if detail.contains("focused target changed during injection"))
+        );
     }
 
     #[test]

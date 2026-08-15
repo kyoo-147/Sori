@@ -631,7 +631,9 @@ async fn main() -> Result<()> {
                     Some(std::time::Duration::from_secs(120)),
                 ).map_err(|error| sori_ipc::IpcError::Transport(format!("canonical audio dictation failed: {error}")))?;
                 if result.inserted_text.is_none() {
-                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "injection_failed".into(), detail: result.injection_error.unwrap_or_else(|| "focused target did not confirm text insertion".into()) }));
+                    let detail = result.injection_error.unwrap_or_else(|| "focused target did not confirm text insertion".into());
+                    let code = if detail.starts_with("input_blocked:") { "input_blocked" } else { "injection_failed" };
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: code.into(), detail }));
                 }
                 let retention = handler_store.setting("history.retention_limit").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.and_then(|v| v.as_u64()).unwrap_or(20) as usize;
                 handler_store.try_retain_history(retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?;

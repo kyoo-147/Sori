@@ -25,7 +25,7 @@ export function mapModels(value: unknown): ModelRecord[] {
   return payload.models.map(({ manifest, status }) => {
     const provider = payload.provider ?? status.backend ?? manifest.backend;
     const id = provider ? `${provider}/${manifest.id}` : manifest.id;
-    return { id, name: manifest.display_name, provider, location: 'local', qualityTier: 'standard', recommended: false, available: status.installed, installed: status.installed, loaded: status.loaded, warm: status.warm, unavailableReason: status.installed ? null : 'Model files are not installed by the daemon' };
+    return { id, name: manifest.display_name, provider, location: 'local', qualityTier: 'standard', recommended: false, available: status.installed, installed: status.installed, loaded: status.loaded, warm: status.warm, unavailableReason: status.error ?? (status.installed ? null : 'Model files are not installed by the daemon') };
   });
 }
 export class HttpIpcTransport implements IpcTransport { readonly source = 'backend' as const; constructor(private readonly url = endpoint, private readonly fetchImpl: typeof fetch = fetch) {} async request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown> { const response = await this.fetchImpl(this.url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(requestShape(operation, params)), signal: AbortSignal.timeout(2_000) }); if (!response.ok) throw new Error(`IPC request failed (${response.status})`); return response.json(); } }

@@ -90,6 +90,12 @@ pub struct RuntimeStatus {
     pub warm: bool,
     pub memory_bytes: Option<u64>,
     pub backend: Option<String>,
+    #[serde(default)]
+    pub phase: Option<String>,
+    #[serde(default)]
+    pub progress_percent: Option<u8>,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 /// Registry used by the daemon to compose replaceable providers.
@@ -136,6 +142,9 @@ pub trait ModelProvider: Send + Sync {
             warm: false,
             memory_bytes: None,
             backend: Some(self.provider_name().to_owned()),
+            phase: None,
+            progress_percent: None,
+            error: None,
         }
     }
     fn load(&self, _model: &ModelId) -> Result<(), ModelError> {

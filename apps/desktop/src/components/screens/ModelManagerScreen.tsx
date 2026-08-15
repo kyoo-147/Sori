@@ -16,13 +16,16 @@ export const ModelManagerScreen: React.FC<Props> = ({ runtimeClient, onActiveMod
   const [saving, setSaving] = useState(false);
   const [modelName, setModelName] = useState('');
   const [artifactPath, setArtifactPath] = useState('');
+  const [whisperExecutable, setWhisperExecutable] = useState('');
+  const [whisperModelDir, setWhisperModelDir] = useState('');
   const [checksum, setChecksum] = useState('');
   const [installDetail, setInstallDetail] = useState<string | null>(null);
 
   const load = async () => {
     setStatus('loading'); setError(null);
-    const [modelsResult, routeResult] = await Promise.all([runtimeClient.models(), runtimeClient.route<RouteState>()]);
+    const [modelsResult, routeResult, configResult] = await Promise.all([runtimeClient.models(), runtimeClient.route<RouteState>(), runtimeClient.resource<{ executable?: string | null; model_dir?: string | null }>('whisper')]);
     if (modelsResult.error || routeResult.error) { setStatus('error'); setError(modelsResult.error ?? routeResult.error); return; }
+    if (!configResult.error) { setWhisperExecutable(configResult.data?.executable ?? ''); setWhisperModelDir(configResult.data?.model_dir ?? ''); }
     const nextModels = Array.isArray(modelsResult.data) ? modelsResult.data : [];
     setModels(nextModels); setRoute(routeResult.data); onActiveModelChanged?.(routeResult.data.activeModelId ?? null); setStatus(nextModels.length ? 'ready' : 'empty');
   };
@@ -36,9 +39,19 @@ export const ModelManagerScreen: React.FC<Props> = ({ runtimeClient, onActiveMod
     const name = modelName.trim(); const source = artifactPath.trim(); const digest = checksum.trim();
     if (!name || !source || !/^[0-9a-fA-F]{64}$/.test(digest)) { setInstallDetail('Import requires a model filename, an existing local artifact path, and its 64-character SHA-256 checksum.'); return; }
     setSaving(true); setError(null); setInstallDetail('Verifying checksum and importing the user-owned artifact…');
-    const result = await runtimeClient.installModel(name, source, digest);
+    const operation = runtimeClient.installModel(name, source, digest);
+    const poll = window.setInterval(() => { void runtimeClient.modelStatus(name).then((result) => { const status = result.data as { status?: { progress_percent?: number | null; phase?: string | null } } | null; const percent = status?.status?.progress_percent; const phase = status?.status?.phase ?? 'provider'; if (!result.error && typeof percent === 'number') setInstallDetail(`Importing… ${percent}% (${phase})`); }); }, 250);
+    const result = await operation;
+    window.clearInterval(poll);
     if (result.error) { setError(result.error); setInstallDetail('Import failed; no model was selected or reported ready.'); }
     else { setInstallDetail('Import completed. Readiness below is reported by the configured provider.'); setModelName(''); setArtifactPath(''); setChecksum(''); await load(); }
+    setSaving(false);
+  };
+
+  const saveRuntimeConfig = async () => {
+    setSaving(true); setError(null);
+    const result = await runtimeClient.setResource('whisper', { executable: whisperExecutable.trim(), model_dir: whisperModelDir.trim() || null });
+    if (result.error) setError(result.error); else setInstallDetail('Runtime paths saved. Restart sorid to rediscover the configured executable and models.');
     setSaving(false);
   };
 
@@ -47,6 +60,7 @@ export const ModelManagerScreen: React.FC<Props> = ({ runtimeClient, onActiveMod
     <section className="sori-pane space-y-5 p-5">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E0D9] pb-4"><div><h2 className="sori-section-heading">Active route</h2><p className="sori-meta-text mt-1">{route ? `${route.policy} · ${route.activeModelId ?? 'No model selected'}` : 'Loading route…'}</p></div><button className="sori-tactile-btn rounded-lg px-3 py-2 text-xs" onClick={() => void load()} disabled={status === 'loading'}><RefreshCw className="mr-1 inline h-4 w-4"/>Refresh</button></div>
       <div className="flex flex-wrap gap-2">{policies.map((policy) => <button key={policy} className={`rounded-full border px-3 py-1.5 text-xs ${route?.policy === policy ? 'bg-[#ECEEEB] border-[#B9C0BF] font-medium' : 'border-[#E5E0D9] text-[#68635D]'}`} disabled={saving} onClick={() => void selectPolicy(policy)}>{policy}</button>)}</div>
+      <div className="rounded-xl border border-[#E5E0D9] bg-[#FFFDF9] p-4 space-y-3"><div><h3 className="text-sm font-medium">Whisper runtime configuration</h3><p className="sori-meta-text mt-1">Configure a user-owned whisper.cpp executable and model directory. Paths persist in SQLite and are applied on daemon restart.</p></div><div className="grid gap-2 md:grid-cols-2"><input aria-label="Whisper executable path" className="rounded-lg border border-[#E5E0D9] bg-white p-2 text-xs" placeholder="whisper-cli.exe path" value={whisperExecutable} onChange={(event) => setWhisperExecutable(event.target.value)} /><input aria-label="Whisper model directory" className="rounded-lg border border-[#E5E0D9] bg-white p-2 text-xs" placeholder="Whisper model directory" value={whisperModelDir} onChange={(event) => setWhisperModelDir(event.target.value)} /></div><button type="button" className="sori-tactile-btn rounded-lg px-3 py-2 text-xs disabled:opacity-50" disabled={saving} onClick={() => void saveRuntimeConfig()}>Save runtime paths</button></div>
       <div className="rounded-xl border border-[#E5E0D9] bg-[#FFFDF9] p-4 space-y-3"><div><h3 className="text-sm font-medium">Import a user-owned Whisper model</h3><p className="sori-meta-text mt-1">Sori never bundles or downloads weights. The daemon verifies the checksum, imports atomically, and discovers only real files in its configured model directory.</p></div><div className="grid gap-2 md:grid-cols-3"><input aria-label="Model filename" className="rounded-lg border border-[#E5E0D9] bg-white p-2 text-xs" placeholder="ggml-base.en.bin" value={modelName} onChange={(event) => setModelName(event.target.value)} /><input aria-label="Model artifact path" className="rounded-lg border border-[#E5E0D9] bg-white p-2 text-xs" placeholder="Local artifact path" value={artifactPath} onChange={(event) => setArtifactPath(event.target.value)} /><input aria-label="Model SHA-256 checksum" className="rounded-lg border border-[#E5E0D9] bg-white p-2 text-xs" placeholder="SHA-256 checksum" value={checksum} onChange={(event) => setChecksum(event.target.value)} /></div><div className="flex flex-wrap items-center gap-3"><button type="button" className="sori-tactile-btn rounded-lg px-3 py-2 text-xs disabled:opacity-50" disabled={saving} onClick={() => void importModel()}>{saving ? 'Importing…' : 'Import and verify model'}</button>{installDetail && <span role="status" className="text-xs text-[#68635D]">{installDetail}</span>}</div></div>
       <div className="flex gap-4 border-b border-[#E5E0D9]"><button className={`border-b-2 pb-2 text-sm ${location === 'local' ? 'border-[#6E7A80] font-semibold' : 'border-transparent text-[#68635D]'}`} onClick={() => setLocation('local')}><HardDrive className="mr-1 inline h-4 w-4"/>Local</button><button className={`border-b-2 pb-2 text-sm ${location === 'cloud' ? 'border-[#6E7A80] font-semibold' : 'border-transparent text-[#68635D]'}`} onClick={() => setLocation('cloud')}><Cloud className="mr-1 inline h-4 w-4"/>Cloud</button></div>
       {status === 'loading' && <div className="p-8 text-center text-sm text-[#68635D]">Loading the daemon model registry…</div>}

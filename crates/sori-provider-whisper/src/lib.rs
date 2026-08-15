@@ -158,6 +158,39 @@ impl WhisperCppConfig {
         })
     }
 
+    /// Persist user-owned runtime paths for the next daemon start. Sori never
+    /// downloads or bundles the executable; this only writes configuration.
+    pub fn persist_config(
+        executable: &Path,
+        model_dir: Option<&Path>,
+    ) -> Result<PathBuf, ModelError> {
+        let path = std::env::var_os("SORI_WHISPER_CONFIG")
+            .map(PathBuf::from)
+            .or_else(default_config_path)
+            .ok_or_else(|| {
+                ModelError::Inference("Sori Whisper config path is unavailable".into())
+            })?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                ModelError::Inference(format!("could not create Sori config directory: {error}"))
+            })?;
+        }
+        let value = serde_json::json!({ "executable": executable, "model_dir": model_dir });
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&value).map_err(|error| {
+                ModelError::Inference(format!("could not encode Sori Whisper config: {error}"))
+            })?,
+        )
+        .map_err(|error| {
+            ModelError::Inference(format!(
+                "could not persist Sori Whisper config ({}): {error}",
+                path.display()
+            ))
+        })?;
+        Ok(path)
+    }
+
     pub fn new(executable: impl Into<PathBuf>, model_dir: Option<PathBuf>) -> Self {
         Self {
             executable: executable.into(),
@@ -1034,6 +1067,9 @@ impl ModelProvider for WhisperCppProvider {
             warm: self.is_warm(model),
             memory_bytes: None,
             backend: Some(PROVIDER_NAME.into()),
+            phase: Some(format!("{:?}", status.lifecycle)),
+            progress_percent: status.progress_percent,
+            error: status.error.clone(),
         }
     }
     fn load(&self, model: &ModelId) -> Result<(), ModelError> {
@@ -1330,6 +1366,9 @@ impl ModelRuntime for WhisperRuntime {
             warm: self.provider.is_warm(model),
             memory_bytes: None,
             backend: Some(PROVIDER_NAME.to_owned()),
+            phase: None,
+            progress_percent: None,
+            error: None,
         }
     }
     fn select_route(&self, context: &ContextSnapshot) -> ModelRoute {

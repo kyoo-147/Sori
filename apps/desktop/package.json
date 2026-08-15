@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "tauri": "tauri",
     "build:bundle": "npm run build && cargo build --manifest-path ../../Cargo.toml -p sorid --release && node ../../scripts/prepare-desktop-bundle.mjs",
+    "build:installer": "npm run tauri build",
     "preview": "vite preview",
     "check": "tsc --noEmit"
   },

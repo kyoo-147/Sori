@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run desktop:dev -- -- --port 1420",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm --prefix apps/desktop run build:bundle",
+    "beforeBuildCommand": "npm run build:bundle",
     "frontendDist": "../dist"
   },
   "app": {

@@ -49,8 +49,10 @@ must not take ownership of an endpoint without fresh ownership evidence. Relaunc
 the desktop after correcting the executable/configuration.
 
 The daemon continues to own SQLite and its restart-persistent Whisper JSON
-configuration. Uninstall cleanup must not delete user history, model files, or
-explicit configuration without a separate user-confirmed migration policy.
+configuration. On Windows the default database is `%LOCALAPPDATA%\Sori\sori.db`,
+outside the replaceable install directory. Uninstall cleanup must not delete
+user history, model files, or explicit configuration without a separate
+user-confirmed migration policy.
 
 ## License references
 
@@ -88,8 +90,10 @@ manual Windows run is intended:
 .\scripts\windows-packaging-acceptance.ps1 -BundleRoot .\apps\desktop\src-tauri\target\release\bundle -InstalledRoot "$env:LOCALAPPDATA\Sori" -Launch
 ```
 
-The script does not claim installer execution, signing, elevation, uninstall
-retention, restart recovery, microphone capture, Whisper inference, or focused
-application injection. Those require real Windows evidence and remain
-`UNVERIFIED`/`SKIP` until that matrix is run. Restart is deliberately manual;
-the wrapper never kills an unknown endpoint owner or silently adopts it.
+After uninstalling and reinstalling manually, run the acceptance script with
+`-Phase reinstall -InstalledRoot <path> -DataRoot <user-data-path>` to verify
+the user-owned SQLite file remains. The script does not claim installer
+execution, signing, elevation, crash recovery, microphone capture, Whisper
+inference, or focused application injection. Those require real Windows
+evidence and remain `UNVERIFIED`/`SKIP`; it never kills an unknown endpoint
+owner or deletes user data.

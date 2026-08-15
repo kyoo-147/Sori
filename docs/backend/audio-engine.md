@@ -28,10 +28,14 @@ packets already accepted by the bounded callback handoff after quiescing,
 including a final partial chunk, before it reports the capture stopped. Dropping
 the controller performs the same shutdown, preventing orphaned native streams.
 
-`crates/sori-audio/tests/native_harness.rs` is an opt-in start/stop/restart
-harness. It requires `SORI_NATIVE_AUDIO_HARNESS=1` and `--ignored`; it reports
-native stream readiness only and deliberately does not claim speech, VAD, or
-transcription evidence.
+`crates/sori-audio/tests/native_harness.rs` is an opt-in capture/diagnostic and
+start/stop/restart harness. It requires `SORI_NATIVE_AUDIO_HARNESS=1` and
+`--ignored`; it reports post-DSP device, sample-count, peak, RMS, rate, and
+channel diagnostics. Set `SORI_NATIVE_AUDIO_TRANSCRIBE=1` with a user-owned
+`SORI_WHISPER_CPP_BIN`, `SORI_WHISPER_MODEL_DIR`, and optional
+`SORI_WHISPER_MODEL` to exercise the real Whisper handoff. Low signal is
+reported as `capture_signal_unavailable`; blank Whisper markers are rejected as
+non-transcripts rather than accepted as success.
 
 It exposes an `Idle -> Starting -> Recording -> Stopping` lifecycle. Each
 successful capture has a monotonically increasing generation/session ID; stop and cancel are

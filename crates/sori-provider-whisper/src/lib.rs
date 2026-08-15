@@ -1165,9 +1165,9 @@ pub fn parse_transcript(content: &str, format: OutputFormat) -> Result<Transcrip
     match format {
         OutputFormat::Text => {
             let text = content.trim();
-            if text.is_empty() {
+            if text.is_empty() || is_non_speech_marker(text) {
                 return Err(ModelError::Inference(
-                    "whisper.cpp returned empty transcript".into(),
+                    "whisper.cpp returned no spoken transcript".into(),
                 ));
             }
             Ok(Transcript::plain(text))
@@ -1175,6 +1175,14 @@ pub fn parse_transcript(content: &str, format: OutputFormat) -> Result<Transcrip
         OutputFormat::Json => parse_json(content),
         OutputFormat::Srt => parse_srt(content),
     }
+}
+
+fn is_non_speech_marker(text: &str) -> bool {
+    let normalized = text.trim().to_ascii_lowercase().replace([' ', '\t'], "");
+    matches!(
+        normalized.as_str(),
+        "[blank_audio]" | "[silence]" | "(silence)"
+    )
 }
 
 fn parse_json(content: &str) -> Result<Transcript, ModelError> {
@@ -1426,6 +1434,13 @@ mod tests {
                 .flat_map(|v| v.to_le_bytes())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn blank_audio_markers_are_not_canonical_transcripts() {
+        for marker in ["[BLANK_AUDIO]", "[ Silence ]", "(silence)"] {
+            assert!(parse_transcript(marker, OutputFormat::Text).is_err());
+        }
     }
 
     #[test]

@@ -387,6 +387,26 @@ impl<R: HotkeyRegistration> WindowsHotkeyBackend<R> {
         self.handle_input(HotkeyInput::Pressed)
     }
 
+    pub fn rebind(&mut self, hotkey: HotkeyCombination) -> Result<(), HotkeyError> {
+        if !self.running {
+            self.hotkey = hotkey;
+            return Ok(());
+        }
+        let previous = self.hotkey;
+        self.stop()?;
+        self.hotkey = hotkey;
+        if let Err(error) = self.start() {
+            self.hotkey = previous;
+            let _ = self.start();
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub fn registration(&self) -> &R {
+        &self.registration
+    }
+
     pub fn active_hotkey(&self) -> HotkeyCombination {
         self.hotkey
     }
@@ -404,11 +424,7 @@ impl<R: HotkeyRegistration> HotkeyBackend for WindowsHotkeyBackend<R> {
         }
         match self.registration.register(self.hotkey) {
             Ok(()) => {}
-            Err(HotkeyError::Conflict) => {
-                let fallback = HotkeyCombination::fallback();
-                self.registration.register(fallback)?;
-                self.hotkey = fallback;
-            }
+            Err(HotkeyError::Conflict) => return Err(HotkeyError::Conflict),
             Err(error) => return Err(error),
         }
         self.running = true;
@@ -497,6 +513,27 @@ mod tests {
             backend.handle_input(HotkeyInput::Released),
             Ok(Some(HotkeyEvent::Released))
         );
+        backend.stop().unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_backend_rebinds_without_fallback() {
+        let registration = FakeHotkeyRegistration::default();
+        let mut backend = WindowsHotkeyBackend::with_registration(
+            HotkeyCombination::new(HotkeyCombination::MOD_ALT, 0x20),
+            registration,
+        );
+        backend.start().unwrap();
+        backend
+            .rebind(HotkeyCombination::new(
+                HotkeyCombination::MOD_CTRL,
+                b'K' as u32,
+            ))
+            .unwrap();
+        assert_eq!(backend.active_hotkey().virtual_key, b'K' as u32);
+        assert_eq!(backend.registration().register_calls, 2);
+        assert_eq!(backend.registration().unregister_calls, 1);
         backend.stop().unwrap();
     }
 

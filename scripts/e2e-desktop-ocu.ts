@@ -206,7 +206,7 @@ async function main(): Promise<void> {
   try {
     await waitForIpc(endpoint);
     if (daemonStartupError) throw new Error(daemonStartupError);
-    appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host } });
+    appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host, SORI_DAEMON_PATH: resolve('target', 'debug', 'sorid.exe') } });
     appProcess.stdout.on('data', (chunk) => process.stdout.write(`[desktop] ${chunk}`));
     appProcess.stderr.on('data', (chunk) => process.stderr.write(`[desktop] ${chunk}`));
     await waitForWindowTitle('sori-desktop', 'Sori');

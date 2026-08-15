@@ -93,9 +93,13 @@ pub enum Request {
         id: Uuid,
     },
     /// Read one validated daemon setting from SQLite.
-    SettingGet { key: String },
+    SettingGet {
+        key: String,
+    },
     /// Delete one validated daemon setting from SQLite.
-    SettingDelete { key: String },
+    SettingDelete {
+        key: String,
+    },
     SetConfig {
         key: String,
         value: serde_json::Value,
@@ -763,10 +767,20 @@ mod tests {
 
     #[test]
     fn setting_crud_contract_round_trips_and_preserves_null() {
-        let get = Request::SettingGet { key: "audio.device_id".into() };
-        assert!(matches!(serde_json::from_str::<Request>(&serde_json::to_string(&get).unwrap()).unwrap(), Request::SettingGet { key } if key == "audio.device_id"));
-        let response = Response::Setting(SettingResponse { key: "audio.device_id".into(), value: None });
-        assert_eq!(serde_json::from_str::<Response>(&serde_json::to_string(&response).unwrap()).unwrap(), response);
+        let get = Request::SettingGet {
+            key: "audio.device_id".into(),
+        };
+        assert!(
+            matches!(serde_json::from_str::<Request>(&serde_json::to_string(&get).unwrap()).unwrap(), Request::SettingGet { key } if key == "audio.device_id")
+        );
+        let response = Response::Setting(SettingResponse {
+            key: "audio.device_id".into(),
+            value: None,
+        });
+        assert_eq!(
+            serde_json::from_str::<Response>(&serde_json::to_string(&response).unwrap()).unwrap(),
+            response
+        );
     }
 
     #[test]

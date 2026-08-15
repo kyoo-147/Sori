@@ -1,20 +1,23 @@
 fn daemon_owner_path() -> std::path::PathBuf {
     if let Some(root) = std::env::var_os("LOCALAPPDATA") {
-        return std::path::PathBuf::from(root).join("Sori").join("daemon-owner.json");
+        return std::path::PathBuf::from(root)
+            .join("Sori")
+            .join("daemon-owner.json");
     }
     std::path::PathBuf::from("sori-daemon-owner.json")
 }
 
 fn write_daemon_owner(endpoint: SocketAddr) -> Result<std::path::PathBuf> {
     let path = daemon_owner_path();
-    if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
     let value = serde_json::json!({ "endpoint": endpoint.to_string(), "pid": std::process::id(), "executable": std::env::current_exe()?.to_string_lossy() });
     std::fs::write(&temporary, serde_json::to_vec(&value)?)?;
     std::fs::rename(&temporary, &path)?;
     Ok(path)
 }
-use sori_core::{EventBus, EventKind};
 use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
@@ -22,6 +25,7 @@ use sori_core::{
     HistoryRepository, ModelId, ModelRoute, PrivacyMode, ProfileMode, Vocabulary, VocabularyTerm,
     recommend_benchmark, run_benchmark_with_options,
 };
+use sori_core::{EventBus, EventKind};
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
     ExtensionManifest, ExtensionRecord, ExtensionsResponse, IpcEvent, LocalIpcServer,
@@ -675,8 +679,9 @@ async fn main() -> Result<()> {
                 let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);
                 let status = slot.as_ref().map(|runtime| status_response(runtime, &config_snapshot, privacy)).unwrap_or_else(|| busy_status_response(&config_snapshot, privacy));
-                let audio_error = slot.as_ref().and_then(|runtime| runtime.audio_readiness().err()).map(|error| error.to_string());
+                let audio_error = slot.as_ref().and_then(|runtime| (!runtime.audio_available()).then_some("microphone capture adapter is unavailable".to_owned()));
                 let whisper_ready = slot.as_ref().is_some_and(|runtime| runtime.whisper_available());
+                let hotkey_state = hotkey_status.lock().map_err(|_| sori_ipc::IpcError::Transport("hotkey status lock poisoned".into()))?.clone();
                 Response::Doctor(DoctorResponse {
                     status,
                     checks: vec![
@@ -702,8 +707,8 @@ async fn main() -> Result<()> {
                         },
                         DoctorCheck {
                             name: "hotkey".into(),
-                            ok: matches!(*hotkey_status.lock().unwrap(), HotkeyServiceStatus::Running),
-                            detail: match &*hotkey_status.lock().unwrap() {
+                            ok: matches!(hotkey_state, HotkeyServiceStatus::Running),
+                            detail: match &hotkey_state {
                                 HotkeyServiceStatus::Running => "Windows global hotkey listener registered; physical key proof requires a machine test".into(),
                                 HotkeyServiceStatus::RunningWithFallback => "legacy fallback state; choose another configurable hotkey".into(),
                                 HotkeyServiceStatus::Unsupported => "unsupported: native global hotkey adapter requires Windows".into(),
@@ -714,7 +719,7 @@ async fn main() -> Result<()> {
                             name: "audio".into(),
                             ok: slot.is_some() && audio_error.is_none(),
                             detail: match audio_error {
-                                None if slot.is_some() => "CPAL input device discovered and native input configuration is available; stream start remains a separate session check".into(),
+                                None if slot.is_some() => "CPAL capture adapter configured; native device readiness remains unverified until a session check".into(),
                                 None => "unavailable while a dictation operation is cleaning up".into(),
                                 Some(error) => format!("unavailable: {error}"),
                             },
@@ -1089,8 +1094,12 @@ fn status_response<B: sori_core::EventBus>(
 
 fn validate_setting_key(key: &str) -> Result<(), String> {
     match key {
-        "hotkey.binding" | "history.enabled" | "history.retention_limit" |
-        "route.policy" | "privacy.mode" | "audio.device_id" => Ok(()),
+        "hotkey.binding"
+        | "history.enabled"
+        | "history.retention_limit"
+        | "route.policy"
+        | "privacy.mode"
+        | "audio.device_id" => Ok(()),
         _ => Err(format!("unsupported setting: {key}")),
     }
 }
@@ -1223,6 +1232,7 @@ fn default_resource(resource: &str) -> serde_json::Value {
             serde_json::json!([])
         }
         "settings" | "preferences" => serde_json::json!({}),
+        "whisper" => serde_json::json!({"executable": null, "model_dir": null}),
         "models" => serde_json::json!([]),
         "privacy" => {
             serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
@@ -1271,27 +1281,5 @@ mod benchmark_recommendation_tests {
     fn recommendation_rejects_unknown_provider_or_model() {
         assert!(validated_benchmark_route(&ModelId::from("other/ready"), &Provider).is_err());
         assert!(validated_benchmark_route(&ModelId::from("missing"), &Provider).is_err());
-    }
-}
-fn default_resource(resource: &str) -> serde_json::Value {
-fn default_resource(resource: &str) -> serde_json::Value {
-    match resource {
-        "vocabulary" | "snippets" | "benchmarks" | "extensions" | "permissions" => {
-            serde_json::json!([])
-        }
-        "settings" => serde_json::json!({}),
-        "whisper" => serde_json::json!({"executable": null, "model_dir": null}),
-        "preferences" => serde_json::json!({}),
-        "models" => serde_json::json!([]),
-        "privacy" => {
-            serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
-        }
-        "onboarding" => {
-            serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
-        }
-        "route" => {
-            serde_json::json!({"activeModelId": null,"policy":"LocalFirst","fallbackModelIds":[]})
-        }
-        _ => serde_json::Value::Null,
     }
 }

@@ -231,14 +231,14 @@ impl SqliteStore {
     /// Return all persisted manifests in stable id order for restart/reopen audits.
     pub fn model_manifests(&self) -> Result<Vec<(String, serde_json::Value)>> {
         let connection = self.connection()?;
-        let mut statement = connection.prepare(
-            "SELECT id, manifest_json FROM model_manifests ORDER BY id",
-        )?;
+        let mut statement =
+            connection.prepare("SELECT id, manifest_json FROM model_manifests ORDER BY id")?;
         let rows = statement.query_map([], |row| {
             let value = serde_json::from_str(&row.get::<_, String>(1)?).map_err(to_sqlite_error)?;
             Ok((row.get(0)?, value))
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn model_manifest(&self, id: &str) -> Result<Option<serde_json::Value>> {
@@ -266,7 +266,10 @@ impl SqliteStore {
     }
 
     pub fn delete_model_route(&self, name: &str) -> Result<bool> {
-        Ok(self.connection()?.execute("DELETE FROM model_routes WHERE name = ?1", [name])? == 1)
+        Ok(self
+            .connection()?
+            .execute("DELETE FROM model_routes WHERE name = ?1", [name])?
+            == 1)
     }
 
     pub fn model_route(&self, name: &str) -> Result<Option<serde_json::Value>> {

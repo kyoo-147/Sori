@@ -1,3 +1,4 @@
+import { parseEndpoint, requireEndpointFree } from './e2e-desktop-backend.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -273,11 +274,11 @@ $bitmap.Dispose()
   };
 }
 
-async function waitForIpc(timeoutMs = 15_000): Promise<void> {
+async function waitForIpc(endpoint: URL, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch('http://127.0.0.1:17373/ipc', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify('Status'),
@@ -319,6 +320,8 @@ async function main(): Promise<void> {
     return;
   }
 
+  const endpoint = parseEndpoint(process.env.SORI_IPC_URL ?? `http://127.0.0.1:${17400 + (process.pid % 500)}/ipc`);
+  await requireEndpointFree(endpoint);
   const configPath = resolve('apps', 'desktop', 'src-tauri', 'tauri.conf.json');
   const config = JSON.parse(readFileSync(configPath, 'utf8')) as { app?: { windows?: Array<Record<string, unknown>> } };
   const windowConfig = config.app?.windows?.[0];
@@ -333,11 +336,8 @@ async function main(): Promise<void> {
 
   const app = desktopBinaryPath();
   if (!existsSync(app)) throw new Error(`desktop binary not found at ${app}`);
-  const existing = await fetch('http://127.0.0.1:17373/ipc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify('Status'), signal: AbortSignal.timeout(500) }).catch(() => null);
-  if (existing?.ok) throw new NativeEnvironmentSkip('loopback IPC 127.0.0.1:17373 is already owned by a daemon; refusing to attach to an unknown process');
-
   mkdirSync(ARTIFACT_DIR, { recursive: true });
-  const daemon = spawn(resolve('target', 'debug', 'sorid.exe'), [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+  const daemon = spawn(resolve('target', 'debug', 'sorid.exe'), [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host } });
   daemon.stdout?.on('data', (chunk) => process.stdout.write(`[sorid] ${chunk}`));
   daemon.stderr?.on('data', (chunk) => process.stderr.write(`[sorid] ${chunk}`));
   let appProcess: ChildProcess | null = null;
@@ -345,8 +345,8 @@ async function main(): Promise<void> {
   const assertions: string[] = [];
 
   try {
-    await waitForIpc();
-    appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+    await waitForIpc(endpoint);
+    appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host } });
     appProcess.stdout?.on('data', (chunk) => process.stdout.write(`[desktop] ${chunk}`));
     appProcess.stderr?.on('data', (chunk) => process.stderr.write(`[desktop] ${chunk}`));
     if (!appProcess.pid) throw new Error('desktop process did not expose a PID');

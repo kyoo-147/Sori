@@ -8,14 +8,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { DEFAULT_IPC_URL, binaryPath, parseEndpoint, requireEndpointFree, waitForEndpoint } from './e2e-desktop-backend.js';
 
 export const PRODUCT_NAVIGATION = [
-  { label: 'Home', expected: ['Sori is ready to help', 'Focused target window'] },
+  { label: 'Home', expected: ['Runtime overview', 'Focused target window'] },
   { label: 'Transcripts', expected: ['Transcripts timeline', 'Review captured audio'] },
   { label: 'Vocabulary', expected: ['Vocabulary & domain terms', 'Teach Sori names'] },
-  { label: 'Voice Edit', expected: ['Voice selection edit', 'Review the parsed instruction'] },
-  { label: 'Models & Routing', expected: ['Models & Routing', 'Choose where Sori processes speech'] },
-  { label: 'Benchmarks', expected: ['Auto Benchmark Engine', 'Benchmark test execution'] },
-  { label: 'Extensions', expected: ['Integrations & Extensions', 'Extension runtime is not installed'] },
-  { label: 'Privacy', expected: ['Privacy & Data Control', 'Local data & retention'] },
+  { label: 'Voice Edit', expected: ['Voice selection edit', 'Generate a daemon-backed diff'] },
+  { label: 'Models & Routing', expected: ['Models & Routing', 'Choose a canonical runtime route'] },
+  { label: 'Benchmarks', expected: ['Auto Benchmark Engine', 'Provider-backed measurements'] },
+  { label: 'Extensions', expected: ['Integrations & Extensions', 'Connect tools'] },
+  { label: 'Privacy', expected: ['Privacy & Data Control', 'Local-first by design'] },
   { label: 'Diagnostics', expected: ['Sori Doctor & System Diagnostics', 'System integrity checklist'] },
   { label: 'Settings', expected: ['Settings', 'Sori System Settings'] },
   { label: 'First-Run Setup', expected: ['First Run Setup', 'Get ready to speak into any window'] },
@@ -153,8 +153,17 @@ function uidFor(snapshot: string, role: string, label: string): string {
   return uid;
 }
 
-async function clickLabel(snapshot: string, label: string, session: string): Promise<void> {
-  await browser(['click', `@${uidFor(snapshot, 'button', label)}`], session);
+async function clickLabel(_snapshot: string, label: string, session: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await snapshot(session);
+    try {
+      await browser(['click', `@${uidFor(current, 'button', label)}`], session);
+      return;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('STALE_REF') || attempt === 2) throw error;
+      await delay(150);
+    }
+  }
 }
 
 async function snapshot(session: string): Promise<string> {
@@ -236,7 +245,7 @@ async function runProductGate(): Promise<void> {
     await waitForHttp(webUrl);
 
     await browser(['newpage', webUrl], session);
-    let state = await waitForText(session, 'Sori is ready to help');
+    let state = await waitForText(session, 'Runtime overview');
     state = await waitForText(session, 'Backend');
     assertIncludes(state, 'Backend', 'real daemon-backed initial desktop state');
     assertNotIncludes(state, 'Mock fallback', 'real daemon-backed initial desktop state');
@@ -302,9 +311,9 @@ async function runProductGate(): Promise<void> {
     const confirmUid = uidFor(state, 'textbox', 'DELETE');
     await browser(['fill', `@${confirmUid}`, 'DELETE'], session);
     state = await snapshot(session);
-    await clickLabel(state, 'Delete permanently', session);
-    state = await waitForText(session, 'History cleared from this UI session.');
-    await clickLabel(state, 'Transcripts', session);
+    await clickLabel(await snapshot(session), 'Delete permanently', session);
+    state = await waitForText(session, 'History permanently cleared from SQLite.');
+    await clickLabel(await snapshot(session), 'Transcripts', session);
     state = await waitForText(session, 'Transcripts timeline');
     assertIncludes(state, 'No transcripts yet', 'post-delete transcript state');
     console.log('PASS: destructive delete confirmation and empty post-delete state.');

@@ -8,7 +8,9 @@ pub mod config;
 pub mod runtime;
 
 pub use config::{DaemonConfig, HotkeyConfig, parse_hotkey_binding};
-pub use runtime::{DaemonRuntime, RuntimeState, RuntimeTransitionError};
+pub use runtime::{
+    DaemonRuntime, DictationCompletionOptions, RuntimeState, RuntimeTransitionError,
+};
 
 use sori_core::{Event, EventBus};
 use std::sync::Arc;

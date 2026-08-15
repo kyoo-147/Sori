@@ -22,6 +22,7 @@ interface TrayQuickControlsProps {
   runtimeSource: RuntimeSource;
   runtimeStatus: DaemonStatus;
   onTogglePaused: () => void;
+  onSetProfile: (profile: AppSettings['activeProfile']) => void;
 }
 
 export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
@@ -33,6 +34,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
   runtimeSource,
   runtimeStatus,
   onTogglePaused,
+  onSetProfile,
 }) => {
   if (!isOpen) return null;
 
@@ -90,9 +92,9 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
               type="button"
               key={prof}
               aria-pressed={settings.activeProfile === prof}
-              onClick={() => undefined}
-              disabled
-              title="Needs Wiring: profile persistence is not exposed by canonical IPC"
+              onClick={() => onSetProfile(prof)}
+              disabled={!runtimeConnected}
+              title={!runtimeConnected ? 'Needs Wiring: connect the canonical sorid runtime before changing profiles' : undefined}
               className={`px-2.5 py-1.5 rounded-[10px] text-xs font-medium flex items-center justify-between transition-all ${
                 settings.activeProfile === prof
                   ? 'bg-[rgba(221,217,211,0.46)] text-[#1C1B19] border border-[rgba(91,84,77,0.15)] font-semibold shadow-2xs'

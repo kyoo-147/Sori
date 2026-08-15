@@ -42,6 +42,18 @@ describe('RuntimeClient resource persistence', () => {
 });
 
 
+describe('RuntimeClient profile settings', () => {
+  it('persists tray profile changes through canonical config IPC', async () => {
+    let operation = ''; let params: Record<string, unknown> | undefined;
+    const client = new RuntimeClient({ source: 'backend', request: async (name, values) => { operation = name; params = values; return { Control: { accepted: true, detail: 'profile saved in SQLite' } }; } });
+    const result = await client.setConfig('profile.mode', 'Coding');
+    expect(operation).toBe('set_config');
+    expect(params).toEqual({ key: 'profile.mode', value: 'Coding' });
+    expect(result.data.accepted).toBe(true);
+    expect(result.error).toBeNull();
+  });
+});
+
 describe('RuntimeClient transcript deletion', () => {
   it('sends the canonical transcript id and returns accepted control state', async () => {
     let operation = ''; let params: Record<string, unknown> | undefined;

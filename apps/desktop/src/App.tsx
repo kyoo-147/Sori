@@ -46,6 +46,7 @@ type PersistedPreferences = {
   sidebarWidth: number;
   assistantVoice: AssistantVoiceSettings;
   voiceProfile: VoiceProfile;
+  activeScreen: ActiveScreen;
 };
 
 export default function App() {
@@ -175,6 +176,7 @@ export default function App() {
         if (typeof result.data.sidebarWidth === 'number' && result.data.sidebarWidth >= 180 && result.data.sidebarWidth <= 360) setSidebarWidth(result.data.sidebarWidth);
         if (result.data.assistantVoice) setAssistantVoice((current) => ({ ...current, ...result.data.assistantVoice }));
         if (result.data.voiceProfile) setVoiceProfile((current) => ({ ...current, ...result.data.voiceProfile }));
+        if (typeof result.data.activeScreen === 'string') setActiveScreen(result.data.activeScreen as ActiveScreen);
       }
       preferencesHydrated.current = true;
     }).catch(() => { preferencesHydrated.current = true; });
@@ -183,11 +185,11 @@ export default function App() {
 
   useEffect(() => {
     if (!preferencesHydrated.current) return;
-    const preferences: PersistedPreferences = { version: 1, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile };
+    const preferences: PersistedPreferences = { version: 1, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile, activeScreen };
     void runtimeClient.setResource('preferences', preferences).then((result) => {
       if (result.error) setRuntimeError(`Preferences unavailable: ${result.error}`);
     });
-  }, [runtimeClient, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile]);
+  }, [runtimeClient, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile, activeScreen]);
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     if (sidebarCollapsed) return;
@@ -247,6 +249,12 @@ export default function App() {
     setRuntimeStatus(result.data);
     setRuntimeSource(result.source);
     setRuntimeError(result.error);
+  };
+  const setProfile = async (profile: AppSettings['activeProfile']) => {
+    const result = await runtimeClient.setConfig('profile.mode', profile);
+    setRuntimeSource(result.source);
+    setRuntimeError(result.error);
+    if (!result.error && result.data.accepted) setSettings((current) => ({ ...current, activeProfile: profile }));
   };
 
   // The daemon route and model registry are authoritative. A disconnected or
@@ -351,6 +359,7 @@ export default function App() {
             runtimeSource={runtimeSource}
             runtimeStatus={runtimeStatus}
             onTogglePaused={() => setPaused(!runtimeStatus.paused)}
+            onSetProfile={setProfile}
             onNavigate={(sc) => {
               setActiveScreen(sc);
               setTrayOpen(false);

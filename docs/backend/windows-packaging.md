@@ -21,7 +21,9 @@ npm --prefix apps/desktop run tauri build
 
 Tauri runs `build:bundle`, which builds the frontend and `sorid` in release mode.
 `apps/desktop/src-tauri/tauri.conf.json` packages the release-built `sorid.exe`
-(staged into the ignored Tauri resource path by `prepare-desktop-bundle.mjs`)
+as a flat `sorid.exe` resource (staged into the ignored Tauri resource path by
+`prepare-desktop-bundle.mjs`). Keeping the destination flat is required: the
+installed desktop resolves the daemon from its Tauri resource directory.
 and emits NSIS and MSI targets. Do not package Whisper executables or model files:
 they are user-managed prerequisites and must be installed with their own license
 and checksum evidence. Configure them with `SORI_WHISPER_CPP_BIN`,

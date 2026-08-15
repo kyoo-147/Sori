@@ -17,6 +17,6 @@
     "active": true,
     "targets": ["nsis", "msi"],
     "icon": ["icons/icon.ico"],
-    "resources": ["../../../target/debug/sorid.exe"]
+    "resources": { "../../../target/debug/sorid.exe": "sorid.exe" }
   }
 }

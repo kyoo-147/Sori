@@ -593,13 +593,21 @@ async fn main() -> Result<()> {
             }
             Request::RunBenchmark { model, audio, reference, iterations, session_id, timeout_ms } => {
                 let provider = benchmark_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("benchmark unavailable: Whisper provider is not ready".into()))?;
+                if !provider.can_transcribe(&model) {
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("benchmark model is not discovered and ready: {}", model.0) }));
+                }
                 let session_id = session_id.unwrap_or_else(uuid::Uuid::new_v4);
                 let cancellation = CancellationToken::new();
                 handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.insert(session_id, cancellation.clone());
                 if let Some(timeout_ms) = timeout_ms { let timer = cancellation.clone(); std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_millis(timeout_ms)); timer.cancel(); }); }
                 let result = run_benchmark_with_options(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }, &BenchmarkOptions { cancellation: cancellation.clone(), timeout: timeout_ms.map(std::time::Duration::from_millis) });
                 handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.remove(&session_id);
-                let result = result.map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark failed: {e}")))?;
+                let result = match result {
+                    Ok(result) => result,
+                    Err(sori_core::ModelError::Inference(detail)) if detail.contains("cancelled") => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_cancelled".into(), detail })),
+                    Err(sori_core::ModelError::Inference(detail)) if detail.contains("timed out") => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_timed_out".into(), detail })),
+                    Err(error) => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_failed".into(), detail: error.to_string() })),
+                };
                 handler_store.save_benchmark(&result).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark persistence failed: {e}")))?;
                 Response::Benchmark(result)
             }

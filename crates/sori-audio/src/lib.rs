@@ -266,9 +266,8 @@ impl CpalAudioEngine {
             let _ = stream.pause();
             drop(stream);
         }
-        self.packets.take();
-        self.errors.take();
-        self.pending.clear();
+        // Keep receivers alive after native teardown so queued callback
+        // samples are drained before the capture is returned.
     }
 
     /// Assemble one chunk while also honoring the controller's stop command.
@@ -292,7 +291,18 @@ impl CpalAudioEngine {
             match packets.recv_timeout(std::time::Duration::from_millis(10)) {
                 Ok(packet) => self.pending.extend(packet),
                 Err(RecvTimeoutError::Timeout) => continue,
-                Err(RecvTimeoutError::Disconnected) => return Ok(None),
+                Err(RecvTimeoutError::Disconnected) => {
+                    if self.pending.is_empty() {
+                        return Ok(None);
+                    }
+                    let samples = self.pending.drain(..).collect();
+                    let chunk = AudioChunk {
+                        captured_at: OffsetDateTime::now_utc(),
+                        format: self.native_format.clone(),
+                        samples,
+                    };
+                    return self.dsp.process(&chunk).map(Some);
+                }
             }
         }
         let samples = self
@@ -337,7 +347,18 @@ impl AudioEngine for CpalAudioEngine {
             match packets.recv_timeout(std::time::Duration::from_millis(100)) {
                 Ok(packet) => self.pending.extend(packet),
                 Err(RecvTimeoutError::Timeout) => continue,
-                Err(RecvTimeoutError::Disconnected) => return Ok(None),
+                Err(RecvTimeoutError::Disconnected) => {
+                    if self.pending.is_empty() {
+                        return Ok(None);
+                    }
+                    let samples = self.pending.drain(..).collect();
+                    let chunk = AudioChunk {
+                        captured_at: OffsetDateTime::now_utc(),
+                        format: self.native_format.clone(),
+                        samples,
+                    };
+                    return self.dsp.process(&chunk).map(Some);
+                }
             }
         }
         let samples = self
@@ -467,12 +488,22 @@ impl AudioCaptureEngine for CpalAudioController {
             let _ = ready_tx.send(Ok((device, format)));
             let mut emitted_chunks = 0usize;
             let mut emitted_samples = 0usize;
+            let mut stopping = false;
             loop {
-                match command_rx.try_recv() {
-                    Ok(()) | Err(mpsc::TryRecvError::Disconnected) => break,
-                    Err(mpsc::TryRecvError::Empty) => {}
+                if !stopping {
+                    match command_rx.try_recv() {
+                        Ok(()) | Err(mpsc::TryRecvError::Disconnected) => {
+                            engine.stop();
+                            stopping = true;
+                        }
+                        Err(mpsc::TryRecvError::Empty) => {}
+                    }
                 }
-                match engine.next_chunk_until_stopped(&command_rx) {
+                match if stopping {
+                    engine.next_chunk()
+                } else {
+                    engine.next_chunk_until_stopped(&command_rx)
+                } {
                     Ok(Some(chunk)) => {
                         emitted_chunks += 1;
                         emitted_samples += chunk.samples.len();

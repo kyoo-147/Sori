@@ -8,7 +8,9 @@ use sori_core::{
     AudioFormat, CaptureConfig, SampleFormat,
 };
 use std::collections::VecDeque;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError};
+use std::sync::{Arc, mpsc};
 use time::OffsetDateTime;
 /// Native capture lifecycle. `Recording` is only entered after CPAL accepts
 /// `Stream::play`; a device is never reported as ready before that point.
@@ -134,6 +136,7 @@ pub struct CpalAudioEngine {
     errors: Option<Receiver<AudioError>>,
     pending: VecDeque<f32>,
     dsp: sori_core::AudioDsp,
+    callback_active: Option<Arc<AtomicBool>>,
 }
 
 impl CpalAudioEngine {
@@ -150,6 +153,7 @@ impl CpalAudioEngine {
             pending: VecDeque::new(),
             dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default())
                 .expect("default DSP configuration is valid"),
+            callback_active: None,
         })
     }
 
@@ -169,6 +173,7 @@ impl CpalAudioEngine {
             dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default())
                 .expect("default DSP configuration is valid"),
             pending: VecDeque::new(),
+            callback_active: None,
         })
     }
 
@@ -215,17 +220,33 @@ impl CpalAudioEngine {
         );
         let (tx, rx) = mpsc::sync_channel(8);
         let (error_tx, error_rx) = mpsc::sync_channel(1);
+        let callback_active = Arc::new(AtomicBool::new(true));
         let channels = stream_config.channels as usize;
         let stream = match supported.sample_format() {
-            CpalSampleFormat::F32 => {
-                build_stream_f32(&device, &stream_config, tx, error_tx, channels)?
-            }
-            CpalSampleFormat::I16 => {
-                build_stream_i16(&device, &stream_config, tx, error_tx, channels)?
-            }
-            CpalSampleFormat::U16 => {
-                build_stream_u16(&device, &stream_config, tx, error_tx, channels)?
-            }
+            CpalSampleFormat::F32 => build_stream_f32(
+                &device,
+                &stream_config,
+                tx,
+                error_tx,
+                channels,
+                callback_active.clone(),
+            )?,
+            CpalSampleFormat::I16 => build_stream_i16(
+                &device,
+                &stream_config,
+                tx,
+                error_tx,
+                channels,
+                callback_active.clone(),
+            )?,
+            CpalSampleFormat::U16 => build_stream_u16(
+                &device,
+                &stream_config,
+                tx,
+                error_tx,
+                channels,
+                callback_active.clone(),
+            )?,
             _ => unreachable!(),
         };
         stream.play().map_err(classify_stream_error)?;
@@ -233,11 +254,18 @@ impl CpalAudioEngine {
         self.errors = Some(error_rx);
         self.pending.clear();
         self.stream = Some(stream);
+        self.callback_active = Some(callback_active);
         Ok(info)
     }
 
     pub fn stop(&mut self) {
-        self.stream.take();
+        if let Some(active) = self.callback_active.take() {
+            active.store(false, Ordering::Release);
+        }
+        if let Some(stream) = self.stream.take() {
+            let _ = stream.pause();
+            drop(stream);
+        }
         self.packets.take();
         self.errors.take();
         self.pending.clear();
@@ -327,6 +355,12 @@ impl AudioEngine for CpalAudioEngine {
 
 /// Send-owned controller. CPAL's stream stays on its worker thread because
 /// CPAL intentionally does not mark streams Send on every backend.
+impl Drop for CpalAudioController {
+    fn drop(&mut self) {
+        self.stop_capture();
+    }
+}
+
 pub struct CpalAudioController {
     config: CaptureConfig,
     format: AudioFormat,
@@ -434,8 +468,9 @@ impl AudioCaptureEngine for CpalAudioController {
             let mut emitted_chunks = 0usize;
             let mut emitted_samples = 0usize;
             loop {
-                if command_rx.try_recv().is_ok() {
-                    break;
+                match command_rx.try_recv() {
+                    Ok(()) | Err(mpsc::TryRecvError::Disconnected) => break,
+                    Err(mpsc::TryRecvError::Empty) => {}
                 }
                 match engine.next_chunk_until_stopped(&command_rx) {
                     Ok(Some(chunk)) => {
@@ -544,11 +579,16 @@ fn build_stream_f32(
     tx: SyncSender<Packet>,
     errors: SyncSender<AudioError>,
     channels: usize,
+    active: Arc<AtomicBool>,
 ) -> Result<Stream, AudioError> {
     device
         .build_input_stream(
             config,
-            move |data: &[f32], _| send_samples(data, &tx, channels),
+            move |data: &[f32], _| {
+                if active.load(Ordering::Acquire) {
+                    send_samples(data, &tx, channels);
+                }
+            },
             move |error| {
                 let _ = errors.try_send(classify_stream_error(error));
             },
@@ -562,16 +602,16 @@ fn build_stream_i16(
     tx: SyncSender<Packet>,
     errors: SyncSender<AudioError>,
     channels: usize,
+    active: Arc<AtomicBool>,
 ) -> Result<Stream, AudioError> {
     device
         .build_input_stream(
             config,
             move |data: &[i16], _| {
-                send_samples(
-                    &data.iter().map(|x| *x as f32 / 32768.0).collect::<Vec<_>>(),
-                    &tx,
-                    channels,
-                )
+                if active.load(Ordering::Acquire) {
+                    let converted: Vec<f32> = data.iter().map(|x| *x as f32 / 32768.0).collect();
+                    send_samples(&converted, &tx, channels);
+                }
             },
             move |error| {
                 let _ = errors.try_send(classify_stream_error(error));
@@ -586,19 +626,17 @@ fn build_stream_u16(
     tx: SyncSender<Packet>,
     errors: SyncSender<AudioError>,
     channels: usize,
+    active: Arc<AtomicBool>,
 ) -> Result<Stream, AudioError> {
     device
         .build_input_stream(
             config,
             move |data: &[u16], _| {
-                send_samples(
-                    &data
-                        .iter()
-                        .map(|x| (*x as f32 / 32768.0) - 1.0)
-                        .collect::<Vec<_>>(),
-                    &tx,
-                    channels,
-                )
+                if active.load(Ordering::Acquire) {
+                    let converted: Vec<f32> =
+                        data.iter().map(|x| (*x as f32 / 32768.0) - 1.0).collect();
+                    send_samples(&converted, &tx, channels);
+                }
             },
             move |error| {
                 let _ = errors.try_send(classify_stream_error(error));
@@ -608,6 +646,9 @@ fn build_stream_u16(
         .map_err(classify_stream_error)
 }
 fn send_samples(data: &[f32], tx: &SyncSender<Packet>, channels: usize) {
+    if channels == 0 {
+        return;
+    }
     let mono = if channels <= 1 {
         data.to_vec()
     } else {
@@ -687,6 +728,7 @@ mod lifecycle_tests {
             dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default()).unwrap(),
             errors: Some(error_rx),
             pending: VecDeque::new(),
+            callback_active: None,
         };
         drop(packet_tx);
         drop(error_tx);

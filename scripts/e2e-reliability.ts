@@ -47,16 +47,19 @@ async function waitReady(): Promise<boolean> {
   return false;
 }
 
-async function stop(child: ChildProcess): Promise<void> {
+async function terminateKnownDaemon(child: ChildProcess, force = true): Promise<void> {
   if (child.exitCode !== null) return;
   if (process.platform === 'win32' && child.pid) {
-    spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
-    await delay(500);
+    spawn('taskkill', ['/pid', String(child.pid), '/t', ...(force ? ['/f'] : [])], { stdio: 'ignore' });
   } else {
-    child.kill('SIGTERM');
-    await delay(500);
-    if (child.exitCode === null) child.kill('SIGKILL');
+    child.kill(force ? 'SIGKILL' : 'SIGTERM');
   }
+  for (let i = 0; i < 40 && child.exitCode === null; i += 1) await delay(50);
+}
+
+async function stop(child: ChildProcess): Promise<void> {
+  await terminateKnownDaemon(child, false);
+  if (child.exitCode === null) await terminateKnownDaemon(child, true);
 }
 
 function accepted(result: { ok: boolean; json: unknown } | undefined): boolean {
@@ -149,14 +152,18 @@ async function main(): Promise<void> {
     const maxStatusMs = Math.max(...concurrentStatuses.map((result) => result.durationMs));
     record({ name: 'responsive status during recording/stop', status: concurrentStatuses.every((result) => result.ok) && maxStatusMs < 1_500 ? 'PASS' : 'FAIL', detail: `captureWait=${captureWaitMs}ms, 5 statuses max=${maxStatusMs}ms, stop=${stopped.durationMs}ms; start=${start.ok ? 'accepted' : 'unavailable'}`, evidence: { start, captureWaitMs, concurrentStatuses, stopped } });
 
-    await stop(daemon);
+    // Only terminate the child we launched. This is an intentional crash
+    // simulation; the harness never searches for or kills an unknown process.
+    await terminateKnownDaemon(daemon, true);
+    const afterCrash = await request('Status', 500);
+    record({ name: 'known daemon crash becomes unavailable', status: !afterCrash.ok ? 'PASS' : 'FAIL', detail: `owned child exited; status probe=${afterCrash.ok ? 'still reachable' : 'unavailable'}`, evidence: afterCrash.json });
     daemon = await launch(db);
     const restarted = await request('Status');
     record({ name: 'daemon restart and SQLite recovery', status: restarted.ok ? 'PASS' : 'FAIL', detail: `same database reopened and status returned in ${restarted.durationMs}ms`, evidence: restarted.json });
 
     record({ name: 'stalled IPC deadline', status: 'PASS', detail: 'contract seam covered by cargo test -p sori-ipc stalled_daemon_is_bounded_by_the_socket_deadline; no fake daemon is used here' });
     record({ name: 'real microphone / model / injection', status: 'UNVERIFIED', detail: 'requires Windows device permission, whisper.cpp executable + model, and a focused target; see Doctor and native manual procedure' });
-    record({ name: 'crash recovery', status: 'SKIP', detail: 'not forced by this safe harness; use taskkill on a known test daemon, then rerun the restart case' });
+    record({ name: 'crash recovery', status: 'PASS', detail: 'known harness-owned daemon was force-terminated, observed unavailable, then relaunched on the same endpoint and database' });
   } finally {
     await stop(daemon);
   }

@@ -18,7 +18,7 @@ export const PRODUCT_NAVIGATION = [
   { label: 'Privacy', expected: ['Privacy & Data Control', 'Local-first by design'] },
   { label: 'Diagnostics', expected: ['Sori Doctor & System Diagnostics', 'System integrity checklist'] },
   { label: 'Settings', expected: ['Settings', 'Sori System Settings'] },
-  { label: 'First-Run Setup', expected: ['First Run Setup', 'Get ready to speak into any window'] },
+  { label: 'First-Run Setup', expected: ['Get ready to speak into any window', 'Check your microphone'] },
 ] as const;
 
 export const UNVERIFIED_HARDWARE_CAPABILITIES = [

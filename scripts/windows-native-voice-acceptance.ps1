@@ -245,7 +245,7 @@ try {
     if ($null -eq $clipboardBefore) { Set-Clipboard -Value '' } else { Set-Clipboard -Value $clipboardBefore }
   }
   $artifact.target_text = $targetText
-  if (-not $targetText.Contains($response.Transcript.text)) { Fail "harness-owned $TargetKind text did not contain the transcript. Captured text: $targetText" }
+  if (-not $targetText.Contains($response.Transcript.text)) { Fail "input_blocked: harness-owned $TargetKind child EDIT remained empty after KEYEVENTF_UNICODE SendInput. Captured text: $targetText" }
   Pass "harness-owned $TargetKind contained actual Unicode SendInput output"
   $artifact.status = 'VERIFIED'
 } catch {

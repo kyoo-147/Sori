@@ -13,6 +13,7 @@
     "tray:mock": "tsx src/tray/mock-shell.ts",
     "desktop:dev": "npm --prefix apps/desktop run dev",
     "desktop:build": "npm --prefix apps/desktop run build",
+    "desktop:installer": "npm --prefix apps/desktop run build:installer",
     "desktop:check": "npm --prefix apps/desktop run check",
     "e2e:desktop-backend": "tsx scripts/e2e-desktop-backend.ts",
     "e2e:backend-ipc": "cargo test -p sorid --test backend_ipc_e2e -- --nocapture",

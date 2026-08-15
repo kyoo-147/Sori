@@ -1,53 +1,98 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$BundleRoot,
+  [Parameter(Mandatory = $true)] [string]$BundleRoot,
+  [ValidateSet('bundle', 'installed', 'launch', 'restart', 'reinstall')]
+  [string]$Phase = 'bundle',
   [string]$InstalledRoot,
-  [switch]$Launch
+  [string]$DataRoot
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'This acceptance script must run on Windows.' }
 
-$root = (Resolve-Path $BundleRoot).Path
-$installers = @(Get-ChildItem -LiteralPath $root -Recurse -File -Include *.nsis.zip,*.exe,*.msi)
-if (-not ($installers | Where-Object Extension -eq '.msi')) { throw 'MSI artifact was not found.' }
-if (-not ($installers | Where-Object { $_.Name -match 'nsis|setup' -or $_.Extension -eq '.exe' })) { throw 'NSIS installer artifact was not found.' }
-$forbidden = Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { $_.Name -match 'whisper|ggml|\.bin$' }
-if ($forbidden) { throw "Bundle unexpectedly contains user-owned Whisper/model files: $($forbidden.FullName -join ', ')" }
-
-Write-Host 'PASS: NSIS and MSI artifacts exist.'
-Write-Host 'PASS: no Whisper executable, library, or model was bundled.'
-if (-not $InstalledRoot) {
-  Write-Host 'SKIP: installed-file and launch checks not requested; pass -InstalledRoot after real installer execution.'
-  exit 0
+function Fail([string]$Message) { throw "Windows product acceptance failed: $Message" }
+function Pass([string]$Message) { Write-Host "PASS: $Message" }
+function Skip([string]$Message) { Write-Host "SKIP: $Message" }
+function Assert-ExternalRuntimeBoundary([string]$Root) {
+  $forbidden = @(Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.Name -match 'whisper|ggml|\.bin$' })
+  if ($forbidden) { Fail "bundle contains user-owned Whisper/model files: $($forbidden.FullName -join ', ')" }
+  Pass 'external Whisper executable and model boundary is preserved'
 }
-$installed = (Resolve-Path $InstalledRoot).Path
-$desktop = Get-ChildItem -LiteralPath $installed -Recurse -File -Filter 'Sori.exe' | Select-Object -First 1
-if (-not $desktop) { throw 'Installed Sori.exe was not found.' }
-$sorid = Get-ChildItem -LiteralPath $installed -Recurse -File -Filter 'sorid.exe' | Select-Object -First 1
-if (-not $sorid) { throw 'Installed sorid.exe resource was not found.' }
-$installedForbidden = Get-ChildItem -LiteralPath $installed -Recurse -File | Where-Object { $_.Name -match 'whisper|ggml|\.bin$' }
-if ($installedForbidden) { throw "Installed bundle contains user-owned Whisper/model files: $($installedForbidden.FullName -join ', ')" }
-Write-Host 'PASS: installed Sori.exe and sorid.exe exist.'
-
-$owner = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 17373 -State Listen -ErrorAction SilentlyContinue
-if ($owner) { throw "Refusing launch test: endpoint is owned by PID $($owner.OwningProcess). Inspect it before retrying." }
-if (-not $Launch) {
-  Write-Host 'SKIP: launch/restart test not requested. Re-run with -Launch after confirming endpoint ownership.'
-  exit 0
+function Get-InstalledExecutables([string]$Root) {
+  $desktop = Get-ChildItem -LiteralPath $Root -Recurse -File -Filter 'Sori.exe' | Select-Object -First 1
+  $daemon = Get-ChildItem -LiteralPath $Root -Recurse -File -Filter 'sorid.exe' | Select-Object -First 1
+  if (-not $desktop) { Fail 'installed Sori.exe was not found' }
+  if (-not $daemon) { Fail 'installed sorid.exe resource was not found' }
+  return @($desktop, $daemon)
 }
-
-$process = Start-Process -FilePath $desktop.FullName -PassThru
-try {
-  Start-Sleep -Seconds 3
-  if ($process.HasExited) { throw "Sori exited during launch test with code $($process.ExitCode)." }
-  Write-Host "PASS: Sori launched (owned PID $($process.Id)); inspect native diagnostics for daemon/resource state."
-} finally {
-  if (-not $process.HasExited) {
-    Stop-Process -Id $process.Id -Force
-    Write-Host "PASS: stopped only the launch-test PID $($process.Id)."
+function Assert-EndpointFree {
+  $owner = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 17373 -State Listen -ErrorAction SilentlyContinue)
+  if ($owner) { Fail "refusing to touch endpoint owned by PID $($owner[0].OwningProcess); inspect it before retrying" }
+}
+function Assert-UserDataOutsideInstall([string]$Install, [string]$Data) {
+  if (-not $Data) { Skip 'user-data location not supplied; set -DataRoot for persistence evidence'; return }
+  $installPath = (Resolve-Path $Install).Path.TrimEnd('\')
+  $dataPath = [IO.Path]::GetFullPath((Resolve-Path $Data).Path).TrimEnd('\')
+  if ($dataPath.StartsWith($installPath, [StringComparison]::OrdinalIgnoreCase)) {
+    Fail "user data must not live under the replaceable install root: $dataPath"
   }
+  Pass "user data is outside the install root: $dataPath"
 }
-Write-Host 'SKIP: restart/crash recovery is not automatic; relaunch only after correcting prerequisites and re-checking endpoint ownership.'
+
+$bundle = (Resolve-Path $BundleRoot).Path
+$artifacts = @(Get-ChildItem -LiteralPath $bundle -Recurse -File)
+if (-not ($artifacts | Where-Object Extension -eq '.msi')) { Fail 'MSI artifact was not found' }
+if (-not ($artifacts | Where-Object { $_.Name -match 'nsis|setup' -or $_.Extension -eq '.exe' })) { Fail 'NSIS installer artifact was not found' }
+Pass 'NSIS and MSI installer artifacts exist'
+Assert-ExternalRuntimeBoundary $bundle
+if ($Phase -eq 'bundle') {
+  Skip 'install, launch, restart, and uninstall/reinstall phases require a real Windows installation; rerun with -Phase installed/launch/reinstall'
+  exit 0
+}
+if (-not $InstalledRoot) { Fail "-InstalledRoot is required for -Phase $Phase" }
+$install = (Resolve-Path $InstalledRoot).Path
+$executables = Get-InstalledExecutables $install
+Assert-ExternalRuntimeBoundary $install
+Assert-UserDataOutsideInstall $install $DataRoot
+Pass 'installed Sori.exe and sorid.exe are present'
+
+if ($Phase -eq 'installed') {
+  Skip 'launch and restart not requested; rerun with -Phase launch'
+  exit 0
+}
+if ($Phase -eq 'reinstall') {
+  if (-not $DataRoot) { Fail '-DataRoot is required for reinstall acceptance' }
+  $database = Get-ChildItem -LiteralPath $DataRoot -Recurse -File -Filter '*.db' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $database) { Fail "no SQLite database found under user-owned data root $DataRoot after uninstall/reinstall" }
+  Pass "user-owned SQLite data survived reinstall: $($database.FullName)"
+  Skip 'installer uninstall/reinstall execution is manual and must be recorded with the installer product code'
+  exit 0
+}
+
+Assert-EndpointFree
+$desktop = $executables[0]
+$passes = if ($Phase -eq 'restart') { 2 } else { 1 }
+for ($attempt = 1; $attempt -le $passes; $attempt++) {
+  $process = Start-Process -FilePath $desktop.FullName -WorkingDirectory $desktop.DirectoryName -PassThru
+  try {
+    Start-Sleep -Seconds 3
+    if ($process.HasExited) { Fail "Sori exited during launch with code $($process.ExitCode)" }
+    $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 17373 -State Listen -ErrorAction SilentlyContinue)
+    if (-not $listener) { Fail 'Sori launched but sorid did not bind the loopback endpoint' }
+    Pass "installed product launch $attempt/$passes bound endpoint with PID $($listener[0].OwningProcess)"
+  } finally {
+    if (-not $process.HasExited) {
+      Stop-Process -Id $process.Id -Force
+      Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
+      Pass "stopped only the acceptance-owned desktop PID $($process.Id)"
+    }
+  }
+  if ($attempt -lt $passes) { Assert-EndpointFree }
+}
+if ($Phase -eq 'restart' -and $DataRoot) {
+  $database = Get-ChildItem -LiteralPath $DataRoot -Recurse -File -Filter '*.db' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($database) { Pass "SQLite database remains available after restart: $($database.FullName)" }
+  else { Skip 'no SQLite database found under supplied DataRoot; persistence content is not claimed' }
+}
+Skip 'physical crash recovery and installer uninstall/reinstall remain manual; this harness never kills an unknown endpoint owner'

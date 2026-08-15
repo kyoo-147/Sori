@@ -32,9 +32,24 @@ impl Default for DaemonConfig {
             hotkey: HotkeyConfig::default(),
             audio: CaptureConfig::default(),
             route: RoutePreset::LocalFirst.policy(),
-            persistence_path: PathBuf::from("sori.db"),
+            persistence_path: default_persistence_path(),
         }
     }
+}
+
+/// Keep installed-product user data outside the application directory. The
+/// installer may replace that directory during upgrade/uninstall, while the
+/// SQLite database must survive those operations.
+pub fn default_persistence_path() -> PathBuf {
+    #[cfg(windows)]
+    if let Some(root) = std::env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(root).join("Sori").join("sori.db");
+    }
+    #[cfg(not(windows))]
+    if let Some(root) = std::env::var_os("XDG_DATA_HOME") {
+        return PathBuf::from(root).join("sori").join("sori.db");
+    }
+    PathBuf::from("sori.db")
 }
 
 impl DaemonConfig {
@@ -57,7 +72,7 @@ mod tests {
         assert_eq!(config.audio.format.sample_rate_hz, 16_000);
         assert_eq!(config.audio.format.channels, 1);
         assert_eq!(config.route, RoutePreset::LocalFirst.policy());
-        assert_eq!(config.persistence_path, PathBuf::from("sori.db"));
+        assert_eq!(config.persistence_path, default_persistence_path());
     }
 
     #[test]

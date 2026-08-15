@@ -318,6 +318,7 @@ impl<B: EventBus> DaemonRuntime<B> {
     }
 
     /// Complete the stopped capture with provider cancellation and a hard deadline.
+    #[allow(clippy::too_many_arguments)]
     pub fn complete_captured_dictation_with_options(
         &mut self,
         route: &ModelRoute,

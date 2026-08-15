@@ -40,9 +40,9 @@ impl RuntimeTarget {
             if pid == 0 {
                 return Err("foreground window has no owning process".into());
             }
-            return Ok(Self {
+            Ok(Self {
                 identity: Some(format!("pid:{pid};hwnd:{:x}", hwnd as usize)),
-            });
+            })
         }
         #[cfg(not(windows))]
         {
@@ -713,7 +713,7 @@ async fn main() -> Result<()> {
                 validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
                 if resource == "route" {
                     let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
-                    validate_route_resource(&value, provider.as_ref()).map_err(|detail| sori_ipc::IpcError::Transport(detail))?;
+                    validate_route_resource(&value, provider.as_ref()).map_err(sori_ipc::IpcError::Transport)?;
                 }
                 handler_store
                     .set_resource(&resource, &value)
@@ -1075,6 +1075,25 @@ fn validated_benchmark_route(
     )
 }
 
+fn default_resource(resource: &str) -> serde_json::Value {
+    match resource {
+        "vocabulary" | "snippets" | "benchmarks" | "extensions" | "permissions" => {
+            serde_json::json!([])
+        }
+        "settings" | "preferences" => serde_json::json!({}),
+        "models" => serde_json::json!([]),
+        "privacy" => {
+            serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
+        }
+        "onboarding" => {
+            serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
+        }
+        "route" => {
+            serde_json::json!({"activeModelId": null,"policy":"LocalFirst","fallbackModelIds":[]})
+        }
+        _ => serde_json::Value::Null,
+    }
+}
 #[cfg(test)]
 mod benchmark_recommendation_tests {
     use super::*;
@@ -1109,26 +1128,5 @@ mod benchmark_recommendation_tests {
     fn recommendation_rejects_unknown_provider_or_model() {
         assert!(validated_benchmark_route(&ModelId::from("other/ready"), &Provider).is_err());
         assert!(validated_benchmark_route(&ModelId::from("missing"), &Provider).is_err());
-    }
-}
-
-fn default_resource(resource: &str) -> serde_json::Value {
-    match resource {
-        "vocabulary" | "snippets" | "benchmarks" | "extensions" | "permissions" => {
-            serde_json::json!([])
-        }
-        "settings" => serde_json::json!({}),
-        "preferences" => serde_json::json!({}),
-        "models" => serde_json::json!([]),
-        "privacy" => {
-            serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
-        }
-        "onboarding" => {
-            serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
-        }
-        "route" => {
-            serde_json::json!({"activeModelId": null,"policy":"LocalFirst","fallbackModelIds":[]})
-        }
-        _ => serde_json::Value::Null,
     }
 }

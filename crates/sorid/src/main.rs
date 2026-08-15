@@ -15,8 +15,8 @@ use sori_ipc::{
 use sori_persistence::SqliteStore;
 use sori_provider_whisper::{WhisperCppConfig, WhisperCppProvider};
 use sorid::{
-    DaemonConfig, DaemonRuntime, HotkeyService, HotkeyServiceStatus, RuntimeState, SharedEventBus,
-    start_hotkey_service,
+    DaemonConfig, DaemonRuntime, DictationCompletionOptions, HotkeyService, HotkeyServiceStatus,
+    RuntimeState, SharedEventBus, start_hotkey_service,
 };
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -33,6 +33,7 @@ struct RuntimeTarget {
     identity: Option<String>,
 }
 impl RuntimeTarget {
+    #[allow(clippy::needless_return)]
     fn capture() -> Result<Self, String> {
         #[cfg(windows)]
         {
@@ -526,10 +527,15 @@ async fn main() -> Result<()> {
                     std::thread::sleep(std::time::Duration::from_secs(30));
                     timeout_token.cancel();
                 });
-                let result = match runtime.complete_captured_dictation_with_options(
-                    &route, &mut injector, &target, history, &vocabulary,
-                    &cancellation, Some(std::time::Duration::from_secs(30)),
-                ) {
+                let result = match runtime.complete_captured_dictation_with_options(DictationCompletionOptions {
+                    route: &route,
+                    injector: &mut injector,
+                    target: &target,
+                    history,
+                    vocabulary: &vocabulary,
+                    cancellation: &cancellation,
+                    timeout: Some(std::time::Duration::from_secs(30)),
+                }) {
                     Ok(result) => result,
                     Err(sori_core::PipelineError::Route(detail)) => {
                         return Ok(Response::Error(sori_ipc::IpcErrorResponse {
@@ -1212,6 +1218,7 @@ fn default_resource(resource: &str) -> serde_json::Value {
         _ => serde_json::Value::Null,
     }
 }
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod benchmark_recommendation_tests {
     use super::*;

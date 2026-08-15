@@ -27,6 +27,16 @@ pub enum RuntimeTransitionError {
     },
 }
 
+pub struct DictationCompletionOptions<'a> {
+    pub route: &'a ModelRoute,
+    pub injector: &'a mut dyn TextInjector,
+    pub target: &'a dyn TextTarget,
+    pub history: &'a dyn HistoryRepository,
+    pub vocabulary: &'a Vocabulary,
+    pub cancellation: &'a CancellationToken,
+    pub timeout: Option<std::time::Duration>,
+}
+
 pub struct DaemonRuntime<B> {
     state: RuntimeState,
     events: B,
@@ -321,13 +331,7 @@ impl<B: EventBus> DaemonRuntime<B> {
     #[allow(clippy::too_many_arguments)]
     pub fn complete_captured_dictation_with_options(
         &mut self,
-        route: &ModelRoute,
-        injector: &mut dyn TextInjector,
-        target: &dyn TextTarget,
-        history: &dyn HistoryRepository,
-        vocabulary: &Vocabulary,
-        cancellation: &CancellationToken,
-        timeout: Option<std::time::Duration>,
+        options: DictationCompletionOptions<'_>,
     ) -> Result<sori_core::DictationResult, sori_core::PipelineError> {
         let audio = self.take_captured_audio();
         let provider = self.provider.as_deref().ok_or_else(|| {
@@ -338,14 +342,14 @@ impl<B: EventBus> DaemonRuntime<B> {
         let result = complete_dictation_with_vocabulary_options(
             audio,
             provider,
-            injector,
-            target,
-            route,
-            history,
+            options.injector,
+            options.target,
+            options.route,
+            options.history,
             &self.events,
-            vocabulary,
-            cancellation,
-            timeout,
+            options.vocabulary,
+            options.cancellation,
+            options.timeout,
         );
         if let Err(error) = &result {
             self.publish(

@@ -404,23 +404,23 @@ async fn main() -> Result<()> {
             Request::DictationStart => {
                 let cancellation = CancellationToken::new();
                 *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = Some(cancellation.clone());
-                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
-                let runtime = match slot.as_mut() {
-                    Some(runtime) => runtime,
-                    None => {
-                        *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
-                        return Err(sori_ipc::IpcError::Transport("runtime operation in progress".into()));
-                    }
-                };
+                let mut runtime = handler_runtime
+                    .lock()
+                    .map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?
+                    .take()
+                    .ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 if let Err(error) = runtime.start_audio() {
+                    handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                     *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
                     return Err(sori_ipc::IpcError::Transport(error.to_string()));
                 }
                 if cancellation.is_cancelled() {
                     let _ = runtime.stop_audio(true);
+                    handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                     *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
                     return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "dictation_cancelled".into(), detail: "dictation was cancelled while microphone capture was starting".into() }));
                 }
+                handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                 Response::Control(ControlResponse { accepted: true, detail: "microphone capture started".into() })
             }
             Request::DictationStop => {

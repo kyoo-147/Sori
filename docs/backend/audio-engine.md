@@ -9,8 +9,8 @@ requested format and chunk size.
 
 - `AudioDeviceInfo` and `AudioDeviceProvider` describe input-device listing.
 - `CaptureConfig` defaults to mono 16 kHz `f32` audio in 20 ms chunks.
-- `AudioDsp` mixes native interleaved input to mono and linearly resamples each
-  stream to the configured 16 kHz target while retaining boundary samples.
+- `AudioDsp` receives mono callback frames and linearly resamples each stream to
+  the configured 16 kHz target while retaining phase and boundary samples.
 - `EnergyVad` uses RMS energy with a configurable end hangover; the legacy
   `EnergyVadStub` remains available only for compatibility tests.
 - `VoiceActivityDetector` is the VAD boundary. `EnergyVadStub` is deterministic
@@ -19,7 +19,8 @@ requested format and chunk size.
 The `sori-audio` crate contains the CPAL adapter. It translates native device
 and stream errors to `AudioError` and keeps CPAL types out of `sori-core`.
 `CpalAudioEngine::start` selects the configured device (or the OS default),
-starts a callback-backed bounded channel, and `stop` drops the stream.
+starts a callback-backed bounded channel, applies the validated input gain,
+and `stop` drops the stream.
 `CpalAudioController` owns the CPAL stream on a worker thread and exposes an
 explicit callback-quiesce phase: teardown marks the callback inactive, pauses
 the native stream, then drops the stream and joins the worker. The worker drains

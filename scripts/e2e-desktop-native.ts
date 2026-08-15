@@ -20,6 +20,7 @@ type WindowInfo = {
   width: number;
   height: number;
   style: number;
+  clientTop: number;
   minimized: boolean;
   maximized: boolean;
 };
@@ -68,6 +69,8 @@ using System;
 using System.Runtime.InteropServices;
 public static class ${className} {
   [DllImport("user32.dll", SetLastError = true)] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll", SetLastError = true)] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll", SetLastError = true)] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT point);
   [DllImport("user32.dll")] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr hWnd);
@@ -84,6 +87,7 @@ public static class ${className} {
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
   public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+  public struct POINT { public int X; public int Y; }
 }
 "@
 `;
@@ -96,6 +100,10 @@ $h = $p.MainWindowHandle
 if ($h -eq [IntPtr]::Zero) { throw "process ${pid} has no main window" }
 $r = New-Object SoriNativeWindowInfo+RECT
 if (-not [SoriNativeWindowInfo]::GetWindowRect($h, [ref]$r)) { throw "GetWindowRect failed" }
+$client = New-Object SoriNativeWindowInfo+RECT
+if (-not [SoriNativeWindowInfo]::GetClientRect($h, [ref]$client)) { throw "GetClientRect failed" }
+$clientOrigin = New-Object SoriNativeWindowInfo+POINT
+if (-not [SoriNativeWindowInfo]::ClientToScreen($h, [ref]$clientOrigin)) { throw "ClientToScreen failed" }
 [pscustomobject]@{
   handle = $h.ToInt64().ToString()
   left = $r.Left
@@ -105,6 +113,7 @@ if (-not [SoriNativeWindowInfo]::GetWindowRect($h, [ref]$r)) { throw "GetWindowR
   width = $r.Right - $r.Left
   height = $r.Bottom - $r.Top
   style = [SoriNativeWindowInfo]::GetWindowLongPtr($h, -16).ToInt64()
+  clientTop = $clientOrigin.Y
   minimized = [SoriNativeWindowInfo]::IsIconic($h)
   maximized = [SoriNativeWindowInfo]::IsZoomed($h)
 } | ConvertTo-Json -Compress
@@ -351,9 +360,9 @@ async function main(): Promise<void> {
     appProcess.stderr?.on('data', (chunk) => process.stderr.write(`[desktop] ${chunk}`));
     if (!appProcess.pid) throw new Error('desktop process did not expose a PID');
     let info = await waitForNativeWindow(appProcess.pid);
-    const WS_CAPTION = 0x00c00000;
-    if ((info.style & WS_CAPTION) !== 0) throw new Error(`native shell still has a default caption bar (style=${info.style})`);
-    assertions.push('runtime Win32 style has no WS_CAPTION/default OS caption');
+    const nonClientTopInset = info.clientTop - info.top;
+    if (nonClientTopInset >= TITLEBAR_HEIGHT) throw new Error(`native shell still has a visible OS caption inset (${nonClientTopInset}px, style=${info.style})`);
+    assertions.push(`runtime client origin confirms no visible OS caption (${nonClientTopInset}px non-client inset)`);
     assertions.push('Tauri config disables decorations, centers launch, and retains custom minimum size');
     artifacts.push(await captureWindowNoFocus(appProcess.pid, resolve(ARTIFACT_DIR, '01-launch.png')));
 

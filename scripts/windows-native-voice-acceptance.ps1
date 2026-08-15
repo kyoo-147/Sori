@@ -206,12 +206,15 @@ try {
   $entry = @($history.RecentHistory.entries | Where-Object { $_.transcript.text -eq $response.Transcript.text } | Select-Object -First 1)
   if (-not $entry) { Fail 'SQLite RecentHistory did not contain the real injected transcript' }
   if ($entry[0].inserted_text -ne $response.Transcript.text) { Fail 'SQLite history did not record inserted_text for the real target' }
-  if ($entry[0].inserted_text -ne $response.Transcript.text) { Fail 'SQLite history did not record inserted_text for the real target' }
   if (-not $entry[0].route.reason -or $entry[0].route.reason -notmatch 'target=pid:\d+;hwnd:') { Fail 'backend history did not retain the immediate foreground target PID/HWND assertion' }
   Pass "backend asserted focused target immediately before injection: $($entry[0].route.reason)"
   Pass 'SQLite history persisted transcript and inserted_text'
   $artifact.history = $entry[0]
   $artifact.steps.Add('canonical RecentHistory returned persisted SQLite evidence')
+  $status = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body (ConvertTo-Json 'Status') -TimeoutSec 5
+  if (-not $status.Status.running) { Fail 'runtime status did not report running after injection' }
+  Pass 'FE/runtime reconnect refresh boundary remained healthy through canonical Status/History reads'
+  $artifact.steps.Add('canonical status and history refresh reads succeeded after injection')
   if (-not [SoriNativeText]::Focus($target.MainWindowHandle)) { Fail "harness-owned $TargetKind was not foreground for readback" }
   $target.Refresh(); $targetText = [SoriNativeText]::ReadText($target.MainWindowHandle)
   if (-not $targetText.Contains($response.Transcript.text)) { $targetText = Read-TargetText $target.MainWindowHandle }
@@ -233,10 +236,6 @@ try {
   $artifact.target_text = $targetText
   if (-not $targetText.Contains($response.Transcript.text)) { Fail "harness-owned $TargetKind text did not contain the transcript. Captured text: $targetText" }
   Pass "harness-owned $TargetKind contained actual Unicode SendInput output"
-  $status = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body (ConvertTo-Json 'Status') -TimeoutSec 5
-  if (-not $status.Status.running) { Fail 'runtime status did not report running after injection' }
-  Pass 'FE/runtime reconnect refresh boundary remained healthy through canonical Status/History reads'
-  $artifact.steps.Add('canonical status and history refresh reads succeeded after injection')
   $artifact.status = 'VERIFIED'
 } catch {
   $artifact.steps.Add("ERROR: $($_.Exception.Message)")

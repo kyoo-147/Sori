@@ -39,3 +39,25 @@ $env:SORI_IPC_URL = 'http://127.0.0.1:17374/ipc'
 $env:SORI_E2E_WEB_PORT = '4174'
 npm run e2e:product
 ```
+
+## Full product acceptance
+
+`npm run e2e:full-product` is the ownership-safe backend acceptance gate for
+the launch brief. It refuses an already-owned loopback endpoint, starts only
+the `sorid` binary it owns, uses a process-unique SQLite database, and verifies
+launch/reconnect, models and route validation, dictation lifecycle, benchmark
+timeout/retry/cancel boundaries, history/settings/vocabulary/snippets
+persistence, concurrent IPC, error recovery, daemon restart, and SQLite reopen.
+It reports native microphone, hotkey, Whisper, and focused-app injection as
+`UNVERIFIED`; deterministic fixtures are never native evidence.
+
+```sh
+cargo build -p sorid
+npm run e2e:full-product
+```
+
+The gate fails only on contract, persistence, ownership, or recovery regressions;
+host-dependent voice/provider gaps are explicit `UNVERIFIED`/`SKIP` outcomes.
+The gate fails only on contract, persistence, ownership, or recovery regressions;
+host-dependent voice/provider gaps are explicit `UNVERIFIED`/`SKIP` outcomes.
+It writes the exact result to `.tmp/e2e-full-product/evidence.json`.

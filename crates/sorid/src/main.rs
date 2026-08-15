@@ -281,7 +281,7 @@ async fn main() -> Result<()> {
     let server = LocalIpcServer::bind(endpoint).await.map_err(|error| {
         anyhow::anyhow!(
             "cannot bind local IPC endpoint {endpoint}: {error}; another process may own it. {}",
-            "Inspect with `Get-NetTCPConnection -LocalPort 17373` and stop only a known stale sorid process"
+            "Inspect the endpoint and stop only a known stale sorid process"
         )
     })?;
     info!(
@@ -613,7 +613,7 @@ async fn main() -> Result<()> {
                         DoctorCheck {
                             name: "ipc-bind".into(),
                             ok: true,
-                            detail: format!("bound to {DEFAULT_ENDPOINT}"),
+                            detail: format!("bound to {endpoint}"),
                         },
                         DoctorCheck {
                             name: "sqlite".into(),

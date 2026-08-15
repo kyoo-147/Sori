@@ -1,3 +1,23 @@
+fn daemon_owner_path() -> std::path::PathBuf {
+    if let Some(root) = std::env::var_os("LOCALAPPDATA") {
+        return std::path::PathBuf::from(root)
+            .join("Sori")
+            .join("daemon-owner.json");
+    }
+    std::path::PathBuf::from("sori-daemon-owner.json")
+}
+
+fn write_daemon_owner(endpoint: SocketAddr) -> Result<std::path::PathBuf> {
+    let path = daemon_owner_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    let value = serde_json::json!({ "endpoint": endpoint.to_string(), "pid": std::process::id(), "executable": std::env::current_exe()?.to_string_lossy() });
+    std::fs::write(&temporary, serde_json::to_vec(&value)?)?;
+    std::fs::rename(&temporary, &path)?;
+    Ok(path)
+}
 use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
@@ -293,6 +313,7 @@ async fn main() -> Result<()> {
             "Inspect the endpoint and stop only a known stale sorid process"
         )
     })?;
+    let owner_path = write_daemon_owner(endpoint)?;
     info!(
         hotkey = %config.hotkey.binding,
         persistence_path = ?config.persistence_path,
@@ -831,6 +852,7 @@ async fn main() -> Result<()> {
         info!("sorid stopped with an active operation still unwinding after cancellation deadline");
         false
     };
+    let _ = std::fs::remove_file(owner_path);
     loop_result?;
     if stopped {
         info!("sorid stopped gracefully");

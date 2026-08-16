@@ -359,6 +359,51 @@ impl<B: EventBus> DaemonRuntime<B> {
         }
         result
     }
+    /// Drive the native hotkey through the same completion boundary as IPC
+    /// dictation. The legacy `handle_hotkey` method intentionally remains a
+    /// transcription-only test seam; production callers must provide the
+    /// target, injector, and durable history repository here.
+    pub fn handle_hotkey_with_pipeline(
+        &mut self,
+        event: sori_core::HotkeyEvent,
+        model: &ModelId,
+        injector: &mut dyn TextInjector,
+        target: &dyn TextTarget,
+        history: &dyn HistoryRepository,
+        vocabulary: &Vocabulary,
+    ) {
+        let result: Result<(), String> = match event {
+            sori_core::HotkeyEvent::Pressed => self
+                .start_audio()
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
+            sori_core::HotkeyEvent::Released => (|| {
+                self.stop_audio(false).map_err(|error| error.to_string())?;
+                let route = ModelRoute {
+                    provider: "whisper.cpp".into(),
+                    model: model.clone(),
+                    reason: "global hotkey".into(),
+                    fallback: Vec::new(),
+                };
+                self.complete_captured_dictation_with_vocabulary(
+                    &route, injector, target, history, vocabulary,
+                )
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+            })(),
+            sori_core::HotkeyEvent::Cancelled => self
+                .stop_audio(true)
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
+        };
+        if let Err(error) = result {
+            self.publish(
+                EventKind::AudioError,
+                Value::String(format!("hotkey: {error}")),
+            );
+        }
+    }
+
     pub fn handle_hotkey(&mut self, event: sori_core::HotkeyEvent, model: &ModelId) {
         let result: Result<(), String> = match event {
             sori_core::HotkeyEvent::Pressed => self

@@ -11,13 +11,24 @@ import {
 
 interface AssistantVoiceScreenProps {
   assistantVoice: AssistantVoiceSettings;
-  setAssistantVoice: React.Dispatch<React.SetStateAction<AssistantVoiceSettings>>;
+  onAssistantVoiceChange: (next: AssistantVoiceSettings) => Promise<boolean>;
 }
+
+export const assistantVoicePreferencePatch = (current: AssistantVoiceSettings, patch: Partial<AssistantVoiceSettings>): AssistantVoiceSettings => ({ ...current, ...patch });
 
 export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
   assistantVoice,
-  setAssistantVoice,
+  onAssistantVoiceChange,
 }) => {
+  const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const update = async (patch: Partial<AssistantVoiceSettings>) => {
+    setSaving(true);
+    setSaveError(null);
+    const accepted = await onAssistantVoiceChange(assistantVoicePreferencePatch(assistantVoice, patch));
+    if (!accepted) setSaveError('Spoken reply preferences could not be saved by sorid.');
+    setSaving(false);
+  };
   return (
     <div className="space-y-6 max-w-5xl mx-auto p-4 md:p-6 text-zinc-900 font-sans">
       {/* Header */}
@@ -48,7 +59,7 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
             ].map((v) => (
               <div
                 key={v.id}
-                onClick={() => setAssistantVoice((prev) => ({ ...prev, voiceId: v.id }))}
+                onClick={() => { if (!saving) void update({ voiceId: v.id }); }}
                 className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                   assistantVoice.voiceId === v.id
                     ? 'bg-zinc-100/90 border-zinc-900 text-zinc-900 shadow-2xs font-bold'
@@ -85,7 +96,8 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
                 max="2.0"
                 step="0.1"
                 value={assistantVoice.speed}
-                onChange={(e) => setAssistantVoice((prev) => ({ ...prev, speed: parseFloat(e.target.value) }))}
+                onChange={(e) => void update({ speed: parseFloat(e.target.value) })}
+                disabled={saving}
                 className="w-full accent-zinc-900 cursor-pointer"
               />
             </div>
@@ -105,7 +117,7 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
             ].map((pol) => (
               <label
                 key={pol.id}
-                onClick={() => setAssistantVoice((prev) => ({ ...prev, replyPolicy: pol.id as any }))}
+                onClick={() => { if (!saving) void update({ replyPolicy: pol.id as AssistantVoiceSettings['replyPolicy'] }); }}
                 className={`p-3.5 rounded-xl border flex items-center gap-3 cursor-pointer transition-all ${
                   assistantVoice.replyPolicy === pol.id
                     ? 'bg-zinc-100/90 border-zinc-900 text-zinc-900 shadow-2xs font-bold'
@@ -116,7 +128,8 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
                   type="radio"
                   name="replyPolicy"
                   checked={assistantVoice.replyPolicy === pol.id}
-                  onChange={() => {}}
+                  onChange={() => { if (!saving) void update({ replyPolicy: pol.id as AssistantVoiceSettings['replyPolicy'] }); }}
+                  disabled={saving}
                   className="accent-zinc-900 cursor-pointer"
                 />
                 <span className="font-bold text-zinc-900">{pol.label}</span>
@@ -125,6 +138,7 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
           </div>
         </div>
       </div>
+      {saveError && <p role="alert" className="text-xs text-[#A75850]">{saveError}</p>}
     </div>
   );
 };

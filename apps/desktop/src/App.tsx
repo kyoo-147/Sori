@@ -261,6 +261,15 @@ export default function App() {
     setRuntimeError(result.error);
     if (!result.error && result.data.accepted) setSettings((current) => ({ ...current, activeProfile: profile }));
   };
+  const saveAssistantVoice = async (next: AssistantVoiceSettings) => {
+    const preferences: PersistedPreferences = { version: 1, sidebarCollapsed, sidebarWidth, assistantVoice: next, voiceProfile, activeScreen };
+    const result = await runtimeClient.setResource('preferences', preferences);
+    setRuntimeSource(result.source);
+    setRuntimeError(result.error);
+    if (result.error) return false;
+    setAssistantVoice(next);
+    return true;
+  };
 
   // The daemon route and model registry are authoritative. A disconnected or
   // stale route must not fall back to preview metadata.
@@ -473,7 +482,7 @@ export default function App() {
             {activeScreen === 'assistant-voice' && (
               <AssistantVoiceScreen
                 assistantVoice={assistantVoice}
-                setAssistantVoice={setAssistantVoice}
+                onAssistantVoiceChange={saveAssistantVoice}
               />
             )}
 

@@ -85,7 +85,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <span className={`w-2 h-2 rounded-full ${trayOpen ? 'bg-[#1F6B43]' : 'bg-[#94928E]'}`}></span>
-            Tray Popover
+            Quick Controls
           </button>
         </div>
 

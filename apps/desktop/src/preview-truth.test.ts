@@ -25,8 +25,12 @@ describe('desktop preview truth contracts', () => {
 
   it('removes fabricated tray metrics and disables unwired profile actions', () => {
     const tray = source('apps/desktop/src/components/TrayQuickControls.tsx');
+    const settings = source('apps/desktop/src/components/screens/StudioSettingsScreen.tsx');
     expect(tray).toContain('UNVERIFIED');
     expect(tray).not.toContain('65ms (Local CUDA)');
+    expect(tray).toContain('Sori Quick Controls');
+    expect(tray).not.toContain('Sori System Tray');
+    expect(settings).toContain('an OS notification-area icon are not exposed');
     expect(tray).toContain('disabled');
     expect(tray).toContain('Needs Wiring');
   });

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)] [string]$BundleRoot,
-  [ValidateSet('bundle', 'installed', 'launch', 'restart', 'crash-recovery', 'reinstall')]
+  [ValidateSet('bundle', 'installed', 'launch', 'restart', 'reinstall')]
   [string]$Phase = 'bundle',
   [string]$InstalledRoot,
   [string]$DataRoot,
@@ -66,7 +66,7 @@ if (-not ($artifacts | Where-Object { $_.Name -match 'nsis|setup' -or $_.Extensi
 Pass 'NSIS and MSI installer artifacts exist'
 Assert-ExternalRuntimeBoundary $bundle
 if ($Phase -eq 'bundle') {
-  Skip 'install, launch, restart, crash-recovery, and uninstall/reinstall phases require a real Windows installation; rerun with an installed phase'
+  Skip 'install, launch, restart, and uninstall/reinstall phases require a real Windows installation; rerun with an installed phase'
   exit 0
 }
 if (-not $InstalledRoot) { Fail "-InstalledRoot is required for -Phase $Phase" }
@@ -91,87 +91,6 @@ if ($Phase -eq 'reinstall') {
 
 Assert-EndpointFree
 $desktop = $executables[0]
-if ($Phase -eq 'crash-recovery') {
-  $oldIpcAddr = $env:SORI_IPC_ADDR
-  $oldIpcUrl = $env:SORI_IPC_URL
-  $oldDbPath = $env:SORI_DATABASE_PATH
-  $oldDbPathAlias = $env:SORI_DB_PATH
-  $process = $null
-  $ownedDaemonPid = $null
-  $recoveredDaemonPid = $null
-  $env:SORI_IPC_ADDR = "127.0.0.1:$IpcPort"
-  $env:SORI_IPC_URL = "http://127.0.0.1:$IpcPort/ipc"
-  if ($DataRoot) {
-    New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
-    $env:SORI_DATABASE_PATH = [IO.Path]::Combine((Resolve-Path $DataRoot).Path, 'sori.db')
-    $env:SORI_DB_PATH = $env:SORI_DATABASE_PATH
-  }
-  try {
-    $process = Start-Process -FilePath $desktop.FullName -WorkingDirectory $desktop.DirectoryName -PassThru
-    Start-Sleep -Seconds 3
-    if ($process.HasExited) { Fail "Sori exited during crash-recovery launch with code $($process.ExitCode)" }
-    $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
-    if (-not $listener) { Fail 'Sori launched but sorid did not bind the crash-recovery endpoint' }
-    $ownedDaemonPid = Get-PositiveOwnedDaemonPid -Port $IpcPort -DaemonPath $executables[1].FullName -Listener $listener
-    $initialDaemonPid = $ownedDaemonPid
-    $ipcUrl = "http://127.0.0.1:$IpcPort/ipc"
-    $setBody = @{ SetConfig = @{ key = 'history.retention_limit'; value = 41 } } | ConvertTo-Json -Compress
-    $setResponse = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $setBody -TimeoutSec 5
-    if (-not $setResponse.Control.accepted) { Fail 'crash-recovery precondition setting write was rejected' }
-    Pass "crash-recovery precondition persisted SQLite setting with owned daemon PID $initialDaemonPid"
-    Stop-Process -Id $initialDaemonPid -Force
-    Pass "terminated only the positively correlated installed daemon PID $initialDaemonPid"
-    $ownedDaemonPid = $null
-    $unavailableDeadline = (Get-Date).AddSeconds(10)
-    do {
-      $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
-      if (-not $listener) { break }
-      Start-Sleep -Milliseconds 250
-    } while ((Get-Date) -lt $unavailableDeadline)
-    if ($listener) { Fail 'installed daemon did not become unavailable after owned crash termination' }
-    Pass 'desktop-owned daemon endpoint became unavailable after the correlated child termination'
-    $recoveryDeadline = (Get-Date).AddSeconds(20)
-    do {
-      $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
-      if ($listener) {
-        try {
-          $candidate = Get-PositiveOwnedDaemonPid -Port $IpcPort -DaemonPath $executables[1].FullName -Listener $listener
-          if ($candidate -ne $initialDaemonPid) { $recoveredDaemonPid = $candidate; break }
-        } catch { }
-      }
-      Start-Sleep -Milliseconds 500
-    } while ((Get-Date) -lt $recoveryDeadline)
-    if (-not $recoveredDaemonPid) { Fail 'desktop did not relaunch a positively correlated installed daemon child after endpoint loss' }
-    $ownedDaemonPid = $recoveredDaemonPid
-    Pass "desktop detected daemon loss and relaunched owned installed daemon PID $recoveredDaemonPid"
-    $status = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body (ConvertTo-Json 'Status') -TimeoutSec 5
-    if (-not $status.Status.running) { Fail 'recovered daemon did not report running status through IPC' }
-    Pass 'desktop/runtime status reconnected over recovered IPC'
-    $summary = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body (ConvertTo-Json 'ConfigSummary') -TimeoutSec 5
-    if ($summary.ConfigSummary.history_retention_limit -ne 41) { Fail 'SQLite setting was not preserved across installed daemon crash recovery' }
-    Pass 'SQLite-backed setting survived installed daemon crash recovery'
-  } finally {
-    if ($process -and -not $process.HasExited) {
-      Stop-Process -Id $process.Id -Force
-      Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
-      Pass "stopped only the acceptance-owned desktop PID $($process.Id)"
-    }
-    if ($ownedDaemonPid) {
-      Stop-Process -Id $ownedDaemonPid -Force -ErrorAction SilentlyContinue
-      Pass "stopped only the positively correlated recovered daemon PID $ownedDaemonPid"
-    }
-    $env:SORI_IPC_ADDR = $oldIpcAddr
-    $env:SORI_IPC_URL = $oldIpcUrl
-    $env:SORI_DATABASE_PATH = $oldDbPath
-    $env:SORI_DB_PATH = $oldDbPathAlias
-  }
-  if ($DataRoot) {
-    $database = Get-ChildItem -LiteralPath $DataRoot -Recurse -File -Filter '*.db' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($database) { Pass "SQLite database remains available after crash recovery: $($database.FullName)" }
-    else { Fail 'no SQLite database found after crash recovery' }
-  }
-  exit 0
-}
 $passes = if ($Phase -eq 'restart') { 2 } else { 1 }
 for ($attempt = 1; $attempt -le $passes; $attempt++) {
   $oldIpcAddr = $env:SORI_IPC_ADDR
@@ -227,4 +146,4 @@ if ($Phase -eq 'restart' -and $DataRoot) {
   if ($database) { Pass "SQLite database remains available after restart: $($database.FullName)" }
   else { Skip 'no SQLite database found under supplied DataRoot; persistence content is not claimed' }
 }
-Skip 'physical crash recovery and installer uninstall/reinstall remain manual; this harness never kills an unknown endpoint owner'
+Skip 'automatic crash recovery is not supported; use -Phase restart to relaunch the desktop on request. Installer uninstall/reinstall remains manual; this harness never kills an unknown endpoint owner'

@@ -22,8 +22,8 @@ use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
     BenchmarkInput, BenchmarkOptions, CancellationToken, FastIntent, HistoryEntry,
-    HistoryRepository, ModelId, ModelRoute, PrivacyMode, ProfileMode, Vocabulary, VocabularyTerm,
-    recommend_benchmark, run_benchmark_with_options,
+    HistoryRepository, ModelId, ModelProvider, ModelRoute, PrivacyMode, ProfileMode, Vocabulary,
+    VocabularyTerm, recommend_benchmark, run_benchmark_with_options,
 };
 use sori_core::{EventBus, EventKind};
 use sori_ipc::{
@@ -216,12 +216,28 @@ async fn main() -> Result<()> {
                             ),
                             manifests,
                         );
-                        (
-                            Some(Arc::new(provider)),
-                            format!(
-                                "whisper.cpp executable configured; discovered {count} model(s)"
-                            ),
-                        )
+                        let manifest_detail = provider
+                            .manifests()
+                            .iter()
+                            .map(|manifest| {
+                                format!(
+                                    "{} sha256={} license={} source={}",
+                                    manifest.id.0,
+                                    manifest.sha256.as_deref().unwrap_or("unavailable"),
+                                    manifest.license.name,
+                                    manifest.source.as_deref().unwrap_or("unavailable")
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        let detail = format!(
+                            "whisper.cpp executable={} model_dir={} discovered {count} model(s): {manifest_detail}",
+                            provider.executable().display(),
+                            provider
+                                .model_dir()
+                                .map_or("<none>".to_owned(), |path| path.display().to_string())
+                        );
+                        (Some(Arc::new(provider)), detail)
                     }
                     Err(error) => (None, format!("unavailable: {error}")),
                 }
@@ -467,8 +483,9 @@ async fn main() -> Result<()> {
                 };
                 provider.install_model_from_file(&model, std::path::Path::new(&source), &expected_sha256)
                     .map_err(|error| sori_ipc::IpcError::Transport(format!("model install failed: {error}")))?;
-                let manifest = provider.manifests().into_iter().find(|manifest| manifest.id == model)
+                let mut manifest = provider.manifests().into_iter().find(|manifest| manifest.id == model)
                     .ok_or_else(|| sori_ipc::IpcError::Transport("model install succeeded but registry did not expose the model".into()))?;
+                manifest.source = Some(source.clone());
                 handler_store.save_model_manifest(&model.0, &serde_json::to_value(&manifest).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?)
                     .map_err(|e| sori_ipc::IpcError::Transport(format!("model manifest persistence failed: {e}")))?;
                 publish_persisted_event(&handler_store, EventKind::ModelChanged, format!("installed:{}", model.0));

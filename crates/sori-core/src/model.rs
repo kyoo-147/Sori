@@ -50,6 +50,11 @@ pub struct ModelManifest {
     pub disk_size_bytes: Option<u64>,
     pub ram_bytes: Option<u64>,
     pub license: ModelLicense,
+    /// User/import provenance. Sori never treats a local path as a download URL.
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

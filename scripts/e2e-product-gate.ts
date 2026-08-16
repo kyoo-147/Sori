@@ -153,6 +153,19 @@ function uidFor(snapshot: string, role: string, label: string): string {
   return uid;
 }
 
+async function fillLabel(label: string, value: string, session: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await snapshot(session);
+    try {
+      await browser(['fill', `@${uidFor(current, 'textbox', label)}`, value], session);
+      return;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('STALE_REF') || attempt === 2) throw error;
+      await delay(150);
+    }
+  }
+}
+
 async function clickLabel(_snapshot: string, label: string, session: string): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const current = await snapshot(session);
@@ -301,8 +314,7 @@ async function runProductGate(): Promise<void> {
     state = await waitForText(session, 'Privacy & Data Control');
     await clickLabel(state, 'Delete local history', session);
     state = await waitForText(session, 'Delete local history?');
-    const confirmUid = uidFor(state, 'textbox', 'DELETE');
-    await browser(['fill', `@${confirmUid}`, 'DELETE'], session);
+    await fillLabel('DELETE', 'DELETE', session);
     state = await snapshot(session);
     await clickLabel(await snapshot(session), 'Delete permanently', session);
     state = await waitForText(session, 'History permanently cleared from SQLite.');

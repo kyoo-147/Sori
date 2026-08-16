@@ -70,6 +70,8 @@ pub enum Request {
         model: Option<ModelId>,
     },
     Doctor,
+    /// Probe configured microphone permission/device readiness without opening a recording session.
+    AudioReadiness,
     ConfigSummary,
     /// Enumerate the daemon's provider-owned model catalog and readiness.
     Models,
@@ -166,6 +168,7 @@ impl Request {
 pub enum Response {
     Status(StatusResponse),
     Doctor(DoctorResponse),
+    AudioReadiness(AudioReadinessResponse),
     ConfigSummary(ConfigSummaryResponse),
     Setting(SettingResponse),
     Models(ModelsResponse),
@@ -223,6 +226,23 @@ pub struct DoctorCheck {
     pub name: String,
     pub ok: bool,
     pub detail: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AudioReadinessState {
+    Unavailable,
+    PermissionRequired,
+    DeviceUnavailable,
+    Ready,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioReadinessResponse {
+    pub state: AudioReadinessState,
+    pub configured: bool,
+    pub detail: String,
+    /// A readiness probe does not record audio; physical speech remains unverified.
+    pub signal: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -719,6 +739,12 @@ impl Transport for MockTransport {
             Request::Doctor => Response::Doctor(DoctorResponse {
                 status: state.status.clone(),
                 checks: state.checks.clone(),
+            }),
+            Request::AudioReadiness => Response::AudioReadiness(AudioReadinessResponse {
+                state: AudioReadinessState::Unavailable,
+                configured: false,
+                detail: "mock transport does not probe a physical microphone".into(),
+                signal: "UNVERIFIED".into(),
             }),
             Request::ConfigSummary => Response::ConfigSummary(state.config.clone()),
             Request::ResourceGet { resource } => Response::Resource(ResourceResponse {
@@ -1303,6 +1329,17 @@ mod tests {
                 .unwrap()
                 .events_len(),
             1
+        );
+    }
+
+    #[test]
+    fn audio_readiness_contract_is_truthful_for_mock_transport() {
+        let response = MockIpcServer::default()
+            .client()
+            .request(Request::AudioReadiness)
+            .unwrap();
+        assert!(
+            matches!(response, Response::AudioReadiness(value) if value.state == AudioReadinessState::Unavailable && !value.configured && value.signal == "UNVERIFIED")
         );
     }
 

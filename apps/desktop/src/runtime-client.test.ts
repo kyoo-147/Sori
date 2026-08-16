@@ -120,3 +120,21 @@ describe('RuntimeClient query errors', () => {
     expect(result.error).toContain('SQLite is locked');
   });
 });
+
+describe('RuntimeClient microphone readiness', () => {
+  it('returns daemon readiness without treating signal as verified speech', async () => {
+    let operation = '';
+    const client = new RuntimeClient({ source: 'backend', request: async (name) => { operation = name; return { AudioReadiness: { state: 'Ready', configured: true, detail: 'device is discoverable', signal: 'UNVERIFIED' } }; } });
+    const result = await client.audioReadiness();
+    expect(operation).toBe('audio_readiness');
+    expect(result.data).toMatchObject({ state: 'Ready', configured: true, signal: 'UNVERIFIED' });
+    expect(result.error).toBeNull();
+  });
+
+  it('preserves permission guidance from the daemon', async () => {
+    const client = new RuntimeClient(transport({ AudioReadiness: { state: 'PermissionRequired', configured: true, detail: 'allow Sori in Windows microphone settings', signal: 'UNVERIFIED' } }));
+    const result = await client.audioReadiness();
+    expect(result.data.state).toBe('PermissionRequired');
+    expect(result.data.detail).toContain('Windows microphone');
+  });
+});

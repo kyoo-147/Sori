@@ -771,6 +771,33 @@ async fn main() -> Result<()> {
                 handler_store.set_setting("resource.route", &route).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark recommendation compatibility persistence failed: {e}")))?;
                 Response::Resource(sori_ipc::ResourceResponse { resource: "route".into(), value: route })
             }
+            Request::AudioReadiness => {
+                let slot = match handler_runtime.try_lock() {
+                    Ok(slot) => slot,
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        return Ok(Response::AudioReadiness(sori_ipc::AudioReadinessResponse {
+                            state: sori_ipc::AudioReadinessState::Unavailable,
+                            configured: false,
+                            detail: "unavailable while another runtime operation is in progress; retry shortly".into(),
+                            signal: "UNVERIFIED".into(),
+                        }));
+                    }
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        return Err(sori_ipc::IpcError::Transport("runtime lock poisoned".into()));
+                    }
+                };
+                let (state, configured, detail) = match slot.as_ref() {
+                    None => (sori_ipc::AudioReadinessState::Unavailable, false, "unavailable while a dictation operation is cleaning up".into()),
+                    Some(runtime) if !runtime.audio_available() => (sori_ipc::AudioReadinessState::Unavailable, false, "microphone capture adapter is unavailable; install or enable the native audio backend".into()),
+                    Some(runtime) => match runtime.audio_readiness() {
+                        Ok(()) => (sori_ipc::AudioReadinessState::Ready, true, "configured input device is discoverable and accepts the configured format; no recording was made".into()),
+                        Err(sori_core::AudioError::MissingPermission) => (sori_ipc::AudioReadinessState::PermissionRequired, true, "Windows microphone permission is required; allow Sori in Privacy & security > Microphone, then check again".into()),
+                        Err(sori_core::AudioError::DeviceUnavailable(error)) => (sori_ipc::AudioReadinessState::DeviceUnavailable, true, format!("configured input device is unavailable: {error}")),
+                        Err(error) => (sori_ipc::AudioReadinessState::Unavailable, true, format!("microphone readiness could not be verified: {error}")),
+                    },
+                };
+                Response::AudioReadiness(sori_ipc::AudioReadinessResponse { state, configured, detail, signal: "UNVERIFIED".into() })
+            }
             Request::Doctor => {
                 let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);

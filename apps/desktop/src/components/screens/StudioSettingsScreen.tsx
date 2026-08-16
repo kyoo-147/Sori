@@ -31,7 +31,8 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
   const [configMsg, setConfigMsg] = useState<string | null>(null);
   const [savingHotkey, setSavingHotkey] = useState(false);
   const [hotkeyDraft, setHotkeyDraft] = useState(settings.hotkey);
-  const [micCheck, setMicCheck] = useState<string>('UNVERIFIED: microphone status has not been reported by sorid.');
+  const [micCheck, setMicCheck] = useState<string>('UNVERIFIED: microphone readiness has not been checked.');
+  const [micReadiness, setMicReadiness] = useState<'checking' | 'ready' | 'attention' | 'unverified'>('unverified');
 
   useEffect(() => {
     runtimeClient.configSummary().then((result) => {
@@ -40,11 +41,15 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
       setHotkeyDraft(config.hotkey);
       setSettings((current) => ({ ...current, hotkey: config.hotkey }));
     });
-    runtimeClient.doctor().then((result) => {
-      const check = result.data.find((item) => item.name === 'microphone' || item.name === 'microphone-permission');
-      if (check) setMicCheck(`${check.ok ? 'Reported ready' : 'Unavailable'}: ${check.detail}`);
-    });
+    void checkMicrophone();
   }, [runtimeClient, setSettings]);
+  const checkMicrophone = async () => {
+    setMicReadiness('checking');
+    const result = await runtimeClient.audioReadiness();
+    if (result.error) { setMicReadiness('unverified'); setMicCheck(`UNVERIFIED: ${result.error}`); return; }
+    setMicReadiness(result.data.state === 'Ready' ? 'ready' : 'attention');
+    setMicCheck(`${result.data.state}: ${result.data.detail} Physical speech signal: ${result.data.signal}.`);
+  };
 
   const saveHotkey = async () => {
     const binding = hotkeyDraft.trim();
@@ -79,7 +84,7 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
     { id: 'Data & Privacy', label: 'Data & Privacy', icon: <Shield className="w-3.5 h-3.5" /> },
   ];
 
-  const handleTestMic = () => setMicTestMsg('Unavailable: microphone test IPC is not exposed. No hardware signal was claimed.');
+  const handleTestMic = async () => { setMicTestMsg('Checking configured device and permission…'); await checkMicrophone(); setMicTestMsg('Readiness checked without recording. Speak into the microphone only during an opted-in native acceptance run.'); };
 
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-6 text-[#161616]">
@@ -142,9 +147,10 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
           {activeTab === 'Microphone' && (
             <div className="space-y-4 text-xs">
               <p className="text-[#5F6368]">Microphone discovery, permission, device selection, and level testing are owned by sorid. This screen does not claim hardware state.</p>
-              <div className="p-3 bg-[#FFF7E6] border border-[#EBD9A8] rounded-[10px] text-[#6B552C]">{micCheck}</div>
+              <div className={`p-3 border rounded-[10px] ${micReadiness === 'ready' ? 'bg-[#E8F1E9] border-[#BFD7C5] text-[#315C42]' : 'bg-[#FFF7E6] border-[#EBD9A8] text-[#6B552C]'}`} role="status">{micCheck}</div>
               {micTestMsg && <div className="p-3 bg-[#EEF2F6] border border-[#D5E0EA] rounded-[10px] text-[#24384C] font-mono text-[11px]">{micTestMsg}</div>}
-              <button type="button" onClick={handleTestMic} className="px-4 py-2 bg-white text-[#858A90] rounded-[10px] font-medium border border-[#E2E4E8] cursor-not-allowed" disabled title="Microphone test IPC is not exposed">Test Microphone (Unavailable)</button>
+              <button type="button" onClick={() => void handleTestMic()} disabled={micReadiness === 'checking'} className="px-4 py-2 bg-white text-[#24384C] rounded-[10px] font-medium border border-[#D5E0EA] disabled:opacity-50">Check microphone readiness</button>
+              <p className="text-[11px] text-[#858A90]">This checks only software-visible configuration, permission errors, and device availability. It does not record or claim speech input.</p>
             </div>
           )}
 

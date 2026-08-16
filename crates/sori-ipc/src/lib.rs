@@ -833,6 +833,29 @@ mod tests {
     }
 
     #[test]
+    fn settings_resource_round_trip_preserves_daemon_authority_contract() {
+        let request = Request::ResourceSet {
+            resource: "settings".into(),
+            value: serde_json::json!({"hotkey":"Ctrl+Alt+K","theme":"clean-light"}),
+        };
+        let encoded = serde_json::to_string(&request).unwrap();
+        assert!(matches!(
+            serde_json::from_str::<Request>(&encoded).unwrap(),
+            Request::ResourceSet { resource, value }
+                if resource == "settings" && value["hotkey"] == "Ctrl+Alt+K"
+        ));
+        let response = Response::Resource(ResourceResponse {
+            resource: "settings".into(),
+            value: serde_json::json!({"hotkey":"Ctrl+Alt+K","theme":"clean-light"}),
+        });
+        let encoded = serde_json::to_string(&response).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Response>(&encoded).unwrap(),
+            response
+        );
+    }
+
+    #[test]
     fn benchmark_recommendation_request_and_route_response_are_json_contracts() {
         let request = Request::ApplyBenchmarkRecommendation {
             model: Some(ModelId::from("whisper.cpp/ready")),

@@ -30,12 +30,14 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
   const [micTestMsg, setMicTestMsg] = useState<string | null>(null);
   const [configMsg, setConfigMsg] = useState<string | null>(null);
   const [savingHotkey, setSavingHotkey] = useState(false);
+  const [hotkeyDraft, setHotkeyDraft] = useState(settings.hotkey);
   const [micCheck, setMicCheck] = useState<string>('UNVERIFIED: microphone status has not been reported by sorid.');
 
   useEffect(() => {
     runtimeClient.configSummary().then((result) => {
       if (result.error || !result.data) return;
       const config = result.data;
+      setHotkeyDraft(config.hotkey);
       setSettings((current) => ({ ...current, hotkey: config.hotkey }));
     });
     runtimeClient.doctor().then((result) => {
@@ -45,7 +47,7 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
   }, [runtimeClient, setSettings]);
 
   const saveHotkey = async () => {
-    const binding = settings.hotkey.trim();
+    const binding = hotkeyDraft.trim();
     if (!binding) {
       setConfigMsg('Enter a combination such as Ctrl+Alt+K.');
       return;
@@ -154,8 +156,8 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
                   <label className="font-semibold text-[#161616]">Push-to-Talk Hotkey:</label>
                   <input
                     type="text"
-                    value={settings.hotkey}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, hotkey: e.target.value }))}
+                    value={hotkeyDraft}
+                    onChange={(e) => setHotkeyDraft(e.target.value)}
                     onBlur={() => void saveHotkey()}
                     onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveHotkey(); } }}
                     aria-describedby="hotkey-help"

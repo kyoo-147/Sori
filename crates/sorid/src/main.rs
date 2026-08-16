@@ -510,15 +510,25 @@ async fn main() -> Result<()> {
                 detail: format!("extension {id} command {command} was not executed: isolated extension host is not installed"),
             }),
             Request::Status => {
-                let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
+                // Do not wait behind native adapter work; while an operation owns
+                // the slot, the stable response is the busy status view.
+                let slot = match handler_runtime.try_lock() {
+                    Ok(slot) => slot,
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        return Ok(Response::Status(busy_status_response(&config_snapshot, privacy)));
+                    }
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        return Err(sori_ipc::IpcError::Transport("runtime lock poisoned".into()));
+                    }
+                };
                 Response::Status(slot.as_ref().map(|runtime| status_response(runtime, &config_snapshot, privacy)).unwrap_or_else(|| busy_status_response(&config_snapshot, privacy)))
             }
             Request::DictationStart => {
                 let cancellation = CancellationToken::new();
                 *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = Some(cancellation.clone());
                 let mut runtime = handler_runtime
-                    .lock()
-                    .map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?
+                    .try_lock()
+                    .map_err(|_| sori_ipc::IpcError::Transport("runtime operation is busy; retry shortly".into()))?
                     .take()
                     .ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 if let Err(error) = runtime.start_audio() {

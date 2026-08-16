@@ -253,7 +253,12 @@ impl<B: EventBus> DaemonRuntime<B> {
     }
 
     pub fn whisper_available(&self) -> bool {
-        self.provider.is_some()
+        self.provider.as_ref().is_some_and(|provider| {
+            provider
+                .manifests()
+                .iter()
+                .any(|manifest| provider.can_transcribe(&manifest.id))
+        })
     }
 
     pub fn transcribe_captured(&mut self, model: &ModelId) -> Result<Transcript, ModelError> {

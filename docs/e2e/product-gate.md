@@ -61,3 +61,19 @@ host-dependent voice/provider gaps are explicit `UNVERIFIED`/`SKIP` outcomes.
 The gate fails only on contract, persistence, ownership, or recovery regressions;
 host-dependent voice/provider gaps are explicit `UNVERIFIED`/`SKIP` outcomes.
 It writes the exact result to `.tmp/e2e-full-product/evidence.json`.
+
+## Model readiness/import acceptance
+
+The model gate is fail-closed and user-owned: Sori never downloads or bundles
+whisper.cpp or model weights. `Models` must expose the configured provider,
+executable/model-directory paths, and only artifacts that exist below the
+configured directory. Each discovered/imported manifest reports its SHA-256,
+source path/provenance, and declared license; an undeclared license remains
+explicitly `Not declared (user-supplied artifact)`.
+
+Acceptance evidence must include: (1) missing executable or model assets remain
+`available=false`/`UNAVAILABLE` and cannot load, warm, or transcribe; (2) a
+real user-supplied artifact with a matching 64-character SHA-256 is imported
+atomically; and (3) its manifest, checksum, source, and license survive SQLite
+close/reopen. A checksum mismatch or provider-unavailable response is a hard
+failure, not a fallback or synthetic model.

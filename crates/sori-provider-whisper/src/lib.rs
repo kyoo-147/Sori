@@ -562,6 +562,9 @@ impl WhisperCppProvider {
             if path.is_file() && path.extension().is_some_and(|ext| ext == "bin") {
                 let id = path.file_name().unwrap().to_string_lossy().into_owned();
                 let size = fs::metadata(&path).ok().map(|m| m.len());
+                let sha256 = fs::read(&path)
+                    .ok()
+                    .map(|bytes| format!("{:x}", sha2::Sha256::digest(bytes)));
                 models.push(ModelManifest {
                     id: ModelId::from(id.as_str()),
                     display_name: id,
@@ -571,10 +574,12 @@ impl WhisperCppProvider {
                     disk_size_bytes: size,
                     ram_bytes: None,
                     license: sori_core::ModelLicense {
-                        name: "whisper.cpp model license".into(),
+                        name: "Not declared (user-supplied artifact)".into(),
                         url: None,
                         attribution: None,
                     },
+                    source: Some(path.display().to_string()),
+                    sha256,
                 });
             }
         }
@@ -588,7 +593,15 @@ impl WhisperCppProvider {
         output: &Path,
         format: OutputFormat,
     ) -> Result<ExternalProcessSpec, ModelError> {
-        if !self.can_transcribe(model) {
+        if self.model_dir.is_some() {
+            self.verified_model_path(model)?;
+        } else if !self
+            .manifests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|manifest| &manifest.id == model)
+        {
             return Err(ModelError::Unsupported(model.clone()));
         }
         let model_path = if self.model_dir.is_some() {
@@ -1089,18 +1102,13 @@ impl ModelProvider for WhisperCppProvider {
         self.manifests.lock().unwrap().clone()
     }
     fn can_transcribe(&self, model: &ModelId) -> bool {
-        self.manifests
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|manifest| &manifest.id == model)
-            || self.verified_model_path(model).is_ok()
+        self.executable.is_file() && self.verified_model_path(model).is_ok()
     }
     fn runtime_status(&self, model: &ModelId) -> RuntimeStatus {
         let status = self.status(model);
         RuntimeStatus {
             model: model.clone(),
-            installed: status.model_path.is_some(),
+            installed: self.can_transcribe(model),
             loaded: self.is_loaded(model),
             warm: self.is_warm(model),
             memory_bytes: None,
@@ -1459,6 +1467,8 @@ mod tests {
                 url: None,
                 attribution: None,
             },
+            source: Some("deterministic-test".into()),
+            sha256: None,
         }
     }
 

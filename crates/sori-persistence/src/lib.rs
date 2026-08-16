@@ -790,7 +790,7 @@ mod tests {
             .set_setting("privacy.mode", &serde_json::json!("local-only"))
             .unwrap();
         store
-            .save_model_manifest("whisper", &serde_json::json!({"version": 1}))
+            .save_model_manifest("whisper", &serde_json::json!({"version": 1, "source": "C:/Users/test/models/ggml-base.en.bin", "sha256": "a".repeat(64), "license": {"name": "Not declared (user-supplied artifact)"}}))
             .unwrap();
         assert_eq!(store.model_manifests().unwrap().len(), 1);
         store
@@ -802,7 +802,9 @@ mod tests {
         );
         assert_eq!(
             store.model_manifest("whisper").unwrap(),
-            Some(serde_json::json!({"version": 1}))
+            Some(
+                serde_json::json!({"version": 1, "source": "C:/Users/test/models/ggml-base.en.bin", "sha256": "a".repeat(64), "license": {"name": "Not declared (user-supplied artifact)"}})
+            )
         );
         assert_eq!(
             store.model_route("default").unwrap(),
@@ -812,7 +814,9 @@ mod tests {
         let reopened = SqliteStore::open(database.path()).unwrap();
         assert_eq!(
             reopened.model_manifest("whisper").unwrap(),
-            Some(serde_json::json!({"version": 1}))
+            Some(
+                serde_json::json!({"version": 1, "source": "C:/Users/test/models/ggml-base.en.bin", "sha256": "a".repeat(64), "license": {"name": "Not declared (user-supplied artifact)"}})
+            )
         );
         assert_eq!(
             reopened.model_route("default").unwrap(),

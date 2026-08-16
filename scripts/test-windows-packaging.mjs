@@ -12,6 +12,9 @@ const fail = (message) => {
 };
 
 if (!config.bundle?.active) fail('Tauri bundling is disabled');
+if (config.plugins?.updater || packageJson.dependencies?.['tauri-plugin-updater'] || packageJson.devDependencies?.['tauri-plugin-updater']) {
+  fail('automatic updater configuration is not shipped in the MVP without signed endpoint evidence');
+}
 for (const target of ['nsis', 'msi']) {
   if (!config.bundle.targets?.includes(target)) fail(`missing ${target} target`);
 }
@@ -43,7 +46,7 @@ if (!acceptance.includes("ValidateSet('bundle', 'installed', 'launch', 'restart'
 if (acceptance.includes("'crash-recovery'")) fail('acceptance must not expose unsupported automatic crash recovery');
 if (!acceptance.includes('automatic crash recovery is not supported')) fail('acceptance must state truthful restart-on-request behavior');
 const docs = readFileSync(resolve(root, 'docs/backend/windows-packaging.md'), 'utf8').replace(/\r\n/g, '\n');
-for (const required of ['NSIS', 'MSI', 'SORI_WHISPER_CPP_BIN', 'Crash restart', 'UNVERIFIED']) {
+for (const required of ['NSIS', 'MSI', 'SORI_WHISPER_CPP_BIN', 'Crash restart', 'UNVERIFIED', 'Automatic desktop updates are not shipped in the MVP', 'Tauri updater plugin', 'release-signing public key']) {
   if (!docs.includes(required)) fail(`packaging documentation is missing ${required}`);
 }
 if (!docs.includes('-Phase launch')) fail('packaging documentation must use the valid -Phase launch parameter');

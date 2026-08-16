@@ -44,6 +44,18 @@ impl SqliteStore {
 
     fn from_connection(connection: Connection) -> Result<Self> {
         connection.execute_batch(MIGRATION)?;
+        let columns = connection
+            .prepare("PRAGMA table_info(benchmark_runs)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        if !columns.iter().any(|column| column == "manifest_json") {
+            connection
+                .execute_batch("ALTER TABLE benchmark_runs ADD COLUMN manifest_json TEXT;")?;
+        }
+        if !columns.iter().any(|column| column == "evidence_class") {
+            connection
+                .execute_batch("ALTER TABLE benchmark_runs ADD COLUMN evidence_class TEXT;")?;
+        }
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -288,11 +300,13 @@ impl SqliteStore {
 
     pub fn save_benchmark(&self, result: &BenchmarkResult) -> Result<()> {
         self.connection()?.execute(
-            "INSERT INTO benchmark_runs (id, at, result_json) VALUES (?1, ?2, ?3)",
+            "INSERT INTO benchmark_runs (id, at, result_json, manifest_json, evidence_class) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 uuid::Uuid::new_v4().to_string(),
                 unix_timestamp(),
-                serde_json::to_string(result)?
+                serde_json::to_string(result)?,
+                serde_json::to_string(&result.provenance)?,
+                result.provenance.evidence_class.to_string()
             ],
         )?;
         Ok(())
@@ -300,10 +314,59 @@ impl SqliteStore {
 
     pub fn recent_benchmarks(&self, limit: usize) -> Result<Vec<BenchmarkResult>> {
         let connection = self.connection()?;
-        let mut statement = connection
-            .prepare("SELECT result_json FROM benchmark_runs ORDER BY at DESC, id DESC LIMIT ?1")?;
-        let rows = statement.query_map([limit as i64], |row| row.get::<_, String>(0))?;
-        rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
+        let mut statement = connection.prepare(
+            "SELECT result_json, manifest_json, evidence_class FROM benchmark_runs ORDER BY at DESC, id DESC LIMIT ?1",
+        )?;
+        let rows = statement.query_map([limit as i64], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (result_json, manifest_json, evidence_class) = row?;
+            Self::decode_benchmark_result(
+                &result_json,
+                manifest_json.as_deref(),
+                evidence_class.as_deref(),
+            )
+        })
+        .collect()
+    }
+
+    fn decode_benchmark_result(
+        result_json: &str,
+        manifest_json: Option<&str>,
+        evidence_class: Option<&str>,
+    ) -> Result<BenchmarkResult> {
+        if let Ok(result) = serde_json::from_str(result_json) {
+            return Ok(result);
+        }
+        let mut value: serde_json::Value = serde_json::from_str(result_json)?;
+        if value.get("provenance").is_none() {
+            let manifest = manifest_json
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+            .unwrap_or_else(|| {
+                serde_json::json!({
+                    "manifest_version": 0,
+                    "evidence_class": evidence_class.unwrap_or("deterministic-test"),
+                    "audio_sha256": null,
+                    "audio_bytes": null,
+                    "audio_duration_seconds": null,
+                    "sample_rate_hz": null,
+                    "channels": null,
+                    "reference_sha256": null,
+                    "reference_absent_reason": "legacy benchmark row without provenance manifest",
+                    "provider": value.get("provider").and_then(|v| v.as_str()).unwrap_or("legacy"),
+                    "model": value.get("model").cloned().unwrap_or_else(|| serde_json::Value::String("legacy".into())),
+                    "run_id": value.get("run_id").cloned().unwrap_or(serde_json::Value::Null),
+                    "source_commit": null
+                })
+            });
+            value["provenance"] = manifest;
+        }
+        Ok(serde_json::from_value(value)?)
     }
 
     pub fn try_publish_event(&self, event: &Event) -> Result<()> {
@@ -449,7 +512,10 @@ fn to_sqlite_error(error: impl std::fmt::Display) -> rusqlite::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sori_core::{EventKind, FastIntent, ModelId, ModelRoute, Transcript};
+    use sori_core::{
+        AudioChunk, AudioFormat, EventKind, FastIntent, ModelId, ModelRoute, SampleFormat,
+        Transcript,
+    };
     use tempfile::NamedTempFile;
     use uuid::Uuid;
 
@@ -468,6 +534,97 @@ mod tests {
             }),
             inserted_text: Some(text.into()),
         }
+    }
+
+    struct BenchmarkProvider;
+    impl sori_core::ModelProvider for BenchmarkProvider {
+        fn provider_name(&self) -> &'static str {
+            "deterministic-test-provider"
+        }
+        fn can_transcribe(&self, _: &ModelId) -> bool {
+            true
+        }
+        fn transcribe(
+            &self,
+            _: &ModelId,
+            _: &[AudioChunk],
+        ) -> std::result::Result<Transcript, sori_core::ModelError> {
+            Ok(Transcript::plain("ok"))
+        }
+    }
+
+    #[test]
+    fn benchmark_provenance_migrates_and_survives_reopen() {
+        let database = NamedTempFile::new().unwrap();
+        let input = sori_core::BenchmarkInput {
+            model: ModelId::from("test-model"),
+            audio: vec![AudioChunk {
+                captured_at: OffsetDateTime::UNIX_EPOCH,
+                format: AudioFormat {
+                    sample_rate_hz: 100,
+                    channels: 1,
+                    sample_format: SampleFormat::F32,
+                },
+                samples: vec![0.25; 100],
+            }],
+            reference: None,
+            iterations: 2,
+        };
+        let result = sori_core::run_benchmark(&BenchmarkProvider, &input).unwrap();
+        assert_eq!(
+            result.provenance.evidence_class,
+            sori_core::EvidenceClass::DeterministicTest
+        );
+        assert_eq!(result.provenance.audio_bytes, Some(400));
+        {
+            SqliteStore::open(database.path())
+                .unwrap()
+                .save_benchmark(&result)
+                .unwrap();
+        }
+        let reopened = SqliteStore::open(database.path()).unwrap();
+        let persisted = reopened.recent_benchmarks(1).unwrap().pop().unwrap();
+        assert_eq!(persisted.provenance, result.provenance);
+    }
+    #[test]
+    fn legacy_benchmark_rows_gain_explicit_unverified_provenance() {
+        let database = NamedTempFile::new().unwrap();
+        let store = SqliteStore::open(database.path()).unwrap();
+        let input = sori_core::BenchmarkInput {
+            model: ModelId::from("legacy-model"),
+            audio: vec![AudioChunk {
+                captured_at: OffsetDateTime::UNIX_EPOCH,
+                format: AudioFormat {
+                    sample_rate_hz: 100,
+                    channels: 1,
+                    sample_format: SampleFormat::F32,
+                },
+                samples: vec![0.25; 100],
+            }],
+            reference: None,
+            iterations: 1,
+        };
+        let result = sori_core::run_benchmark(&BenchmarkProvider, &input).unwrap();
+        let mut legacy = serde_json::to_value(&result).unwrap();
+        legacy.as_object_mut().unwrap().remove("provenance");
+        store
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO benchmark_runs (id, at, result_json) VALUES (?1, ?2, ?3)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    unix_timestamp(),
+                    legacy.to_string()
+                ],
+            )
+            .unwrap();
+        let persisted = store.recent_benchmarks(1).unwrap().pop().unwrap();
+        assert_eq!(persisted.provenance.manifest_version, 0);
+        assert_eq!(
+            persisted.provenance.reference_absent_reason.as_deref(),
+            Some("legacy benchmark row without provenance manifest")
+        );
     }
 
     #[test]

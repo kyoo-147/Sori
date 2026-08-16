@@ -1055,6 +1055,7 @@ name = "sori-core"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "sha2",
  "thiserror 2.0.20",
  "time",
  "uuid",

@@ -16,3 +16,18 @@ and unit tests do not require hardware.
 A failed start is reported as an error and does not claim transcript or text
 insertion success. Record the exact device, Windows permission state, and
 error text when reporting a manual failure.
+
+## Physical hotkey acceptance artifact
+
+Run `scripts/windows-hotkey-injection-acceptance.ps1` with a real `sorid`/Sori
+executable and review the JSON artifact after the manual action. The harness
+never sends the configured hotkey or synthesizes microphone input. It snapshots
+`RecentHistory` and `RecentEvents` before the action, then requires a new
+history row whose `transcript.text` and `inserted_text` match the observed (or
+explicitly expected) text. It also records and requires
+`AudioStarted`, `AudioChunkCaptured`, `VadSpeechStarted`, `VadSpeechEnded`,
+`TranscriptFinal`, and `AudioStopped` from the post-action event journal.
+
+No user action, missing hardware/provider, empty target readback, missing
+history, or incomplete event chain remains a voice success: the artifact is
+`UNVERIFIED` (while setup/IPC/ownership failures are `BLOCKED`).

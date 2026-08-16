@@ -310,6 +310,7 @@ async fn main() -> Result<()> {
             config.hotkey.binding
         )
     })?;
+    let hotkey_history = Arc::clone(&store);
     let hotkey_result: Result<(HotkeyService, HotkeyServiceStatus), _> = start_hotkey_service(
         Arc::new(events.clone()),
         hotkey,
@@ -317,7 +318,35 @@ async fn main() -> Result<()> {
             if let Ok(mut slot) = hotkey_runtime.lock() {
                 if let Some(mut runtime) = slot.take() {
                     drop(slot);
-                    runtime.handle_hotkey(event, &hotkey_model);
+                    match event {
+                        sori_core::HotkeyEvent::Pressed => {
+                            runtime.handle_hotkey_with_pipeline(
+                                event,
+                                &hotkey_model,
+                                &mut RuntimeInjector::new(),
+                                &RuntimeTarget { identity: None },
+                                hotkey_history.as_ref(),
+                                &Vocabulary::default(),
+                            );
+                        }
+                        _ => match RuntimeTarget::capture() {
+                            Ok(target) => {
+                                let mut injector = RuntimeInjector::new();
+                                runtime.handle_hotkey_with_pipeline(
+                                    event,
+                                    &hotkey_model,
+                                    &mut injector,
+                                    &target,
+                                    hotkey_history.as_ref(),
+                                    &Vocabulary::default(),
+                                );
+                            }
+                            Err(error) => {
+                                tracing::warn!(detail = %error, "hotkey target capture unavailable");
+                                let _ = runtime.stop_audio(true);
+                            }
+                        },
+                    }
                     if let Ok(mut slot) = hotkey_runtime.lock() {
                         *slot = Some(runtime);
                     }

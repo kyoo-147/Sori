@@ -216,15 +216,6 @@ try {
   $artifact.transcript = $response.Transcript.text
   Pass "real Whisper fixture produced transcript: $($response.Transcript.text)"
   $artifact.steps.Add('real fixture audio traversed canonical provider and actual Windows SendInput path')
-  $history = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body (ConvertTo-Json @{ RecentHistory = @{ limit = 20 } } -Compress) -TimeoutSec 5
-  $entry = @($history.RecentHistory.entries | Where-Object { $_.transcript.text -eq $response.Transcript.text } | Select-Object -First 1)
-  if (-not $entry) { Fail 'SQLite RecentHistory did not contain the real injected transcript' }
-  if ($entry[0].inserted_text -ne $response.Transcript.text) { Fail 'SQLite history did not record inserted_text for the real target' }
-  if (-not $entry[0].route.reason -or $entry[0].route.reason -notmatch 'target=pid:\d+;hwnd:') { Fail 'backend history did not retain the immediate foreground target PID/HWND assertion' }
-  Pass "backend asserted focused target immediately before injection: $($entry[0].route.reason)"
-  Pass 'SQLite history persisted transcript and inserted_text'
-  $artifact.history = $entry[0]
-  $artifact.steps.Add('canonical RecentHistory returned persisted SQLite evidence')
   $status = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body (ConvertTo-Json 'Status') -TimeoutSec 5
   if (-not $status.Status.running) { Fail 'runtime status did not report running after injection' }
   Pass 'FE/runtime reconnect refresh boundary remained healthy through canonical Status/History reads'
@@ -239,13 +230,6 @@ try {
     $savedUtf8 = [Text.Encoding]::UTF8.GetString($savedBytes)
     if ($savedUnicode.Contains($response.Transcript.text)) { $targetText = $savedUnicode }
     elseif ($savedUtf8.Contains($response.Transcript.text)) { $targetText = $savedUtf8 }
-  }
-  if ($TargetKind -eq 'notepad' -and -not $targetText.Contains($response.Transcript.text)) {
-    $clipboardBefore = Get-Clipboard -Raw -ErrorAction SilentlyContinue
-    [System.Windows.Forms.SendKeys]::SendWait('^a'); [System.Windows.Forms.SendKeys]::SendWait('^c'); Start-Sleep -Milliseconds 400
-    $clipboardText = Get-Clipboard -Raw -ErrorAction SilentlyContinue
-    if ($clipboardText -and $clipboardText.Contains($response.Transcript.text)) { $targetText = $clipboardText }
-    if ($null -eq $clipboardBefore) { Set-Clipboard -Value '' } else { Set-Clipboard -Value $clipboardBefore }
   }
   $artifact.target_text = $targetText
   if (-not $targetText.Contains($response.Transcript.text)) {
@@ -266,6 +250,14 @@ try {
   } else {
     Pass "harness-owned $TargetKind contained actual Unicode SendInput output"
   }
+  $history = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body (ConvertTo-Json @{ RecentHistory = @{ limit = 20 } } -Compress) -TimeoutSec 5
+  $entry = @($history.RecentHistory.entries | Where-Object { $_.transcript.text -eq $response.Transcript.text -and $_.inserted_text -eq $response.Transcript.text } | Select-Object -First 1)
+  if (-not $entry) { Fail 'SQLite RecentHistory did not contain the verified real target insertion' }
+  if (-not $entry[0].route.reason -or $entry[0].route.reason -notmatch 'target=pid:\d+;hwnd:') { Fail 'backend history did not retain the immediate foreground target PID/HWND assertion' }
+  Pass "backend asserted focused target immediately before injection: $($entry[0].route.reason)"
+  Pass 'SQLite history persisted transcript and verified inserted_text'
+  $artifact.history = $entry[0]
+  $artifact.steps.Add('canonical RecentHistory returned persisted SQLite evidence after target readback')
   $artifact.status = 'VERIFIED'
 } catch {
   $artifact.steps.Add("ERROR: $($_.Exception.Message)")

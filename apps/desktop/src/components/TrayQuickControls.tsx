@@ -47,7 +47,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
       <div className="flex items-center justify-between pb-3 border-b border-[rgba(92,84,75,0.08)]">
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-[#4E7A61] animate-pulse"></div>
-          <span className="font-bold text-sm text-[#1C1B19]">Sori System Tray</span>
+          <span className="font-bold text-sm text-[#1C1B19]">Sori Quick Controls</span>
           <span className="text-[11px] px-2 py-0.5 rounded-full bg-[rgba(235,230,223,0.6)] text-[#68635D] font-mono border border-[rgba(92,84,75,0.08)]">
             {runtimeConnected ? (runtimeSource === 'native' ? 'Native Active' : 'Backend Active') : 'Unavailable'}
           </span>

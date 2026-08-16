@@ -85,13 +85,13 @@ export const SystemDesignScreen: React.FC = () => {
           {/* Glass Overlay Popover Specimen */}
           <div className="sori-overlay p-5 rounded-[16px] space-y-3 border border-[#D0D4DC]">
             <div className="flex items-center justify-between text-xs font-semibold text-[#161616]">
-              <span>sori-overlay Floating Tray</span>
+              <span>sori-overlay Quick Controls</span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-[6px] bg-[#EEF2F6] text-[#24384C] border border-[#D5E0EA]">
                 blur(24px)
               </span>
             </div>
             <p className="text-xs text-[#5F6368] leading-relaxed">
-              High-depth floating panel for system tray controls, warm model indicators, and hotkey status.
+              High-depth in-app panel for runtime controls, warm model indicators, and hotkey status. This is not an OS notification-area tray.
             </p>
             <div className="p-3 bg-white rounded-[10px] border border-[#E2E4E8] text-xs font-mono text-[#161616]">
               Active Context: Monochromatic Glass Layer

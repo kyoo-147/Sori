@@ -15,7 +15,7 @@ export type SettingsTab =
   | 'Microphone'
   | 'Overlay'
   | 'Text Injection'
-  | 'Startup & Tray'
+  | 'Startup & Runtime'
   | 'Profiles'
   | 'Labs'
   | 'Advanced'
@@ -69,7 +69,7 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
     { id: 'Microphone', label: 'Microphone', icon: <Mic className="w-3.5 h-3.5" /> },
     { id: 'Overlay', label: 'Overlay', icon: <Layers className="w-3.5 h-3.5" /> },
     { id: 'Text Injection', label: 'Text Injection', icon: <Terminal className="w-3.5 h-3.5" /> },
-    { id: 'Startup & Tray', label: 'Startup & Tray', icon: <Power className="w-3.5 h-3.5" /> },
+    { id: 'Startup & Runtime', label: 'Startup & Runtime', icon: <Power className="w-3.5 h-3.5" /> },
   ];
 
   const advancedTabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -212,10 +212,10 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
             </div>
           )}
 
-          {activeTab === 'Startup & Tray' && (
+          {activeTab === 'Startup & Runtime' && (
             <div className="space-y-4 text-xs">
-              <p className="text-[#5F6368]">Configure system startup and taskbar tray icon behavior.</p>
-              <div className="p-3 bg-[#FFF7E6] border border-[#EBD9A8] rounded-[12px] text-[#6B552C]">Unavailable: startup and tray persistence are not exposed by the canonical IPC contract.</div>
+              <p className="text-[#5F6368]">Configure startup and background runtime behavior.</p>
+              <div className="p-3 bg-[#FFF7E6] border border-[#EBD9A8] rounded-[12px] text-[#6B552C]">Unavailable: startup persistence and an OS notification-area icon are not exposed by the canonical IPC contract. Quick Controls are available only inside this app window.</div>
             </div>
           )}
 

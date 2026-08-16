@@ -114,6 +114,14 @@ try {
   $verifiedStatus = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $statusBody -TimeoutSec 2
   if ($verifiedStatus.Status.hotkey -ne $Hotkey) { throw "daemon reported hotkey '$($verifiedStatus.Status.hotkey)' instead of '$Hotkey' after rebind" }
   $artifact.steps += "canonical IPC rebind accepted and Status reported $Hotkey"
+  $historyRequest = @{ RecentHistory = @{ limit = 100 } } | ConvertTo-Json -Compress
+  $eventsRequest = @{ RecentEvents = @{ limit = 200 } } | ConvertTo-Json -Compress
+  $historyBefore = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $historyRequest -TimeoutSec 5
+  $eventsBefore = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $eventsRequest -TimeoutSec 5
+  $historyBeforeIds = @($historyBefore.RecentHistory.entries | ForEach-Object { [string]$_.id })
+  $eventsBeforeIds = @($eventsBefore.RecentEvents.events | ForEach-Object { [string]$_.id })
+  $artifact.baseline = [ordered]@{ history_count = $historyBeforeIds.Count; event_count = $eventsBeforeIds.Count }
+  $artifact.steps += "snapshotted $($historyBeforeIds.Count) history and $($eventsBeforeIds.Count) event rows before physical action"
   if ($PreflightOnly) {
     $artifact.status = 'UNVERIFIED'
     $artifact.steps += 'physical hotkey, microphone speech, and visible injection left for captain interaction'
@@ -139,11 +147,34 @@ try {
   $artifact.observed_text = $observed
   if ($ExpectedText -and $observed -notlike "*$ExpectedText*") { throw "owned target did not contain expected visible text; observed: $observed" }
   if (-not $observed) { throw 'Owned target contained no visible text after the physical action.' }
-  $artifact.status = 'VERIFIED'
   $artifact.steps += 'visible text observed in the harness-owned foreground target'
+  $historyAfter = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $historyRequest -TimeoutSec 5
+  $newHistory = @($historyAfter.RecentHistory.entries | Where-Object { $historyBeforeIds -notcontains ([string]$_.id) })
+  $candidates = @($observed.Trim())
+  if ($ExpectedText) { $candidates += $ExpectedText.Trim() }
+  $matchingHistory = @($newHistory | Where-Object {
+    $transcriptText = if ($_.transcript) { [string]$_.transcript.text } else { '' }
+    $insertedText = if ($null -ne $_.inserted_text) { [string]$_.inserted_text } else { '' }
+    $candidates -contains $transcriptText -and $candidates -contains $insertedText
+  } | Select-Object -First 1)
+  if (-not $matchingHistory) { throw "history evidence missing: no new entry matched observed or expected text (new=$($newHistory.Count))" }
+  $artifact.history = $matchingHistory[0]
+  $artifact.steps += 'canonical RecentHistory returned a new entry matching transcript and inserted_text'
+  $eventsAfter = Invoke-RestMethod -Uri $ipcUrl -Method Post -ContentType 'application/json' -Body $eventsRequest -TimeoutSec 5
+  $newEvents = @($eventsAfter.RecentEvents.events | Where-Object { $eventsBeforeIds -notcontains ([string]$_.id) })
+  $requiredEventKinds = @('AudioStarted', 'AudioChunkCaptured', 'VadSpeechStarted', 'VadSpeechEnded', 'TranscriptFinal', 'AudioStopped')
+  $eventEvidence = [ordered]@{}
+  foreach ($kind in $requiredEventKinds) {
+    $eventEvidence[$kind] = @($newEvents | Where-Object { [string]$_.kind -eq $kind })
+  }
+  $artifact.events = $eventEvidence
+  $missingEventKinds = @($requiredEventKinds | Where-Object { @($eventEvidence[$_]).Count -eq 0 })
+  if ($missingEventKinds.Count -gt 0) { throw "event evidence missing after physical action: $($missingEventKinds -join ', ')" }
+  $artifact.steps += 'canonical RecentEvents returned the required audio, VAD, transcript, and stop evidence'
+  $artifact.status = 'VERIFIED'
 }
 catch {
-  $artifact.status = if ($_.Exception.Message -like '*physical*' -or $_.Exception.Message -like '*visible*') { 'UNVERIFIED' } else { 'BLOCKED' }
+  $artifact.status = if ($_.Exception.Message -match 'physical|visible|history evidence|event evidence') { 'UNVERIFIED' } else { 'BLOCKED' }
   $artifact.error = $_.Exception.Message
   throw
 }

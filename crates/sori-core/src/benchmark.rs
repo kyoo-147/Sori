@@ -2,6 +2,7 @@
 
 use crate::{AudioChunk, CancellationToken, ModelError, ModelId, ModelProvider};
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::time::Instant;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -31,6 +32,38 @@ pub struct ReliabilityMetrics {
     pub failure_rate: f64,
     pub fallback_rate: Option<f64>,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EvidenceClass {
+    DeterministicTest,
+    RealProviderFixture,
+    NativeDevice,
+}
+impl std::fmt::Display for EvidenceClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::DeterministicTest => "deterministic-test",
+            Self::RealProviderFixture => "real-provider-fixture",
+            Self::NativeDevice => "native-device",
+        })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BenchmarkProvenance {
+    pub manifest_version: u32,
+    pub evidence_class: EvidenceClass,
+    pub audio_sha256: Option<String>,
+    pub audio_bytes: Option<usize>,
+    pub audio_duration_seconds: Option<f64>,
+    pub sample_rate_hz: Option<u32>,
+    pub channels: Option<u16>,
+    pub reference_sha256: Option<String>,
+    pub reference_absent_reason: Option<String>,
+    pub provider: String,
+    pub model: ModelId,
+    pub run_id: Uuid,
+    pub source_commit: Option<String>,
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BenchmarkResult {
     pub run_id: Uuid,
@@ -46,6 +79,7 @@ pub struct BenchmarkResult {
     pub accuracy: Option<AccuracyMetrics>,
     pub startup: StartupMetrics,
     pub reliability: ReliabilityMetrics,
+    pub provenance: BenchmarkProvenance,
 }
 impl BenchmarkResult {
     pub fn is_realtime(&self) -> bool {
@@ -176,6 +210,26 @@ pub fn run_benchmark_with_options(
             cer: Some(error_rate(&chars(reference), &chars(actual))),
         }
     });
+    let provider_name = provider.provider_name();
+    let lowered = provider_name.to_ascii_lowercase();
+    let evidence_class =
+        if lowered.contains("test") || lowered.contains("mock") || lowered.contains("fake") {
+            EvidenceClass::DeterministicTest
+        } else {
+            EvidenceClass::RealProviderFixture
+        };
+    let audio_bytes = input
+        .audio
+        .iter()
+        .map(|chunk| chunk.samples.len() * std::mem::size_of::<f32>())
+        .sum::<usize>();
+    let mut audio_digest = sha2::Sha256::new();
+    for chunk in &input.audio {
+        for sample in &chunk.samples {
+            audio_digest.update(sample.to_le_bytes());
+        }
+    }
+    let first_format = input.audio.first().map(|chunk| chunk.format.clone());
     Ok(BenchmarkResult {
         run_id,
         started_at,
@@ -203,6 +257,29 @@ pub fn run_benchmark_with_options(
             // percentile metrics use successful invocations only.
             failure_rate: failures as f64 / iterations as f64,
             fallback_rate: None,
+        },
+        provenance: BenchmarkProvenance {
+            manifest_version: 1,
+            evidence_class,
+            audio_sha256: (audio_bytes > 0).then(|| format!("{:x}", audio_digest.finalize())),
+            audio_bytes: (audio_bytes > 0).then_some(audio_bytes),
+            audio_duration_seconds: (audio_seconds > 0.0).then_some(audio_seconds),
+            sample_rate_hz: first_format.as_ref().map(|format| format.sample_rate_hz),
+            channels: first_format.as_ref().map(|format| format.channels),
+            reference_sha256: input
+                .reference
+                .as_ref()
+                .map(|reference| format!("{:x}", sha2::Sha256::digest(reference.as_bytes()))),
+            reference_absent_reason: input
+                .reference
+                .is_none()
+                .then(|| "reference transcript not supplied".into()),
+            provider: provider_name.into(),
+            model: input.model.clone(),
+            run_id,
+            source_commit: std::env::var("SORI_SOURCE_COMMIT")
+                .ok()
+                .filter(|value| !value.is_empty()),
         },
     })
 }

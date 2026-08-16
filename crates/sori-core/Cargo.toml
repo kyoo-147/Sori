@@ -11,5 +11,6 @@ serde.workspace = true
 thiserror.workspace = true
 time.workspace = true
 uuid.workspace = true
+sha2 = "0.10"
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true

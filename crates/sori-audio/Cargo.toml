@@ -11,3 +11,6 @@ cpal.workspace = true
 sori-core = { path = "../sori-core" }
 time.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+sori-provider-whisper = { path = "../sori-provider-whisper" }

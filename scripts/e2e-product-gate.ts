@@ -8,17 +8,17 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { DEFAULT_IPC_URL, binaryPath, parseEndpoint, requireEndpointFree, waitForEndpoint } from './e2e-desktop-backend.js';
 
 export const PRODUCT_NAVIGATION = [
-  { label: 'Home', expected: ['Sori is ready to help', 'Focused target window'] },
+  { label: 'Home', expected: ['Runtime overview', 'Focused target window'] },
   { label: 'Transcripts', expected: ['Transcripts timeline', 'Review captured audio'] },
   { label: 'Vocabulary', expected: ['Vocabulary & domain terms', 'Teach Sori names'] },
-  { label: 'Voice Edit', expected: ['Voice selection edit', 'Review the parsed instruction'] },
-  { label: 'Models & Routing', expected: ['Models & Routing', 'Choose where Sori processes speech'] },
-  { label: 'Benchmarks', expected: ['Auto Benchmark Engine', 'Benchmark test execution'] },
-  { label: 'Extensions', expected: ['Integrations & Extensions', 'Extension runtime is not installed'] },
-  { label: 'Privacy', expected: ['Privacy & Data Control', 'Local data & retention'] },
+  { label: 'Voice Edit', expected: ['Voice selection edit', 'Generate a daemon-backed diff'] },
+  { label: 'Models & Routing', expected: ['Models & Routing', 'Choose a canonical runtime route'] },
+  { label: 'Benchmarks', expected: ['Auto Benchmark Engine', 'Provider-backed measurements'] },
+  { label: 'Extensions', expected: ['Integrations & Extensions', 'Connect tools'] },
+  { label: 'Privacy', expected: ['Privacy & Data Control', 'Local-first by design'] },
   { label: 'Diagnostics', expected: ['Sori Doctor & System Diagnostics', 'System integrity checklist'] },
   { label: 'Settings', expected: ['Settings', 'Sori System Settings'] },
-  { label: 'First-Run Setup', expected: ['First Run Setup', 'Get ready to speak into any window'] },
+  { label: 'First-Run Setup', expected: ['Get ready to speak into any window', 'Private. Local. Ready when you are.'] }
 ] as const;
 
 export const UNVERIFIED_HARDWARE_CAPABILITIES = [
@@ -153,8 +153,30 @@ function uidFor(snapshot: string, role: string, label: string): string {
   return uid;
 }
 
-async function clickLabel(snapshot: string, label: string, session: string): Promise<void> {
-  await browser(['click', `@${uidFor(snapshot, 'button', label)}`], session);
+async function fillLabel(label: string, value: string, session: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await snapshot(session);
+    try {
+      await browser(['fill', `@${uidFor(current, 'textbox', label)}`, value], session);
+      return;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('STALE_REF') || attempt === 2) throw error;
+      await delay(150);
+    }
+  }
+}
+
+async function clickLabel(_snapshot: string, label: string, session: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await snapshot(session);
+    try {
+      await browser(['click', `@${uidFor(current, 'button', label)}`], session);
+      return;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('STALE_REF') || attempt === 2) throw error;
+      await delay(150);
+    }
+  }
 }
 
 async function snapshot(session: string): Promise<string> {
@@ -221,7 +243,7 @@ async function runProductGate(): Promise<void> {
 
     daemon = start(sorid, [], {
       SORI_IPC_URL: endpoint.toString(),
-      SORI_IPC_ADDR: endpoint.host,
+      SORI_IPC_ADDR: `${endpoint.hostname}:${endpoint.port || '80'}`,
       SORI_DATABASE_PATH: db,
       SORI_DB_PATH: db,
       SORI_E2E: '1',
@@ -236,7 +258,7 @@ async function runProductGate(): Promise<void> {
     await waitForHttp(webUrl);
 
     await browser(['newpage', webUrl], session);
-    let state = await waitForText(session, 'Sori is ready to help');
+    let state = await waitForText(session, 'Runtime overview');
     state = await waitForText(session, 'Backend');
     assertIncludes(state, 'Backend', 'real daemon-backed initial desktop state');
     assertNotIncludes(state, 'Mock fallback', 'real daemon-backed initial desktop state');
@@ -278,33 +300,25 @@ async function runProductGate(): Promise<void> {
     assertIncludes(state, 'UNVERIFIED', 'first-run setup capability boundary');
     console.log('PASS: First Run Setup renders truthful microphone/permission/hotkey states; physical hardware remains SKIP/UNVERIFIED.');
 
-    // Resilient transcript states are real controls in the product surface, not source-only assertions.
+    // Empty history is rendered from the real SQLite-backed response; state
+    // controls are not exposed in production as mock fixtures.
     state = await snapshot(session);
     await clickLabel(state, 'Transcripts', session);
     state = await waitForText(session, 'Transcripts timeline');
-    await clickLabel(state, 'Empty', session);
-    state = await waitForText(session, 'No transcripts yet');
-    assertNotIncludes(state, 'Transcript details', 'empty transcripts state');
-    await clickLabel(state, 'Loading', session);
-    const loadingPulseCount = Number(await evalBrowser(session, '() => document.querySelectorAll(".animate-pulse").length'));
-    if (loadingPulseCount < 1) throw new Error('loading transcripts state did not render skeleton rows');
-    await clickLabel(await snapshot(session), 'Error', session);
-    state = await waitForText(session, 'History could not be loaded');
-    await clickLabel(state, 'Retry', session);
-    state = await waitForText(session, 'No transcripts yet');
-    console.log('PASS: empty, loading, error, and retry transcript states.');
+    assertIncludes(state, 'No transcripts yet', 'real empty transcripts state');
+    assertIncludes(state, 'Retry', 'real empty transcripts retry control');
+    console.log('PASS: real empty transcript state and retry control.');
 
     // Destructive state: confirm the explicit DELETE guard, then prove the list is empty.
     await clickLabel(await snapshot(session), 'Privacy', session);
     state = await waitForText(session, 'Privacy & Data Control');
     await clickLabel(state, 'Delete local history', session);
     state = await waitForText(session, 'Delete local history?');
-    const confirmUid = uidFor(state, 'textbox', 'DELETE');
-    await browser(['fill', `@${confirmUid}`, 'DELETE'], session);
+    await fillLabel('DELETE', 'DELETE', session);
     state = await snapshot(session);
-    await clickLabel(state, 'Delete permanently', session);
-    state = await waitForText(session, 'History cleared from this UI session.');
-    await clickLabel(state, 'Transcripts', session);
+    await clickLabel(await snapshot(session), 'Delete permanently', session);
+    state = await waitForText(session, 'History permanently cleared from SQLite.');
+    await clickLabel(await snapshot(session), 'Transcripts', session);
     state = await waitForText(session, 'Transcripts timeline');
     assertIncludes(state, 'No transcripts yet', 'post-delete transcript state');
     console.log('PASS: destructive delete confirmation and empty post-delete state.');

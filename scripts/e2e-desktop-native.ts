@@ -1,3 +1,4 @@
+import { parseEndpoint, requireEndpointFree } from './e2e-desktop-backend.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -19,6 +20,7 @@ type WindowInfo = {
   width: number;
   height: number;
   style: number;
+  clientTop: number;
   minimized: boolean;
   maximized: boolean;
 };
@@ -67,6 +69,8 @@ using System;
 using System.Runtime.InteropServices;
 public static class ${className} {
   [DllImport("user32.dll", SetLastError = true)] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll", SetLastError = true)] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll", SetLastError = true)] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT point);
   [DllImport("user32.dll")] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr hWnd);
@@ -83,6 +87,7 @@ public static class ${className} {
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
   public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+  public struct POINT { public int X; public int Y; }
 }
 "@
 `;
@@ -95,6 +100,10 @@ $h = $p.MainWindowHandle
 if ($h -eq [IntPtr]::Zero) { throw "process ${pid} has no main window" }
 $r = New-Object SoriNativeWindowInfo+RECT
 if (-not [SoriNativeWindowInfo]::GetWindowRect($h, [ref]$r)) { throw "GetWindowRect failed" }
+$client = New-Object SoriNativeWindowInfo+RECT
+if (-not [SoriNativeWindowInfo]::GetClientRect($h, [ref]$client)) { throw "GetClientRect failed" }
+$clientOrigin = New-Object SoriNativeWindowInfo+POINT
+if (-not [SoriNativeWindowInfo]::ClientToScreen($h, [ref]$clientOrigin)) { throw "ClientToScreen failed" }
 [pscustomobject]@{
   handle = $h.ToInt64().ToString()
   left = $r.Left
@@ -104,6 +113,7 @@ if (-not [SoriNativeWindowInfo]::GetWindowRect($h, [ref]$r)) { throw "GetWindowR
   width = $r.Right - $r.Left
   height = $r.Bottom - $r.Top
   style = [SoriNativeWindowInfo]::GetWindowLongPtr($h, -16).ToInt64()
+  clientTop = $clientOrigin.Y
   minimized = [SoriNativeWindowInfo]::IsIconic($h)
   maximized = [SoriNativeWindowInfo]::IsZoomed($h)
 } | ConvertTo-Json -Compress
@@ -273,11 +283,11 @@ $bitmap.Dispose()
   };
 }
 
-async function waitForIpc(timeoutMs = 15_000): Promise<void> {
+async function waitForIpc(endpoint: URL, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch('http://127.0.0.1:17373/ipc', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify('Status'),
@@ -319,6 +329,8 @@ async function main(): Promise<void> {
     return;
   }
 
+  const endpoint = parseEndpoint(process.env.SORI_IPC_URL ?? `http://127.0.0.1:${17400 + (process.pid % 500)}/ipc`);
+  await requireEndpointFree(endpoint);
   const configPath = resolve('apps', 'desktop', 'src-tauri', 'tauri.conf.json');
   const config = JSON.parse(readFileSync(configPath, 'utf8')) as { app?: { windows?: Array<Record<string, unknown>> } };
   const windowConfig = config.app?.windows?.[0];
@@ -333,11 +345,8 @@ async function main(): Promise<void> {
 
   const app = desktopBinaryPath();
   if (!existsSync(app)) throw new Error(`desktop binary not found at ${app}`);
-  const existing = await fetch('http://127.0.0.1:17373/ipc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify('Status'), signal: AbortSignal.timeout(500) }).catch(() => null);
-  if (existing?.ok) throw new NativeEnvironmentSkip('loopback IPC 127.0.0.1:17373 is already owned by a daemon; refusing to attach to an unknown process');
-
   mkdirSync(ARTIFACT_DIR, { recursive: true });
-  const daemon = spawn(resolve('target', 'debug', 'sorid.exe'), [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+  const daemon = spawn(resolve('target', 'debug', 'sorid.exe'), [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host } });
   daemon.stdout?.on('data', (chunk) => process.stdout.write(`[sorid] ${chunk}`));
   daemon.stderr?.on('data', (chunk) => process.stderr.write(`[sorid] ${chunk}`));
   let appProcess: ChildProcess | null = null;
@@ -345,15 +354,15 @@ async function main(): Promise<void> {
   const assertions: string[] = [];
 
   try {
-    await waitForIpc();
-    appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+    await waitForIpc(endpoint);
+    appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host, SORI_DAEMON_PATH: resolve('target', 'debug', 'sorid.exe') } });
     appProcess.stdout?.on('data', (chunk) => process.stdout.write(`[desktop] ${chunk}`));
     appProcess.stderr?.on('data', (chunk) => process.stderr.write(`[desktop] ${chunk}`));
     if (!appProcess.pid) throw new Error('desktop process did not expose a PID');
     let info = await waitForNativeWindow(appProcess.pid);
-    const WS_CAPTION = 0x00c00000;
-    if ((info.style & WS_CAPTION) !== 0) throw new Error(`native shell still has a default caption bar (style=${info.style})`);
-    assertions.push('runtime Win32 style has no WS_CAPTION/default OS caption');
+    const nonClientTopInset = info.clientTop - info.top;
+    if (nonClientTopInset >= TITLEBAR_HEIGHT) throw new Error(`native shell still has a visible OS caption inset (${nonClientTopInset}px, style=${info.style})`);
+    assertions.push(`runtime client origin confirms no visible OS caption (${nonClientTopInset}px non-client inset)`);
     assertions.push('Tauri config disables decorations, centers launch, and retains custom minimum size');
     artifacts.push(await captureWindowNoFocus(appProcess.pid, resolve(ARTIFACT_DIR, '01-launch.png')));
 

@@ -22,6 +22,7 @@ interface TrayQuickControlsProps {
   runtimeSource: RuntimeSource;
   runtimeStatus: DaemonStatus;
   onTogglePaused: () => void;
+  onSetProfile: (profile: AppSettings['activeProfile']) => void;
 }
 
 export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
@@ -33,6 +34,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
   runtimeSource,
   runtimeStatus,
   onTogglePaused,
+  onSetProfile,
 }) => {
   if (!isOpen) return null;
 
@@ -47,7 +49,7 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
           <div className="w-2.5 h-2.5 rounded-full bg-[#4E7A61] animate-pulse"></div>
           <span className="font-bold text-sm text-[#1C1B19]">Sori System Tray</span>
           <span className="text-[11px] px-2 py-0.5 rounded-full bg-[rgba(235,230,223,0.6)] text-[#68635D] font-mono border border-[rgba(92,84,75,0.08)]">
-            {runtimeConnected ? (runtimeSource === 'native' ? 'Native Active' : 'Backend Active') : runtimeSource === 'mock' ? 'Mock Fallback' : 'Unavailable'}
+            {runtimeConnected ? (runtimeSource === 'native' ? 'Native Active' : 'Backend Active') : 'Unavailable'}
           </span>
         </div>
         <button
@@ -90,9 +92,9 @@ export const TrayQuickControls: React.FC<TrayQuickControlsProps> = ({
               type="button"
               key={prof}
               aria-pressed={settings.activeProfile === prof}
-              onClick={() => undefined}
-              disabled
-              title="Needs Wiring: profile persistence is not exposed by canonical IPC"
+              onClick={() => onSetProfile(prof)}
+              disabled={!runtimeConnected}
+              title={!runtimeConnected ? 'Needs Wiring: connect the canonical sorid runtime before changing profiles' : undefined}
               className={`px-2.5 py-1.5 rounded-[10px] text-xs font-medium flex items-center justify-between transition-all ${
                 settings.activeProfile === prof
                   ? 'bg-[rgba(221,217,211,0.46)] text-[#1C1B19] border border-[rgba(91,84,77,0.15)] font-semibold shadow-2xs'

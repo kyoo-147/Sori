@@ -22,6 +22,7 @@ pub enum SampleFormat {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioChunk {
+    #[serde(with = "time::serde::rfc3339")]
     pub captured_at: OffsetDateTime,
     pub format: AudioFormat,
     pub samples: Vec<f32>,
@@ -49,11 +50,18 @@ pub trait AudioDeviceProvider: Send + Sync {
     fn list_input_devices(&self) -> Result<Vec<AudioDeviceInfo>, AudioError>;
 }
 
+fn default_input_gain_percent() -> u16 {
+    100
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureConfig {
     pub device_id: Option<String>,
     pub format: AudioFormat,
     pub chunk_size_samples: u32,
+    /// Percentage of native input amplitude applied before DSP (100 = unity).
+    #[serde(default = "default_input_gain_percent")]
+    pub input_gain_percent: u16,
 }
 
 impl Default for CaptureConfig {
@@ -66,6 +74,7 @@ impl Default for CaptureConfig {
                 sample_format: SampleFormat::F32,
             },
             chunk_size_samples: 320,
+            input_gain_percent: 100,
         }
     }
 }
@@ -80,6 +89,11 @@ impl CaptureConfig {
         if self.chunk_size_samples == 0 {
             return Err(AudioError::InvalidConfiguration(
                 "chunk size must be greater than zero".into(),
+            ));
+        }
+        if self.input_gain_percent > 1_000 {
+            return Err(AudioError::InvalidConfiguration(
+                "input gain must be between 0% and 1000%".into(),
             ));
         }
         Ok(())
@@ -113,6 +127,7 @@ impl Default for DspPipelineConfig {
 pub struct AudioDsp {
     config: DspPipelineConfig,
     carry: Vec<f32>,
+    phase: f64,
 }
 
 impl AudioDsp {
@@ -121,6 +136,7 @@ impl AudioDsp {
         Ok(Self {
             config,
             carry: Vec::new(),
+            phase: 0.0,
         })
     }
 
@@ -148,6 +164,7 @@ impl AudioDsp {
                 input_rate,
                 self.config.target_sample_rate_hz,
                 &mut self.carry,
+                &mut self.phase,
             )
         };
         Ok(AudioChunk {
@@ -162,23 +179,30 @@ impl AudioDsp {
     }
 }
 
-fn linear_resample(input: &[f32], from: u32, to: u32, carry: &mut Vec<f32>) -> Vec<f32> {
+fn linear_resample(
+    input: &[f32],
+    from: u32,
+    to: u32,
+    carry: &mut Vec<f32>,
+    phase: &mut f64,
+) -> Vec<f32> {
     if input.is_empty() {
         return Vec::new();
     }
     let mut source = std::mem::take(carry);
     source.extend_from_slice(input);
     let step = from as f64 / to as f64;
-    let output_len = ((source.len().saturating_sub(1)) as f64 / step).floor() as usize;
-    let mut output = Vec::with_capacity(output_len);
-    for index in 0..output_len {
-        let position = index as f64 * step;
+    let mut position = *phase;
+    let mut output = Vec::new();
+    while position + 1.0 < source.len() as f64 {
         let left = position.floor() as usize;
         let fraction = (position - left as f64) as f32;
         output.push(source[left] * (1.0 - fraction) + source[left + 1] * fraction);
+        position += step;
     }
-    let consumed = (output_len as f64 * step).floor() as usize;
-    *carry = source[consumed.min(source.len())..].to_vec();
+    let consumed = position.floor().min(source.len() as f64) as usize;
+    *phase = position - consumed as f64;
+    *carry = source[consumed..].to_vec();
     output
 }
 
@@ -339,6 +363,18 @@ mod tests {
     }
 
     #[test]
+    fn invalid_input_gain_is_rejected() {
+        let config = CaptureConfig {
+            input_gain_percent: 1_001,
+            ..CaptureConfig::default()
+        };
+        assert!(matches!(
+            config.validate(),
+            Err(AudioError::InvalidConfiguration(_))
+        ));
+    }
+
+    #[test]
     fn invalid_capture_config_is_rejected() {
         let config = CaptureConfig {
             chunk_size_samples: 0,
@@ -401,8 +437,24 @@ mod production_audio_tests {
             .unwrap();
         assert_eq!(output.format.sample_rate_hz, 16_000);
         assert_eq!(output.format.channels, 1);
-        assert_eq!(output.samples.len(), 1);
+        assert_eq!(output.samples.len(), 2);
         assert!((output.samples[0] - 0.5).abs() < 0.001);
+        assert!(output.samples[1].abs() < 0.001);
+    }
+
+    #[test]
+    fn resampling_preserves_progress_across_input_chunks() {
+        let mut dsp = AudioDsp::new(DspPipelineConfig::default()).unwrap();
+        let first = dsp.process(&chunk(48_000, 1, vec![0.5; 480])).unwrap();
+        let second = dsp.process(&chunk(48_000, 1, vec![0.5; 480])).unwrap();
+        assert_eq!(first.samples.len() + second.samples.len(), 320);
+        assert!(
+            first
+                .samples
+                .iter()
+                .chain(second.samples.iter())
+                .all(|sample| (*sample - 0.5).abs() < 0.001)
+        );
     }
 
     #[test]

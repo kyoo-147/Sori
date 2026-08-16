@@ -63,6 +63,42 @@ struct WhisperFileConfig {
     model_dir: Option<PathBuf>,
 }
 
+fn local_appdata_executable() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(|root| {
+                PathBuf::from(root)
+                    .join("Sori")
+                    .join("whisper")
+                    .join("whisper-cli.exe")
+            })
+            .filter(|path| path.is_file())
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+fn local_appdata_model_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(|root| {
+                PathBuf::from(root)
+                    .join("Sori")
+                    .join("whisper")
+                    .join("models")
+            })
+            .filter(|path| path.is_dir())
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 fn default_config_path() -> Option<PathBuf> {
     #[cfg(windows)]
     {
@@ -131,6 +167,7 @@ impl WhisperCppConfig {
             .or_else(|| std::env::var_os("WHISPER_CPP_BIN"))
             .map(PathBuf::from)
             .or_else(|| file_config.as_ref().and_then(|config| config.executable.clone()))
+            .or_else(local_appdata_executable)
             .or_else(|| find_on_path(if cfg!(windows) { "whisper-cli.exe" } else { "whisper-cli" }))
             .or_else(|| find_on_path(if cfg!(windows) { "main.exe" } else { "main" }))
             .ok_or_else(|| ModelError::Inference("whisper.cpp executable was not found; set SORI_WHISPER_CPP_BIN or configure Sori's whisper.json".into()))?;
@@ -143,7 +180,8 @@ impl WhisperCppConfig {
         let model_dir = std::env::var_os("SORI_WHISPER_MODEL_DIR")
             .or_else(|| std::env::var_os("WHISPER_CPP_MODEL_DIR"))
             .map(PathBuf::from)
-            .or_else(|| file_config.and_then(|config| config.model_dir));
+            .or_else(|| file_config.and_then(|config| config.model_dir))
+            .or_else(local_appdata_model_dir);
         if let Some(dir) = &model_dir {
             if !dir.is_dir() {
                 return Err(ModelError::Inference(format!(
@@ -156,6 +194,39 @@ impl WhisperCppConfig {
             executable,
             model_dir,
         })
+    }
+
+    /// Persist user-owned runtime paths for the next daemon start. Sori never
+    /// downloads or bundles the executable; this only writes configuration.
+    pub fn persist_config(
+        executable: &Path,
+        model_dir: Option<&Path>,
+    ) -> Result<PathBuf, ModelError> {
+        let path = std::env::var_os("SORI_WHISPER_CONFIG")
+            .map(PathBuf::from)
+            .or_else(default_config_path)
+            .ok_or_else(|| {
+                ModelError::Inference("Sori Whisper config path is unavailable".into())
+            })?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                ModelError::Inference(format!("could not create Sori config directory: {error}"))
+            })?;
+        }
+        let value = serde_json::json!({ "executable": executable, "model_dir": model_dir });
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&value).map_err(|error| {
+                ModelError::Inference(format!("could not encode Sori Whisper config: {error}"))
+            })?,
+        )
+        .map_err(|error| {
+            ModelError::Inference(format!(
+                "could not persist Sori Whisper config ({}): {error}",
+                path.display()
+            ))
+        })?;
+        Ok(path)
     }
 
     pub fn new(executable: impl Into<PathBuf>, model_dir: Option<PathBuf>) -> Self {
@@ -1034,6 +1105,9 @@ impl ModelProvider for WhisperCppProvider {
             warm: self.is_warm(model),
             memory_bytes: None,
             backend: Some(PROVIDER_NAME.into()),
+            phase: Some(format!("{:?}", status.lifecycle)),
+            progress_percent: status.progress_percent,
+            error: status.error.clone(),
         }
     }
     fn load(&self, model: &ModelId) -> Result<(), ModelError> {
@@ -1165,9 +1239,9 @@ pub fn parse_transcript(content: &str, format: OutputFormat) -> Result<Transcrip
     match format {
         OutputFormat::Text => {
             let text = content.trim();
-            if text.is_empty() {
+            if text.is_empty() || is_non_speech_marker(text) {
                 return Err(ModelError::Inference(
-                    "whisper.cpp returned empty transcript".into(),
+                    "whisper.cpp returned no spoken transcript".into(),
                 ));
             }
             Ok(Transcript::plain(text))
@@ -1175,6 +1249,14 @@ pub fn parse_transcript(content: &str, format: OutputFormat) -> Result<Transcrip
         OutputFormat::Json => parse_json(content),
         OutputFormat::Srt => parse_srt(content),
     }
+}
+
+fn is_non_speech_marker(text: &str) -> bool {
+    let normalized = text.trim().to_ascii_lowercase().replace([' ', '\t'], "");
+    matches!(
+        normalized.as_str(),
+        "[blank_audio]" | "[silence]" | "(silence)"
+    )
 }
 
 fn parse_json(content: &str) -> Result<Transcript, ModelError> {
@@ -1330,6 +1412,9 @@ impl ModelRuntime for WhisperRuntime {
             warm: self.provider.is_warm(model),
             memory_bytes: None,
             backend: Some(PROVIDER_NAME.to_owned()),
+            phase: None,
+            progress_percent: None,
+            error: None,
         }
     }
     fn select_route(&self, context: &ContextSnapshot) -> ModelRoute {
@@ -1426,6 +1511,13 @@ mod tests {
                 .flat_map(|v| v.to_le_bytes())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn blank_audio_markers_are_not_canonical_transcripts() {
+        for marker in ["[BLANK_AUDIO]", "[ Silence ]", "(silence)"] {
+            assert!(parse_transcript(marker, OutputFormat::Text).is_err());
+        }
     }
 
     #[test]
@@ -1741,6 +1833,13 @@ mod tests {
             provider.status(&ModelId::from("fixture.bin")).lifecycle,
             WhisperLifecycle::Ready
         );
+        assert_eq!(
+            provider.status(&ModelId::from("fixture.bin")).lifecycle,
+            WhisperLifecycle::Ready
+        );
+        let runtime_status = provider.runtime_status(&ModelId::from("fixture.bin"));
+        assert_eq!(runtime_status.phase.as_deref(), Some("Ready"));
+        assert_eq!(runtime_status.progress_percent, Some(100));
         let _ = std::fs::remove_dir_all(root);
     }
 

@@ -46,6 +46,7 @@ type PersistedPreferences = {
   sidebarWidth: number;
   assistantVoice: AssistantVoiceSettings;
   voiceProfile: VoiceProfile;
+  activeScreen: ActiveScreen;
 };
 
 export default function App() {
@@ -56,7 +57,9 @@ export default function App() {
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
+  const [benchmarkSessionId, setBenchmarkSessionId] = useState<string | null>(null);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
   const [assistantVoice, setAssistantVoice] = useState<AssistantVoiceSettings>(defaultAssistantVoice);
 
@@ -79,8 +82,9 @@ export default function App() {
   const [runtimeClient] = useState(() => new RuntimeClient());
 
   const refreshHistory = useCallback(async () => {
+    setHistoryState('loading');
     const result = await runtimeClient.history(50);
-    if (result.error !== null) return false;
+    if (result.error !== null) { setHistoryState('error'); return false; }
     setHistory(result.data.map((entry) => ({
       id: entry.id,
       timestamp: entry.at,
@@ -91,6 +95,7 @@ export default function App() {
       latencyMs: 0,
       modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
     })));
+    setHistoryState('ready');
     return true;
   }, [runtimeClient]);
 
@@ -114,7 +119,8 @@ export default function App() {
         latencyMs: 0,
         modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
       })));
-    }
+      setHistoryState('ready');
+    } else setHistoryState('error');
   }, [runtimeClient]);
 
   useEffect(() => {
@@ -175,6 +181,7 @@ export default function App() {
         if (typeof result.data.sidebarWidth === 'number' && result.data.sidebarWidth >= 180 && result.data.sidebarWidth <= 360) setSidebarWidth(result.data.sidebarWidth);
         if (result.data.assistantVoice) setAssistantVoice((current) => ({ ...current, ...result.data.assistantVoice }));
         if (result.data.voiceProfile) setVoiceProfile((current) => ({ ...current, ...result.data.voiceProfile }));
+        if (typeof result.data.activeScreen === 'string') setActiveScreen(result.data.activeScreen as ActiveScreen);
       }
       preferencesHydrated.current = true;
     }).catch(() => { preferencesHydrated.current = true; });
@@ -183,11 +190,11 @@ export default function App() {
 
   useEffect(() => {
     if (!preferencesHydrated.current) return;
-    const preferences: PersistedPreferences = { version: 1, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile };
+    const preferences: PersistedPreferences = { version: 1, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile, activeScreen };
     void runtimeClient.setResource('preferences', preferences).then((result) => {
       if (result.error) setRuntimeError(`Preferences unavailable: ${result.error}`);
     });
-  }, [runtimeClient, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile]);
+  }, [runtimeClient, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile, activeScreen]);
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     if (sidebarCollapsed) return;
@@ -248,6 +255,12 @@ export default function App() {
     setRuntimeSource(result.source);
     setRuntimeError(result.error);
   };
+  const setProfile = async (profile: AppSettings['activeProfile']) => {
+    const result = await runtimeClient.setConfig('profile.mode', profile);
+    setRuntimeSource(result.source);
+    setRuntimeError(result.error);
+    if (!result.error && result.data.accepted) setSettings((current) => ({ ...current, activeProfile: profile }));
+  };
 
   // The daemon route and model registry are authoritative. A disconnected or
   // stale route must not fall back to preview metadata.
@@ -283,12 +296,24 @@ export default function App() {
   };
   const runBenchmark = async (fixture: BenchmarkFixture) => {
     if (!activeModel) return 'Benchmark unavailable: no available active model is configured.';
-    const result = await runtimeClient.runBenchmark(activeModel.id, fixture.audio, fixture.reference, 5);
+    const readiness = await runtimeClient.modelStatus(activeModel.id);
+    const providerStatus = readiness.data as { status?: { installed?: boolean; error?: string | null } } | null;
+    if (readiness.error || providerStatus?.status?.installed !== true) return `Benchmark unavailable: provider readiness is not confirmed${readiness.error ? ` (${readiness.error})` : ''}.`;
+    const sessionId = crypto.randomUUID();
+    setBenchmarkSessionId(sessionId);
+    const result = await runtimeClient.runBenchmark(activeModel.id, fixture.audio, fixture.reference, 5, sessionId, 60_000);
     setRuntimeSource(result.source);
-    if (result.error) { setRuntimeError(result.error); return `Benchmark unavailable: ${result.error}`; }
+    if (result.error) { setRuntimeError(result.error); setBenchmarkSessionId(null); return `Benchmark failed and was not persisted: ${result.error}`; }
     const refreshError = await refreshBenchmarks();
+    setBenchmarkSessionId(null);
     if (refreshError) { setRuntimeError(refreshError); return `Benchmark completed, but persisted results could not refresh: ${refreshError}`; }
     return 'Benchmark completed and persisted results refreshed.';
+  };
+  const cancelBenchmark = async () => {
+    if (!benchmarkSessionId) return;
+    const result = await runtimeClient.cancelBenchmark(benchmarkSessionId);
+    setRuntimeError(result.error);
+    if (result.error) await refreshRuntime();
   };
 
   return (
@@ -351,6 +376,7 @@ export default function App() {
             runtimeSource={runtimeSource}
             runtimeStatus={runtimeStatus}
             onTogglePaused={() => setPaused(!runtimeStatus.paused)}
+            onSetProfile={setProfile}
             onNavigate={(sc) => {
               setActiveScreen(sc);
               setTrayOpen(false);
@@ -385,7 +411,7 @@ export default function App() {
             )}
 
             {activeScreen === 'transcripts' && (
-              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} />
+              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} loadState={historyState} />
             )}
 
             {activeScreen === 'onboarding' && (
@@ -414,6 +440,7 @@ export default function App() {
                 activeModelId={activeModel?.id ?? null}
                 onApplyPolicy={handleApplyRecommendedPolicy}
                 onRun={runBenchmark}
+                onCancel={cancelBenchmark}
               />
             )}
 

@@ -9,8 +9,8 @@ requested format and chunk size.
 
 - `AudioDeviceInfo` and `AudioDeviceProvider` describe input-device listing.
 - `CaptureConfig` defaults to mono 16 kHz `f32` audio in 20 ms chunks.
-- `AudioDsp` mixes native interleaved input to mono and linearly resamples each
-  stream to the configured 16 kHz target while retaining boundary samples.
+- `AudioDsp` receives mono callback frames and linearly resamples each stream to
+  the configured 16 kHz target while retaining phase and boundary samples.
 - `EnergyVad` uses RMS energy with a configurable end hangover; the legacy
   `EnergyVadStub` remains available only for compatibility tests.
 - `VoiceActivityDetector` is the VAD boundary. `EnergyVadStub` is deterministic
@@ -19,21 +19,29 @@ requested format and chunk size.
 The `sori-audio` crate contains the CPAL adapter. It translates native device
 and stream errors to `AudioError` and keeps CPAL types out of `sori-core`.
 `CpalAudioEngine::start` selects the configured device (or the OS default),
-starts a callback-backed bounded channel, and `stop` drops the stream.
+starts a callback-backed bounded channel, applies the validated input gain,
+and `stop` drops the stream.
 `CpalAudioController` owns the CPAL stream on a worker thread and exposes an
 explicit callback-quiesce phase: teardown marks the callback inactive, pauses
-the native stream, then drops the stream and joins the worker. Dropping the
-controller performs the same shutdown, preventing orphaned native streams.
+the native stream, then drops the stream and joins the worker. The worker drains
+packets already accepted by the bounded callback handoff after quiescing,
+including a final partial chunk, before it reports the capture stopped. Dropping
+the controller performs the same shutdown, preventing orphaned native streams.
 
-`crates/sori-audio/tests/native_harness.rs` is an opt-in start/stop/restart
-harness. It requires `SORI_NATIVE_AUDIO_HARNESS=1` and `--ignored`; it reports
-native stream readiness only and deliberately does not claim speech, VAD, or
-transcription evidence.
+`crates/sori-audio/tests/native_harness.rs` is an opt-in capture/diagnostic and
+start/stop/restart harness. It requires `SORI_NATIVE_AUDIO_HARNESS=1` and
+`--ignored`; it reports post-DSP device, sample-count, peak, RMS, rate, and
+channel diagnostics. Set `SORI_NATIVE_AUDIO_TRANSCRIBE=1` with a user-owned
+`SORI_WHISPER_CPP_BIN`, `SORI_WHISPER_MODEL_DIR`, and optional
+`SORI_WHISPER_MODEL` to exercise the real Whisper handoff. Low signal is
+reported as `capture_signal_unavailable`; blank Whisper markers are rejected as
+non-transcripts rather than accepted as success.
 
 It exposes an `Idle -> Starting -> Recording -> Stopping` lifecycle. Each
 successful capture has a monotonically increasing generation/session ID; stop and cancel are
 idempotent. The callback uses `try_send`, so a slow consumer drops packets
-rather than blocking the audio thread. Native stream disconnects are surfaced
+rather than blocking the audio thread; packets accepted before stop are not
+discarded during teardown. Native stream disconnects are surfaced
 as `DeviceUnavailable` rather than a fabricated success.
 
 `next_chunk` drains the channel into a mono 16 kHz VAD-ready `f32` shape.

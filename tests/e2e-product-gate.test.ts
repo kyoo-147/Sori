@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PRODUCT_NAVIGATION, UNVERIFIED_HARDWARE_CAPABILITIES } from '../scripts/e2e-product-gate.js';
 
@@ -26,5 +28,15 @@ describe('sequential product E2E gate contract', () => {
       'Whisper model inference',
       'focused-app text injection',
     ]);
+  });
+});
+
+describe('production browser state authority', () => {
+  it('does not expose fixture toggles or mock-green runtime labels', () => {
+    const transcripts = readFileSync(resolve('apps/desktop/src/components/screens/TranscriptsScreen.tsx'), 'utf8');
+    const overview = readFileSync(resolve('apps/desktop/src/components/screens/OverviewScreen.tsx'), 'utf8');
+    expect(transcripts).not.toContain("(['normal','loading','empty','error'] as ViewState[])");
+    expect(transcripts).toContain('loadState');
+    expect(overview).not.toContain('Mock fallback is active');
   });
 });

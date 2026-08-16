@@ -69,14 +69,20 @@ export const FirstRunOnboardingScreen: React.FC<FirstRunOnboardingScreenProps> =
   }, [currentStep, daemonReady]);
 
   const runFirstDictation = async () => {
-    setStep(4, 'checking');
-    setIsDictating(true);
     setError(null);
-    setTranscript(null);
-    try {
+    if (!isDictating) {
+      setStep(4, 'checking');
+      setTranscript(null);
       const started = await runtimeClient.dictationStart();
-      if (started.error) throw new Error(started.error);
-      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      if (started.error || !started.data.accepted) {
+        setStep(4, 'retry');
+        setError(started.error ?? started.data.detail);
+        return;
+      }
+      setIsDictating(true);
+      return;
+    }
+    try {
       const stopped = await runtimeClient.dictationStop();
       if (stopped.error || !stopped.data) throw new Error(stopped.error ?? 'The daemon did not return a transcript.');
       setTranscript(stopped.data.text);
@@ -151,7 +157,7 @@ export const FirstRunOnboardingScreen: React.FC<FirstRunOnboardingScreenProps> =
           <div className="flex items-start gap-3"><Keyboard className="mt-1 h-5 w-5 text-[#6E7A80]" /><div><h2 className="sori-section-heading">Try your hotkey and first dictation</h2><p className="sori-body-text">Configured hotkey: <kbd className="rounded border border-[#D9D4CC] bg-[#F2EEE8] px-1.5 py-0.5 font-mono text-xs">{settings.hotkey}</kbd>. The button below sends real DictationStart/DictationStop IPC calls; it never fabricates text or claims OS injection.</p></div></div>
           <div className="rounded-xl border border-[#DED9D1] bg-[#F2EEE8] p-4"><div className="flex items-center justify-between"><span className="font-medium">Global hotkey registration</span>{stateBadge(4)}</div><p className="sori-meta-text mt-2">{hotkeyCheck?.detail ?? 'Doctor check not loaded for the configured hotkey.'}</p></div>
           {transcript && <div className="rounded-xl border border-[#BFD7C5] bg-[#E8F1E9] p-4 text-sm text-[#315C42]"><strong>Daemon transcript returned:</strong> {transcript}<p className="sori-meta-text mt-2">Focused-app text injection is still UNVERIFIED; this acceptance proves IPC response only.</p></div>}
-          <div className="flex flex-wrap justify-between gap-3"><button type="button" onClick={() => setCurrentStep(3)} className="sori-tactile-btn rounded-xl px-4 py-2 text-sm"><ArrowLeft className="mr-1 inline h-4 w-4" /> Back</button><button type="button" onClick={() => void runFirstDictation()} disabled={isDictating} className="sori-tactile-btn rounded-xl px-5 py-2 text-sm disabled:opacity-60">{isDictating ? 'Waiting for daemon…' : 'Run first dictation'} <ArrowRight className="ml-1 inline h-4 w-4" /></button></div>
+          <div className="flex flex-wrap justify-between gap-3"><button type="button" onClick={() => setCurrentStep(3)} disabled={isDictating} className="sori-tactile-btn rounded-xl px-4 py-2 text-sm disabled:opacity-50"><ArrowLeft className="mr-1 inline h-4 w-4" /> Back</button><button type="button" onClick={() => void runFirstDictation()} className="sori-tactile-btn rounded-xl px-5 py-2 text-sm">{isDictating ? 'Stop and inspect transcript' : 'Start daemon capture'} <ArrowRight className="ml-1 inline h-4 w-4" /></button></div>
         </div>}
 
         {currentStep === 5 && <div className="space-y-5 py-4 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-[#BFD7C5] bg-[#E8F1E9]"><CheckCircle2 className="h-8 w-8 text-[#4E7A61]" /></div><div><h2 className="sori-section-heading">Setup checks complete</h2><p className="sori-body-text mx-auto mt-2 max-w-lg">Sori received a transcript from the daemon. Physical hotkey, microphone capture, Whisper inference, and focused-app injection remain UNVERIFIED until machine-level validation.</p></div><button type="button" onClick={onComplete} className="sori-tactile-btn rounded-xl px-6 py-3 text-sm">Go to Home <ArrowRight className="ml-1 inline h-4 w-4" /></button></div>}

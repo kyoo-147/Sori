@@ -29,6 +29,7 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>('Microphone');
   const [micTestMsg, setMicTestMsg] = useState<string | null>(null);
   const [configMsg, setConfigMsg] = useState<string | null>(null);
+  const [savingHotkey, setSavingHotkey] = useState(false);
   const [micCheck, setMicCheck] = useState<string>('UNVERIFIED: microphone status has not been reported by sorid.');
 
   useEffect(() => {
@@ -44,8 +45,20 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
   }, [runtimeClient, setSettings]);
 
   const saveHotkey = async () => {
-    const result = await runtimeClient.setConfig('hotkey.binding', settings.hotkey);
-    setConfigMsg(result.error || !result.data.accepted ? `Unavailable: ${result.error ?? result.data.detail}` : 'Hotkey saved through sorid.');
+    const binding = settings.hotkey.trim();
+    if (!binding) {
+      setConfigMsg('Enter a combination such as Ctrl+Alt+K.');
+      return;
+    }
+    setSavingHotkey(true);
+    const result = await runtimeClient.setConfig('hotkey.binding', binding);
+    setSavingHotkey(false);
+    if (result.error || !result.data.accepted) {
+      setConfigMsg(`Not registered: ${result.error ?? result.data.detail}. The previous hotkey remains active.`);
+      return;
+    }
+    setSettings((current) => ({ ...current, hotkey: binding }));
+    setConfigMsg(`Registered ${binding}. The old hotkey was unregistered and SQLite was updated.`);
   };
 
   const mainTabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -143,10 +156,14 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
                     type="text"
                     value={settings.hotkey}
                     onChange={(e) => setSettings((prev) => ({ ...prev, hotkey: e.target.value }))}
-                    onBlur={saveHotkey}
+                    onBlur={() => void saveHotkey()}
+                    onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveHotkey(); } }}
+                    aria-describedby="hotkey-help"
+                    disabled={savingHotkey}
                     className="w-full bg-white border border-[#E2E4E8] rounded-[8px] p-2 text-xs font-mono font-bold"
                   />
-                  <div className="text-[11px] text-[#858A90]">Saved through canonical IPC on blur. Runtime must report the actual listener.</div>
+                  <div id="hotkey-help" className="text-[11px] text-[#858A90]">Use Alt, Ctrl, Shift, or Win plus one key. Save attempts native registration first; conflicts leave the previous binding active.</div>
+                  <button type="button" onClick={() => void saveHotkey()} disabled={savingHotkey} className="px-3 py-1.5 rounded-[8px] border border-[#D5E0EA] bg-white font-medium disabled:opacity-50">{savingHotkey ? 'Registering…' : 'Register hotkey'}</button>
                 </div>
 
                 <div className="p-3 bg-[#F8F8F7] border border-[#E2E4E8] rounded-[12px] space-y-1">

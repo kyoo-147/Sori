@@ -203,7 +203,9 @@ impl CpalAudioEngine {
         // configured target format after callback collection.
         self.native_format = AudioFormat {
             sample_rate_hz: supported.sample_rate().0,
-            channels: supported.channels(),
+            // `send_samples` downmixes interleaved callback frames before
+            // queueing them, so the handoff contract is already mono.
+            channels: 1,
             sample_format: SampleFormat::F32,
         };
         let stream_config: StreamConfig = supported.config();
@@ -230,6 +232,7 @@ impl CpalAudioEngine {
                 error_tx,
                 channels,
                 callback_active.clone(),
+                self.config.input_gain_percent,
             )?,
             CpalSampleFormat::I16 => build_stream_i16(
                 &device,
@@ -238,6 +241,7 @@ impl CpalAudioEngine {
                 error_tx,
                 channels,
                 callback_active.clone(),
+                self.config.input_gain_percent,
             )?,
             CpalSampleFormat::U16 => build_stream_u16(
                 &device,
@@ -246,6 +250,7 @@ impl CpalAudioEngine {
                 error_tx,
                 channels,
                 callback_active.clone(),
+                self.config.input_gain_percent,
             )?,
             _ => unreachable!(),
         };
@@ -281,7 +286,12 @@ impl CpalAudioEngine {
         };
         while self.pending.len() < self.config.chunk_size_samples as usize {
             if stop.try_recv().is_ok() {
-                return Ok(None);
+                // Quiesce the native callback before reading the handoff queue,
+                // but do not discard packets that were accepted before stop.
+                // The previous early return caused short speech samples to be
+                // reported as capture_signal_unavailable.
+                self.stop();
+                return self.next_chunk();
             }
             if let Some(errors) = &self.errors {
                 if let Ok(error) = errors.try_recv() {
@@ -611,13 +621,14 @@ fn build_stream_f32(
     errors: SyncSender<AudioError>,
     channels: usize,
     active: Arc<AtomicBool>,
+    gain_percent: u16,
 ) -> Result<Stream, AudioError> {
     device
         .build_input_stream(
             config,
             move |data: &[f32], _| {
                 if active.load(Ordering::Acquire) {
-                    send_samples(data, &tx, channels);
+                    send_samples(data, &tx, channels, gain_percent);
                 }
             },
             move |error| {
@@ -634,6 +645,7 @@ fn build_stream_i16(
     errors: SyncSender<AudioError>,
     channels: usize,
     active: Arc<AtomicBool>,
+    gain_percent: u16,
 ) -> Result<Stream, AudioError> {
     device
         .build_input_stream(
@@ -641,7 +653,7 @@ fn build_stream_i16(
             move |data: &[i16], _| {
                 if active.load(Ordering::Acquire) {
                     let converted: Vec<f32> = data.iter().map(|x| *x as f32 / 32768.0).collect();
-                    send_samples(&converted, &tx, channels);
+                    send_samples(&converted, &tx, channels, gain_percent);
                 }
             },
             move |error| {
@@ -658,6 +670,7 @@ fn build_stream_u16(
     errors: SyncSender<AudioError>,
     channels: usize,
     active: Arc<AtomicBool>,
+    gain_percent: u16,
 ) -> Result<Stream, AudioError> {
     device
         .build_input_stream(
@@ -666,7 +679,7 @@ fn build_stream_u16(
                 if active.load(Ordering::Acquire) {
                     let converted: Vec<f32> =
                         data.iter().map(|x| (*x as f32 / 32768.0) - 1.0).collect();
-                    send_samples(&converted, &tx, channels);
+                    send_samples(&converted, &tx, channels, gain_percent);
                 }
             },
             move |error| {
@@ -676,15 +689,20 @@ fn build_stream_u16(
         )
         .map_err(classify_stream_error)
 }
-fn send_samples(data: &[f32], tx: &SyncSender<Packet>, channels: usize) {
+fn send_samples(data: &[f32], tx: &SyncSender<Packet>, channels: usize, gain_percent: u16) {
     if channels == 0 {
         return;
     }
+    let gain = f32::from(gain_percent) / 100.0;
     let mono = if channels <= 1 {
-        data.to_vec()
+        data.iter()
+            .map(|sample| sanitize_sample(*sample * gain))
+            .collect()
     } else {
         data.chunks(channels)
-            .map(|frame| frame.iter().copied().sum::<f32>() / channels as f32)
+            .map(|frame| {
+                sanitize_sample(frame.iter().copied().sum::<f32>() / channels as f32 * gain)
+            })
             .collect()
     };
     let _ = tx.try_send(mono).map_err(|error| match error {
@@ -695,6 +713,14 @@ fn send_samples(data: &[f32], tx: &SyncSender<Packet>, channels: usize) {
     });
 }
 
+fn sanitize_sample(sample: f32) -> f32 {
+    if sample.is_finite() {
+        sample.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -702,15 +728,22 @@ mod tests {
     #[test]
     fn callback_mixes_interleaved_samples_without_hardware() {
         let (tx, rx) = mpsc::sync_channel(1);
-        send_samples(&[1.0, -1.0, 0.5, 0.0], &tx, 2);
+        send_samples(&[1.0, -1.0, 0.5, 0.0], &tx, 2, 100);
         assert_eq!(rx.recv().unwrap(), vec![0.0, 0.25]);
+    }
+
+    #[test]
+    fn callback_applies_bounded_gain_and_sanitizes_samples() {
+        let (tx, rx) = mpsc::sync_channel(1);
+        send_samples(&[0.4, f32::NAN, 2.0], &tx, 1, 200);
+        assert_eq!(rx.recv().unwrap(), vec![0.8, 0.0, 1.0]);
     }
 
     #[test]
     fn callback_drops_when_consumer_is_slow() {
         let (tx, rx) = mpsc::sync_channel(1);
-        send_samples(&[1.0], &tx, 1);
-        send_samples(&[2.0], &tx, 1);
+        send_samples(&[1.0], &tx, 1, 100);
+        send_samples(&[2.0], &tx, 1, 100);
         assert_eq!(rx.recv().unwrap(), vec![1.0]);
     }
 }
@@ -764,6 +797,37 @@ mod lifecycle_tests {
         drop(packet_tx);
         drop(error_tx);
         assert!(engine.next_chunk_until_stopped(&stop_rx).unwrap().is_none());
+    }
+
+    #[test]
+    fn stop_drains_callback_packet_accepted_before_teardown() {
+        let config = CaptureConfig::default();
+        let (packet_tx, packet_rx) = mpsc::sync_channel(1);
+        let (error_tx, error_rx) = mpsc::sync_channel(1);
+        let (stop_tx, stop_rx) = mpsc::channel();
+        packet_tx.send(vec![0.25; 320]).unwrap();
+        drop(packet_tx);
+        drop(error_tx);
+        stop_tx.send(()).unwrap();
+        let mut engine = CpalAudioEngine {
+            provider: CpalAudioDeviceProvider::new(),
+            input_format: config.format.clone(),
+            native_format: config.format.clone(),
+            config,
+            stream: None,
+            packets: Some(packet_rx),
+            dsp: sori_core::AudioDsp::new(sori_core::DspPipelineConfig::default()).unwrap(),
+            errors: Some(error_rx),
+            pending: VecDeque::new(),
+            callback_active: None,
+        };
+
+        let chunk = engine
+            .next_chunk_until_stopped(&stop_rx)
+            .unwrap()
+            .expect("accepted callback packet must survive stop");
+        assert_eq!(chunk.samples.len(), 320);
+        assert!(chunk.samples.iter().all(|sample| *sample == 0.25));
     }
 
     #[test]

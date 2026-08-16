@@ -1,3 +1,23 @@
+fn daemon_owner_path() -> std::path::PathBuf {
+    if let Some(root) = std::env::var_os("LOCALAPPDATA") {
+        return std::path::PathBuf::from(root)
+            .join("Sori")
+            .join("daemon-owner.json");
+    }
+    std::path::PathBuf::from("sori-daemon-owner.json")
+}
+
+fn write_daemon_owner(endpoint: SocketAddr) -> Result<std::path::PathBuf> {
+    let path = daemon_owner_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    let value = serde_json::json!({ "endpoint": endpoint.to_string(), "pid": std::process::id(), "executable": std::env::current_exe()?.to_string_lossy() });
+    std::fs::write(&temporary, serde_json::to_vec(&value)?)?;
+    std::fs::rename(&temporary, &path)?;
+    Ok(path)
+}
 use anyhow::Result;
 use sori_audio::CpalAudioController;
 use sori_core::{
@@ -5,6 +25,7 @@ use sori_core::{
     HistoryRepository, ModelId, ModelRoute, PrivacyMode, ProfileMode, Vocabulary, VocabularyTerm,
     recommend_benchmark, run_benchmark_with_options,
 };
+use sori_core::{EventBus, EventKind};
 use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
     ExtensionManifest, ExtensionRecord, ExtensionsResponse, IpcEvent, LocalIpcServer,
@@ -14,17 +35,26 @@ use sori_ipc::{
 use sori_persistence::SqliteStore;
 use sori_provider_whisper::{WhisperCppConfig, WhisperCppProvider};
 use sorid::{
-    DaemonConfig, DaemonRuntime, HotkeyService, HotkeyServiceStatus, RuntimeState, SharedEventBus,
-    start_hotkey_service,
+    DaemonConfig, DaemonRuntime, DictationCompletionOptions, HotkeyService, HotkeyServiceStatus,
+    RuntimeState, SharedEventBus, start_hotkey_service,
 };
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tracing::info;
+/// `activeModelId` is provider-qualified at the IPC boundary, while provider
+/// APIs receive the model filename only. Keep this conversion in one place so
+/// hotkey, dictation, lifecycle, and removal cannot disagree about the route.
+fn provider_model_id(provider: &str, model: &str) -> ModelId {
+    ModelId::from(model.strip_prefix(&format!("{provider}/")).unwrap_or(model))
+}
+
 struct RuntimeTarget {
     identity: Option<String>,
 }
 impl RuntimeTarget {
+    #[allow(clippy::needless_return)]
     fn capture() -> Result<Self, String> {
         #[cfg(windows)]
         {
@@ -40,9 +70,9 @@ impl RuntimeTarget {
             if pid == 0 {
                 return Err("foreground window has no owning process".into());
             }
-            return Ok(Self {
+            Ok(Self {
                 identity: Some(format!("pid:{pid};hwnd:{:x}", hwnd as usize)),
-            });
+            })
         }
         #[cfg(not(windows))]
         {
@@ -95,9 +125,13 @@ struct RuntimeInjector {
     inner: sori_core::WindowsTextInjector<sori_core::WindowsSendInputAdapter>,
     #[cfg(not(windows))]
     inner: sori_core::AdapterTextInjector<UnavailableInjectionAdapter>,
+    strategy: Option<sori_core::InjectionStrategy>,
 }
 impl RuntimeInjector {
     fn new() -> Self {
+        Self::with_strategy(None)
+    }
+    fn with_strategy(strategy: Option<sori_core::InjectionStrategy>) -> Self {
         Self {
             #[cfg(windows)]
             inner: sori_core::WindowsTextInjector::native(),
@@ -111,6 +145,7 @@ impl RuntimeInjector {
                     undo: false,
                 },
             ),
+            strategy,
         }
     }
 }
@@ -126,7 +161,18 @@ impl sori_core::TextInjector for RuntimeInjector {
         target: &dyn sori_core::TextTarget,
         request: &sori_core::TextInjectionRequest,
     ) -> Result<sori_core::TextInjectionResult, sori_core::TextInjectionError> {
-        self.inner.inject(target, request)
+        if self.strategy == Some(sori_core::InjectionStrategy::ClipboardPaste) {
+            #[cfg(windows)]
+            {
+                self.inner.inject_clipboard(target, request)
+            }
+            #[cfg(not(windows))]
+            {
+                self.inner.inject(target, request)
+            }
+        } else {
+            self.inner.inject(target, request)
+        }
     }
 }
 struct NoopHistory;
@@ -221,6 +267,12 @@ async fn main() -> Result<()> {
             config.hotkey.binding = binding.to_owned();
         }
     }
+    if let Some(value) = store.setting("audio.device_id")? {
+        config.audio.device_id = value.as_str().map(str::to_owned);
+    }
+    if let Some(binding) = std::env::var_os("SORI_HOTKEY_OVERRIDE") {
+        config.hotkey.binding = binding.to_string_lossy().into_owned();
+    }
     let privacy_mode = store
         .setting("privacy.mode")?
         .and_then(|value| serde_json::from_value::<PrivacyMode>(value).ok())
@@ -249,7 +301,7 @@ async fn main() -> Result<()> {
             value
                 .get("activeModelId")
                 .and_then(|id| id.as_str())
-                .map(ModelId::from)
+                .map(|id| provider_model_id("whisper.cpp", id))
         })
         .unwrap_or_else(|| ModelId::from(whisper_model.as_str()));
     let hotkey = sorid::parse_hotkey_binding(&config.hotkey.binding).map_err(|error| {
@@ -273,13 +325,15 @@ async fn main() -> Result<()> {
             }
         }),
     );
-    let (_hotkey_service, hotkey_status) = match hotkey_result {
+    let (hotkey_service, hotkey_status) = match hotkey_result {
         Ok((service, status)) => (Some(service), status),
         Err(error) => {
             info!(detail = %error, "global hotkey adapter unavailable");
             (None, HotkeyServiceStatus::Unavailable(error.to_string()))
         }
     };
+    let hotkey_service = Arc::new(Mutex::new(hotkey_service));
+    let hotkey_status = Arc::new(Mutex::new(hotkey_status));
     let endpoint: SocketAddr = std::env::var("SORI_IPC_ADDR")
         .unwrap_or_else(|_| DEFAULT_ENDPOINT.to_owned())
         .parse()
@@ -293,6 +347,7 @@ async fn main() -> Result<()> {
             "Inspect the endpoint and stop only a known stale sorid process"
         )
     })?;
+    let owner_path = write_daemon_owner(endpoint)?;
     info!(
         hotkey = %config.hotkey.binding,
         persistence_path = ?config.persistence_path,
@@ -303,6 +358,8 @@ async fn main() -> Result<()> {
     let handler_runtime = Arc::clone(&runtime);
     let handler_store = Arc::clone(&store);
     let handler_config = Arc::new(Mutex::new(config.clone()));
+    let handler_hotkey_service = Arc::clone(&hotkey_service);
+    let handler_hotkey_status = Arc::clone(&hotkey_status);
     let handler_privacy = Arc::new(Mutex::new(privacy_mode));
     let handler_model_provider = model_provider.clone();
     let benchmark_sessions: Arc<Mutex<HashMap<uuid::Uuid, CancellationToken>>> =
@@ -324,7 +381,11 @@ async fn main() -> Result<()> {
                     let models = provider.manifests().iter().map(|manifest| sori_ipc::ModelRecord {
                         manifest: manifest.clone(), status: provider.runtime_status(&manifest.id),
                     }).collect::<Vec<_>>();
-                    let available = !models.is_empty();
+                    // A configured provider with zero installed artifacts is
+                    // operationally available: the UI must show an empty
+                    // registry and offer import/configuration, not report a
+                    // false provider outage.
+                    let available = true;
                     Response::Models(sori_ipc::ModelsResponse {
                         provider: Some(provider.provider_name().into()), available,
                         models, error: if !available { Some("no installed whisper.cpp models were discovered".into()) } else { None },
@@ -336,10 +397,12 @@ async fn main() -> Result<()> {
             },
             Request::ModelStatus { model } => {
                 let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
-                if !provider.can_transcribe(&model) {
+                let status = provider.runtime_status(&model);
+                let operation_visible = matches!(status.phase.as_deref(), Some("Downloading") | Some("Failed"));
+                if !provider.can_transcribe(&model) && !operation_visible {
                     Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("model is not discovered and ready: {}", model.0) })
                 } else {
-                    Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+                    Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status })
                 }
             }
             Request::ModelLoad { model } => {
@@ -379,6 +442,7 @@ async fn main() -> Result<()> {
                     .ok_or_else(|| sori_ipc::IpcError::Transport("model install succeeded but registry did not expose the model".into()))?;
                 handler_store.save_model_manifest(&model.0, &serde_json::to_value(&manifest).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?)
                     .map_err(|e| sori_ipc::IpcError::Transport(format!("model manifest persistence failed: {e}")))?;
+                publish_persisted_event(&handler_store, EventKind::ModelChanged, format!("installed:{}", model.0));
                 Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
             }
             Request::ModelRemove { model } => {
@@ -392,6 +456,7 @@ async fn main() -> Result<()> {
                 } else {
                     provider.remove_model(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model removal failed: {error}")))?;
                     handler_store.delete_model_manifest(&model.0).map_err(|error| sori_ipc::IpcError::Transport(format!("model manifest removal failed: {error}")))?;
+                    publish_persisted_event(&handler_store, EventKind::ModelChanged, format!("removed:{}", model.0));
                     Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
                 }
             }
@@ -500,10 +565,15 @@ async fn main() -> Result<()> {
                     std::thread::sleep(std::time::Duration::from_secs(30));
                     timeout_token.cancel();
                 });
-                let result = match runtime.complete_captured_dictation_with_options(
-                    &route, &mut injector, &target, history, &vocabulary,
-                    &cancellation, Some(std::time::Duration::from_secs(30)),
-                ) {
+                let result = match runtime.complete_captured_dictation_with_options(DictationCompletionOptions {
+                    route: &route,
+                    injector: &mut injector,
+                    target: &target,
+                    history,
+                    vocabulary: &vocabulary,
+                    cancellation: &cancellation,
+                    timeout: Some(std::time::Duration::from_secs(30)),
+                }) {
                     Ok(result) => result,
                     Err(sori_core::PipelineError::Route(detail)) => {
                         return Ok(Response::Error(sori_ipc::IpcErrorResponse {
@@ -555,6 +625,36 @@ async fn main() -> Result<()> {
                 }
                 Response::Control(ControlResponse { accepted: true, detail: "dictation cancellation requested; active provider work will be discarded".into() })
             }
+            Request::DictationAudio { model, audio, injection_strategy } => {
+                let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("dictation audio unavailable: Whisper provider is not ready".into()))?;
+                if !provider.can_transcribe(&model) {
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("dictation audio model is not discovered and ready: {}", model.0) }));
+                }
+                let target = RuntimeTarget::capture().map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
+                let mut injector = RuntimeInjector::with_strategy(injection_strategy);
+                let route = ModelRoute { provider: provider.provider_name().into(), model: model.clone(), reason: format!("canonical audio acceptance; target={}", target.identity.as_deref().unwrap_or("unknown")), fallback: Vec::new() };
+                let events = sori_core::InMemoryEventBus::default();
+                let result = sori_core::complete_dictation_with_vocabulary_options(
+                    audio,
+                    provider.as_ref(),
+                    &mut injector,
+                    &target,
+                    &route,
+                    handler_store.as_ref(),
+                    &events,
+                    &Vocabulary::default(),
+                    &CancellationToken::new(),
+                    Some(std::time::Duration::from_secs(120)),
+                ).map_err(|error| sori_ipc::IpcError::Transport(format!("canonical audio dictation failed: {error}")))?;
+                if result.inserted_text.is_none() {
+                    let detail = result.injection_error.unwrap_or_else(|| "focused target did not confirm text insertion".into());
+                    let code = if detail.starts_with("input_blocked:") { "input_blocked" } else { "injection_failed" };
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: code.into(), detail }));
+                }
+                let retention = handler_store.setting("history.retention_limit").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+                handler_store.try_retain_history(retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?;
+                Response::Transcript(result.transcript)
+            }
             Request::Dictation { model, audio } => {
                 let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
                 let runtime = slot.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
@@ -580,13 +680,31 @@ async fn main() -> Result<()> {
             }
             Request::RunBenchmark { model, audio, reference, iterations, session_id, timeout_ms } => {
                 let provider = benchmark_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("benchmark unavailable: Whisper provider is not ready".into()))?;
+                if !provider.can_transcribe(&model) {
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("benchmark model is not discovered and ready: {}", model.0) }));
+                }
                 let session_id = session_id.unwrap_or_else(uuid::Uuid::new_v4);
                 let cancellation = CancellationToken::new();
                 handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.insert(session_id, cancellation.clone());
-                if let Some(timeout_ms) = timeout_ms { let timer = cancellation.clone(); std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_millis(timeout_ms)); timer.cancel(); }); }
+                let timeout_triggered = Arc::new(AtomicBool::new(false));
+                if let Some(timeout_ms) = timeout_ms {
+                    let timer = cancellation.clone();
+                    let timed_out = Arc::clone(&timeout_triggered);
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(timeout_ms));
+                        timed_out.store(true, Ordering::Release);
+                        timer.cancel();
+                    });
+                }
                 let result = run_benchmark_with_options(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }, &BenchmarkOptions { cancellation: cancellation.clone(), timeout: timeout_ms.map(std::time::Duration::from_millis) });
                 handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.remove(&session_id);
-                let result = result.map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark failed: {e}")))?;
+                let result = match result {
+                    Ok(result) => result,
+                    Err(sori_core::ModelError::Inference(detail)) if timeout_triggered.load(Ordering::Acquire) => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_timed_out".into(), detail: format!("benchmark timed out: {detail}") })),
+                    Err(sori_core::ModelError::Inference(detail)) if detail.contains("cancelled") => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_cancelled".into(), detail })),
+                    Err(sori_core::ModelError::Inference(detail)) if detail.contains("timed out") => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_timed_out".into(), detail })),
+                    Err(error) => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_failed".into(), detail: error.to_string() })),
+                };
                 handler_store.save_benchmark(&result).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark persistence failed: {e}")))?;
                 Response::Benchmark(result)
             }
@@ -618,8 +736,9 @@ async fn main() -> Result<()> {
                 let slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
                 let sqlite_ok = handler_store.migration_status().unwrap_or(false);
                 let status = slot.as_ref().map(|runtime| status_response(runtime, &config_snapshot, privacy)).unwrap_or_else(|| busy_status_response(&config_snapshot, privacy));
-                let audio_error = slot.as_ref().and_then(|runtime| runtime.audio_readiness().err()).map(|error| error.to_string());
+                let audio_error = slot.as_ref().and_then(|runtime| (!runtime.audio_available()).then_some("microphone capture adapter is unavailable".to_owned()));
                 let whisper_ready = slot.as_ref().is_some_and(|runtime| runtime.whisper_available());
+                let hotkey_state = hotkey_status.lock().map_err(|_| sori_ipc::IpcError::Transport("hotkey status lock poisoned".into()))?.clone();
                 Response::Doctor(DoctorResponse {
                     status,
                     checks: vec![
@@ -645,10 +764,10 @@ async fn main() -> Result<()> {
                         },
                         DoctorCheck {
                             name: "hotkey".into(),
-                            ok: matches!(hotkey_status, HotkeyServiceStatus::Running | HotkeyServiceStatus::RunningWithFallback),
-                            detail: match &hotkey_status {
+                            ok: matches!(hotkey_state, HotkeyServiceStatus::Running),
+                            detail: match &hotkey_state {
                                 HotkeyServiceStatus::Running => "Windows global hotkey listener registered; physical key proof requires a machine test".into(),
-                                HotkeyServiceStatus::RunningWithFallback => "requested global hotkey conflicted; fallback Ctrl+Alt+Space is registered; physical key proof requires a machine test".into(),
+                                HotkeyServiceStatus::RunningWithFallback => "legacy fallback state; choose another configurable hotkey".into(),
                                 HotkeyServiceStatus::Unsupported => "unsupported: native global hotkey adapter requires Windows".into(),
                                 HotkeyServiceStatus::Unavailable(detail) => format!("unavailable: {detail}"),
                             },
@@ -657,7 +776,7 @@ async fn main() -> Result<()> {
                             name: "audio".into(),
                             ok: slot.is_some() && audio_error.is_none(),
                             detail: match audio_error {
-                                None if slot.is_some() => "CPAL input device discovered and native input configuration is available; stream start remains a separate session check".into(),
+                                None if slot.is_some() => "CPAL capture adapter configured; native device readiness remains unverified until a session check".into(),
                                 None => "unavailable while a dictation operation is cleaning up".into(),
                                 Some(error) => format!("unavailable: {error}"),
                             },
@@ -705,19 +824,27 @@ async fn main() -> Result<()> {
                 let value = handler_store
                     .resource(&resource)
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .or_else(|| if resource == "route" { handler_store.model_route("active").ok().flatten() } else { None })
                     .or(legacy)
                     .unwrap_or_else(|| default_resource(&resource));
                 Response::Resource(sori_ipc::ResourceResponse { resource, value })
             }
             Request::ResourceSet { resource, value } => {
                 validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
+                if resource == "whisper" {
+                    persist_whisper_resource(&value).map_err(sori_ipc::IpcError::Transport)?;
+                }
                 if resource == "route" {
                     let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport(whisper_detail.clone()))?;
-                    validate_route_resource(&value, provider.as_ref()).map_err(|detail| sori_ipc::IpcError::Transport(detail))?;
+                    validate_route_resource(&value, provider.as_ref()).map_err(sori_ipc::IpcError::Transport)?;
                 }
                 handler_store
                     .set_resource(&resource, &value)
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if resource == "route" {
+                    handler_store.save_model_route("active", &value).map_err(|e| sori_ipc::IpcError::Transport(format!("route persistence failed: {e}")))?;
+                }
+                publish_persisted_event(&handler_store, EventKind::ResourceChanged, format!("set:{resource}"));
                 // Keep the legacy key readable by daemon startup code while all
                 // new writes are owned by the user_data resource table.
                 handler_store
@@ -728,8 +855,12 @@ async fn main() -> Result<()> {
             Request::ResourceDelete { resource } => {
                 validate_resource(&resource).map_err(sori_ipc::IpcError::Transport)?;
                 let deleted = handler_store.delete_resource(&resource).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if resource == "route" {
+                    handler_store.delete_model_route("active").map_err(|e| sori_ipc::IpcError::Transport(format!("route deletion failed: {e}")))?;
+                }
                 handler_store.delete_setting(&format!("resource.{resource}")).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 if deleted {
+                    publish_persisted_event(&handler_store, EventKind::ResourceChanged, format!("deleted:{resource}"));
                     Response::Control(ControlResponse { accepted: true, detail: format!("resource {resource} deleted from SQLite") })
                 } else {
                     Response::Error(sori_ipc::IpcErrorResponse { code: "not_found".into(), detail: format!("resource {resource} not found") })
@@ -742,16 +873,48 @@ async fn main() -> Result<()> {
                 if !deleted {
                     return Err(sori_ipc::IpcError::Transport("history entry not found".into()));
                 }
+                publish_persisted_event(&handler_store, EventKind::HistoryChanged, format!("deleted:{id}"));
                 Response::Control(ControlResponse { accepted: true, detail: "history entry deleted from SQLite".into() })
             }
             Request::PurgeHistory => {
                 handler_store.try_purge_history().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                publish_persisted_event(&handler_store, EventKind::HistoryChanged, "purged".into());
                 Response::Control(ControlResponse { accepted: true, detail: "history purged from SQLite".into() })
+            }
+            Request::SettingGet { key } => {
+                validate_setting_key(&key).map_err(sori_ipc::IpcError::Transport)?;
+                let value = handler_store.setting(&key).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                Response::Setting(sori_ipc::SettingResponse { key, value })
+            }
+            Request::SettingDelete { key } => {
+                validate_setting_key(&key).map_err(sori_ipc::IpcError::Transport)?;
+                let deleted = handler_store.delete_setting(&key).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                if deleted {
+                    Response::Setting(sori_ipc::SettingResponse { key, value: None })
+                } else {
+                    Response::Error(sori_ipc::IpcErrorResponse { code: "not_found".into(), detail: format!("setting {key} not found") })
+                }
             }
             Request::SetConfig { key, value } => {
                 validate_setting(&key, &value).map_err(sori_ipc::IpcError::Transport)?;
+                if key == "hotkey.binding" {
+                    let binding = value.as_str().unwrap();
+                    let parsed = sorid::parse_hotkey_binding(binding).map_err(sori_ipc::IpcError::Transport)?;
+                    let service = handler_hotkey_service.lock().map_err(|_| sori_ipc::IpcError::Transport("hotkey service lock poisoned".into()))?;
+                    if let Some(service) = service.as_ref() {
+                        service.rebind(parsed).map_err(|error| sori_ipc::IpcError::Transport(format!("cannot register hotkey `{binding}`: {error}; choose another combination")))?;
+                    }
+                    handler_hotkey_status.lock().map_err(|_| sori_ipc::IpcError::Transport("hotkey status lock poisoned".into()))?.clone_from(&HotkeyServiceStatus::Running);
+                }
                 handler_store.set_setting(&key, &value).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                publish_persisted_event(&handler_store, EventKind::SettingChanged, format!("set:{key}"));
+                if key == "hotkey.binding" {
+                    let mut settings = handler_store.resource("settings").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.unwrap_or_else(|| serde_json::json!({}));
+                    settings["hotkey"] = value.clone();
+                    handler_store.set_resource("settings", &settings).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                }
                 if key == "hotkey.binding" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.hotkey.binding = value.as_str().unwrap().to_owned(); }
+                if key == "audio.device_id" { handler_config.lock().map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?.audio.device_id = value.as_str().map(str::to_owned); }
                 if key == "privacy.mode" { *handler_privacy.lock().map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))? = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?; }
                 if key == "route.policy" {
                     let preset: sori_core::RoutePreset = serde_json::from_value(value.clone()).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -831,6 +994,7 @@ async fn main() -> Result<()> {
         info!("sorid stopped with an active operation still unwinding after cancellation deadline");
         false
     };
+    let _ = std::fs::remove_file(owner_path);
     loop_result?;
     if stopped {
         info!("sorid stopped gracefully");
@@ -920,7 +1084,15 @@ fn extension_state(
     }))
 }
 
-#[cfg(windows)]
+fn publish_persisted_event(store: &SqliteStore, kind: EventKind, detail: String) {
+    store.publish(sori_core::Event {
+        id: uuid::Uuid::new_v4(),
+        at: time::OffsetDateTime::now_utc(),
+        kind,
+        payload: sori_core::event::serde_json_like::Value::String(detail),
+    });
+}
+
 #[cfg(windows)]
 fn native_text_injection_detail() -> &'static str {
     sori_core::WindowsSendInputAdapter::diagnostic()
@@ -977,6 +1149,18 @@ fn status_response<B: sori_core::EventBus>(
     }
 }
 
+fn validate_setting_key(key: &str) -> Result<(), String> {
+    match key {
+        "hotkey.binding"
+        | "history.enabled"
+        | "history.retention_limit"
+        | "route.policy"
+        | "privacy.mode"
+        | "audio.device_id" => Ok(()),
+        _ => Err(format!("unsupported setting: {key}")),
+    }
+}
+
 fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> {
     match key {
         "hotkey.binding" if value.as_str().is_some_and(|v| !v.trim().is_empty()) => Ok(()),
@@ -992,6 +1176,7 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
         {
             Ok(())
         }
+        "audio.device_id" if value.as_str().is_some_and(|v| !v.trim().is_empty()) => Ok(()),
         "privacy.mode"
             if value
                 .as_str()
@@ -1006,6 +1191,7 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
             Err("history.retention_limit must be an integer from 1 to 10000".into())
         }
         "route.policy" => Err("route.policy must be a supported route preset".into()),
+        "audio.device_id" => Err("audio.device_id must be a non-empty string".into()),
         "privacy.mode" => {
             Err("privacy.mode must be Auto, LocalOnly, CloudAllowed, or NeverCloud".into())
         }
@@ -1013,10 +1199,32 @@ fn validate_setting(key: &str, value: &serde_json::Value) -> Result<(), String> 
     }
 }
 
+fn persist_whisper_resource(value: &serde_json::Value) -> Result<(), String> {
+    let object = value
+        .as_object()
+        .ok_or("whisper runtime configuration must be an object")?;
+    let executable = object
+        .get("executable")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("whisper.executable must be a non-empty path")?;
+    let model_dir = object
+        .get("model_dir")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .map(std::path::Path::new);
+    sori_provider_whisper::WhisperCppConfig::persist_config(
+        std::path::Path::new(executable),
+        model_dir,
+    )
+    .map(|_| ())
+    .map_err(|error| error.to_string())
+}
+
 fn validate_resource(resource: &str) -> Result<(), String> {
     match resource {
         "settings" | "preferences" | "vocabulary" | "snippets" | "models" | "benchmarks"
-        | "extensions" | "permissions" | "privacy" | "onboarding" | "route" => Ok(()),
+        | "extensions" | "permissions" | "privacy" | "onboarding" | "route" | "whisper" => Ok(()),
         _ => Err(format!("unsupported resource: {resource}")),
     }
 }
@@ -1075,6 +1283,27 @@ fn validated_benchmark_route(
     )
 }
 
+fn default_resource(resource: &str) -> serde_json::Value {
+    match resource {
+        "vocabulary" | "snippets" | "benchmarks" | "extensions" | "permissions" => {
+            serde_json::json!([])
+        }
+        "settings" | "preferences" => serde_json::json!({}),
+        "whisper" => serde_json::json!({"executable": null, "model_dir": null}),
+        "models" => serde_json::json!([]),
+        "privacy" => {
+            serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
+        }
+        "onboarding" => {
+            serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
+        }
+        "route" => {
+            serde_json::json!({"activeModelId": null,"policy":"LocalFirst","fallbackModelIds":[]})
+        }
+        _ => serde_json::Value::Null,
+    }
+}
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod benchmark_recommendation_tests {
     use super::*;
@@ -1109,26 +1338,5 @@ mod benchmark_recommendation_tests {
     fn recommendation_rejects_unknown_provider_or_model() {
         assert!(validated_benchmark_route(&ModelId::from("other/ready"), &Provider).is_err());
         assert!(validated_benchmark_route(&ModelId::from("missing"), &Provider).is_err());
-    }
-}
-
-fn default_resource(resource: &str) -> serde_json::Value {
-    match resource {
-        "vocabulary" | "snippets" | "benchmarks" | "extensions" | "permissions" => {
-            serde_json::json!([])
-        }
-        "settings" => serde_json::json!({}),
-        "preferences" => serde_json::json!({}),
-        "models" => serde_json::json!([]),
-        "privacy" => {
-            serde_json::json!({"saveTranscriptHistory": true, "retentionDays": 30, "ephemeralAudio": true, "voiceLock": "unknown", "commandPolicy": "ask-confirmation"})
-        }
-        "onboarding" => {
-            serde_json::json!({"step": "welcome", "completed": false, "microphone": "unknown", "permissions": "unknown", "hotkey": "unknown"})
-        }
-        "route" => {
-            serde_json::json!({"activeModelId": null,"policy":"LocalFirst","fallbackModelIds":[]})
-        }
-        _ => serde_json::Value::Null,
     }
 }

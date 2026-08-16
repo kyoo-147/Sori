@@ -2,6 +2,13 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex as StdMutex;
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct DaemonOwner {
+    endpoint: String,
+    pid: u32,
+    executable: String,
+}
+
 struct DaemonSupervisor {
     child: StdMutex<Option<Child>>,
     resource_dir: StdMutex<Option<PathBuf>>,
@@ -17,6 +24,21 @@ impl Default for DaemonSupervisor {
 }
 
 impl DaemonSupervisor {
+    fn owner_path() -> PathBuf {
+        if let Some(root) = std::env::var_os("LOCALAPPDATA") {
+            return PathBuf::from(root).join("Sori").join("daemon-owner.json");
+        }
+        PathBuf::from("sori-daemon-owner.json")
+    }
+
+    fn owned_endpoint(endpoint: std::net::SocketAddr, daemon: &std::path::Path) -> bool {
+        let Ok(value) = std::fs::read_to_string(Self::owner_path()) else { return false; };
+        let Ok(owner) = serde_json::from_str::<DaemonOwner>(&value) else { return false; };
+        owner.endpoint == endpoint.to_string()
+            && owner.pid != 0
+            && std::fs::canonicalize(owner.executable).ok() == std::fs::canonicalize(daemon).ok()
+    }
+
     fn whisper_runtime_diagnostic(configured: bool) -> Option<&'static str> {
         if configured {
             None
@@ -75,8 +97,12 @@ impl DaemonSupervisor {
             tracked.take();
         }
         if Self::endpoint_occupied(endpoint) {
-            eprintln!("[sori] daemon endpoint {endpoint} is already occupied; refusing to launch an unknown sorid");
-            return Ok(());
+            let expected = Self::daemon_path(resource_dir);
+            if Self::owned_endpoint(endpoint, &expected) {
+                eprintln!("[sori] an owned sorid already serves this desktop; reusing the loopback connection");
+                return Ok(());
+            }
+            return Err(format!("Sori cannot start because its local runtime endpoint is already in use by an unknown process; close that application or choose a separate isolated runtime before retrying (endpoint {endpoint})"));
         }
         let path = Self::daemon_path(resource_dir);
         if !path.is_file() {
@@ -116,6 +142,7 @@ impl DaemonSupervisor {
             let _ = child.kill();
             let _ = child.wait();
         }
+        let _ = std::fs::remove_file(Self::owner_path());
     }
 }
 #[cfg(windows)]

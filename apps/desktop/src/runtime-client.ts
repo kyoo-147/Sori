@@ -1,4 +1,4 @@
-import { requestShape, responsePayload, type ConfigSummaryResponse, type ControlResponse, type DoctorCheck, type ExtensionManifest, type ExtensionRecord, type HistoryEntry, type IpcOperation, type IpcResponseMap, type ModelsResponse, type RouteSummary, type TranscriptResponse, type VoiceEditResponse, type VoiceEditSelection } from './ipc-contract.js';
+import { requestShape, responsePayload, type ConfigSummaryResponse, type ControlResponse, type DoctorCheck, type ExtensionManifest, type ExtensionRecord, type HistoryEntry, type IpcOperation, type IpcResponseMap, type ModelsResponse, type RouteSummary, type TranscriptResponse, type VoiceEditResponse, type VoiceEditSelection, type SettingResponse } from './ipc-contract.js';
 import type { ModelRecord } from './types';
 export type { DoctorCheck, IpcOperation, IpcRequest } from './ipc-contract.js';
 export interface DaemonStatus { daemon: 'starting' | 'running' | 'stopping' | 'unavailable'; activity: 'idle' | 'paused' | 'error'; paused: boolean; hotkey: string; route: RouteSummary; profile: string; privacy: string; version: string | null; }
@@ -25,7 +25,7 @@ export function mapModels(value: unknown): ModelRecord[] {
   return payload.models.map(({ manifest, status }) => {
     const provider = payload.provider ?? status.backend ?? manifest.backend;
     const id = provider ? `${provider}/${manifest.id}` : manifest.id;
-    return { id, name: manifest.display_name, provider, location: 'local', qualityTier: 'standard', recommended: false, available: status.installed, installed: status.installed, loaded: status.loaded, warm: status.warm, unavailableReason: status.installed ? null : 'Model files are not installed by the daemon' };
+    return { id, name: manifest.display_name, provider, location: 'local', qualityTier: 'standard', recommended: false, available: status.installed, installed: status.installed, loaded: status.loaded, warm: status.warm, unavailableReason: status.error ?? (status.installed ? null : 'Model files are not installed by the daemon') };
   });
 }
 export class HttpIpcTransport implements IpcTransport { readonly source = 'backend' as const; constructor(private readonly url = endpoint, private readonly fetchImpl: typeof fetch = fetch) {} async request(operation: IpcOperation, params?: Record<string, unknown>): Promise<unknown> { const response = await this.fetchImpl(this.url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(requestShape(operation, params)), signal: AbortSignal.timeout(2_000) }); if (!response.ok) throw new Error(`IPC request failed (${response.status})`); return response.json(); } }
@@ -39,6 +39,8 @@ export class RuntimeClient {
   doctor() { return this.call('doctor', mapDoctor, []); }
   modelReadiness() { return this.doctor().then((result) => ({ ...result, data: result.data.find((check) => check.name === 'whisper') ?? { name: 'whisper', ok: false, detail: 'UNVERIFIED: model readiness was not reported by sorid' } })); }
   configSummary() { return this.call('config_summary', (v) => unwrap(v, 'config_summary') as unknown as ConfigSummaryResponse, null); }
+  setting(key: string) { return this.call('setting_get', (v) => responsePayload(v, 'Setting') as SettingResponse, { key, value: null }); }
+  deleteSetting(key: string) { return this.call('setting_delete', (v) => responsePayload(v, 'Setting') as SettingResponse, { key, value: null }); }
   history(limit = 20) { return this.call('recent_history', mapHistory, [], { limit }); }
   async purgeHistory() { return this.control('purge_history'); }
   async deleteHistory(id: string) { return this.control('delete_history', { id }); }
@@ -47,8 +49,10 @@ export class RuntimeClient {
   async dictationStart() { return this.control('dictation_start'); }
   async dictationStop() { return this.call('dictation_stop', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null); }
   async dictationCancel() { return this.control('dictation_cancel'); }
+  async dictationAudio(model: string, audio: unknown[]) { return this.call('dictation_audio', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null, { model, audio }); }
   async voiceEdit(selection: VoiceEditSelection, instruction: string, approved = false) { return this.call('voice_edit', (value) => (responsePayload(value, 'VoiceEdit') ?? null) as VoiceEditResponse | null, null, { selection, instruction, approved }); }
-  async runBenchmark(model: string, audio: unknown[], reference: string | null, iterations = 5) { return this.call('run_benchmark', (v) => responsePayload(v, 'Benchmark') ?? null, null, { model, audio, reference, iterations }); }
+  async runBenchmark(model: string, audio: unknown[], reference: string | null, iterations = 5, sessionId = crypto.randomUUID(), timeoutMs = 60_000) { return this.call('run_benchmark', (v) => responsePayload(v, 'Benchmark') ?? null, null, { model, audio, reference, iterations, session_id: sessionId, timeout_ms: timeoutMs }); }
+  async cancelBenchmark(sessionId: string) { return this.control('cancel_benchmark', { session_id: sessionId }); }
   async recentBenchmarks(limit = 20) { return this.call('recent_benchmarks', (v) => (responsePayload(v, 'Resource') as { value: BenchmarkHistoryPayload } | undefined)?.value ?? { runs: [], recommendation: null }, { runs: [], recommendation: null }, { limit }); }
   async applyBenchmarkRecommendation() { return this.call('apply_benchmark_recommendation', (value) => (responsePayload(value, 'Resource') as { value: unknown } | undefined)?.value ?? null, null); }
   resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }

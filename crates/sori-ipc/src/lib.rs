@@ -1091,6 +1091,82 @@ mod tests {
         task.abort();
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn delayed_dictation_start_keeps_status_and_cancel_responsive() {
+        let server = LocalIpcServer::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let endpoint = server.local_addr().unwrap();
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let handler_gate = Arc::clone(&gate);
+        let task = tokio::spawn(server.serve(move |request| match request {
+            // Deterministic stand-in for delayed CPAL startup.
+            Request::DictationStart => {
+                handler_gate.wait();
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                Ok(Response::Control(ControlResponse {
+                    accepted: true,
+                    detail: "microphone capture started".into(),
+                }))
+            }
+            Request::DictationCancel => Ok(Response::Control(ControlResponse {
+                accepted: true,
+                detail: "dictation cancellation requested".into(),
+            })),
+            Request::Status => Ok(Response::Status(StatusResponse {
+                protocol_version: PROTOCOL_VERSION,
+                daemon_version: "test".into(),
+                running: true,
+                activity: RuntimeActivity::Idle,
+                paused: false,
+                hotkey: "Alt+Space".into(),
+                route: RouteSummary {
+                    prefer_local: true,
+                    allow_cloud: true,
+                    prefer_warm_runtime: false,
+                    optimize_battery: false,
+                },
+                profile: ProfileMode::Basic,
+                privacy: PrivacyMode::LocalOnly,
+            })),
+            _ => Err(IpcError::UnexpectedResponse {
+                request: Box::new(request),
+            }),
+        }));
+        let start = tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(Request::DictationStart)
+        });
+        tokio::task::spawn_blocking(move || gate.wait())
+            .await
+            .unwrap();
+        let started = std::time::Instant::now();
+        let cancel = tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(Request::DictationCancel)
+                .unwrap()
+        })
+        .await
+        .unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_millis(150));
+        assert!(matches!(cancel, Response::Control(control) if control.accepted));
+        let status = tokio::task::spawn_blocking(move || {
+            LocalIpcClient::connect_to(endpoint)
+                .unwrap()
+                .request(Request::Status)
+                .unwrap()
+        })
+        .await
+        .unwrap();
+        assert!(matches!(status, Response::Status(status) if status.running));
+        assert!(
+            matches!(start.await.unwrap().unwrap(), Response::Control(control) if control.accepted)
+        );
+        task.abort();
+    }
+
     #[tokio::test]
     async fn cancellation_is_admitted_while_long_operation_runs() {
         let server = LocalIpcServer::bind("127.0.0.1:0".parse().unwrap())

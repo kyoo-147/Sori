@@ -13,12 +13,18 @@ let nextRequestId = 1;
 function record(value: unknown): Record<string, unknown> { return value && typeof value === 'object' ? value as Record<string, unknown> : {}; }
 function text(value: unknown, fallback: string | null = null): string | null { return typeof value === 'string' ? value : fallback; }
 function unwrap(value: unknown, tag: string): Record<string, unknown> { const root = record(value); const pascal = tag.split('_').map((p) => p[0].toUpperCase() + p.slice(1)).join(''); const tagged = record(responsePayload(value, pascal as keyof IpcResponseMap) ?? root[tag]); return Object.keys(tagged).length ? tagged : root; }
+function requiredPayload<T>(value: unknown, variant: keyof IpcResponseMap, detail: string, guard: (payload: unknown) => payload is T): T { const payload = responsePayload(value, variant); if (!guard(payload)) throw new Error(detail); return payload; }
+function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+function hasString(value: Record<string, unknown>, key: string): boolean { return typeof value[key] === 'string'; }
+function isNullableString(value: unknown): boolean { return value === null || typeof value === 'string'; }
+function isAudioReadiness(value: unknown): value is AudioReadinessResponse { if (!isRecord(value)) return false; return (value.state === 'Unavailable' || value.state === 'PermissionRequired' || value.state === 'DeviceUnavailable' || value.state === 'Ready') && typeof value.configured === 'boolean' && hasString(value, 'detail') && hasString(value, 'signal'); }
+function isConfigSummary(value: unknown): value is ConfigSummaryResponse { if (!isRecord(value) || !isRecord(value.route)) return false; const route = value.route; return hasString(value, 'profile') && hasString(value, 'privacy') && typeof value.history_enabled === 'boolean' && typeof value.history_retention_limit === 'number' && Number.isFinite(value.history_retention_limit) && hasString(value, 'hotkey') && typeof route.prefer_local === 'boolean' && typeof route.allow_cloud === 'boolean' && typeof route.prefer_warm_runtime === 'boolean' && typeof route.optimize_battery === 'boolean'; }
+function isSetting(value: unknown): value is SettingResponse { return isRecord(value) && hasString(value, 'key') && Object.prototype.hasOwnProperty.call(value, 'value'); }
+function isVoiceEdit(value: unknown): value is VoiceEditResponse { return isRecord(value) && typeof value.accepted === 'boolean' && isNullableString(value.transformed_text) && isNullableString(value.diff) && hasString(value, 'detail'); }
+function isBenchmark(value: unknown): value is Record<string, unknown> { return isRecord(value) && hasString(value, 'run_id') && hasString(value, 'started_at') && hasString(value, 'completed_at') && hasString(value, 'model') && hasString(value, 'provider') && typeof value.samples === 'number' && typeof value.attempts === 'number' && Number.isFinite(value.samples) && Number.isFinite(value.attempts); }
+function isTranscript(value: unknown): value is TranscriptResponse { if (!isRecord(value) || !hasString(value, 'text')) return false; if ('language' in value && !isNullableString(value.language)) return false; return !('segments' in value) || Array.isArray(value.segments); }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-function mapTranscript(value: unknown): TranscriptResponse {
-  const transcript = unwrap(value, 'transcript');
-  if (typeof transcript.text !== 'string') throw new Error('daemon returned no transcript');
-  return transcript as unknown as TranscriptResponse;
-}
+function mapTranscript(value: unknown): TranscriptResponse { return requiredPayload<TranscriptResponse>(value, 'Transcript', 'daemon returned no transcript (invalid transcript response)', isTranscript); }
 export { requestShape } from './ipc-contract.js';
 export function mapStatus(value: unknown): DaemonStatus { const raw = unwrap(value, 'status'); return { daemon: raw.daemon === 'starting' || raw.daemon === 'stopping' || raw.daemon === 'running' ? raw.daemon : raw.running === true ? 'running' : 'unavailable', activity: raw.paused === true || raw.activity === 'Paused' ? 'paused' : raw.activity === 'Idle' ? 'idle' : 'error', paused: raw.paused === true || raw.activity === 'Paused', hotkey: text(raw.hotkey, 'Alt+Space')!, route: { prefer_local: record(raw.route).prefer_local === true, allow_cloud: record(raw.route).allow_cloud === true, prefer_warm_runtime: record(raw.route).prefer_warm_runtime === true, optimize_battery: record(raw.route).optimize_battery === true }, profile: text(raw.profile, 'Basic')!, privacy: text(raw.privacy, 'LocalOnly')!, version: text(raw.daemon_version) ?? text(raw.version) }; }
 export function mapDoctor(value: unknown): DoctorCheck[] { const checks = unwrap(value, 'doctor').checks; return Array.isArray(checks) ? checks.filter((check): check is DoctorCheck => { const item = record(check); return typeof item.name === 'string' && typeof item.ok === 'boolean' && typeof item.detail === 'string'; }) : []; }
@@ -42,11 +48,11 @@ export class RuntimeClient {
   constructor(private readonly transport: IpcTransport = new DesktopIpcTransport()) {}
   status() { return this.call('status', mapStatus, unavailable); }
   doctor() { return this.call('doctor', mapDoctor, []); }
-  audioReadiness() { return this.call('audio_readiness', (value) => responsePayload(value, 'AudioReadiness') as AudioReadinessResponse, { state: 'Unavailable', configured: false, detail: 'UNVERIFIED: microphone readiness was not reported by sorid', signal: 'UNVERIFIED' }); }
+  audioReadiness() { return this.call('audio_readiness', (value) => requiredPayload<AudioReadinessResponse>(value, 'AudioReadiness', 'daemon returned no audio readiness response (invalid audio readiness response)', isAudioReadiness), { state: 'Unavailable', configured: false, detail: 'UNVERIFIED: microphone readiness was not reported by sorid', signal: 'UNVERIFIED' }); }
   modelReadiness() { return this.doctor().then((result) => ({ ...result, data: result.data.find((check) => check.name === 'whisper') ?? { name: 'whisper', ok: false, detail: 'UNVERIFIED: model readiness was not reported by sorid' } })); }
-  configSummary() { return this.call('config_summary', (v) => unwrap(v, 'config_summary') as unknown as ConfigSummaryResponse, null); }
-  setting(key: string) { return this.call('setting_get', (v) => responsePayload(v, 'Setting') as SettingResponse, { key, value: null }); }
-  deleteSetting(key: string) { return this.call('setting_delete', (v) => responsePayload(v, 'Setting') as SettingResponse, { key, value: null }); }
+  configSummary() { return this.call('config_summary', (v) => requiredPayload<ConfigSummaryResponse>(v, 'ConfigSummary', 'daemon returned an invalid config summary', isConfigSummary), null); }
+  setting(key: string) { return this.call('setting_get', (v) => requiredPayload<SettingResponse>(v, 'Setting', `daemon returned an invalid setting response for ${key}`, isSetting), { key, value: null }); }
+  deleteSetting(key: string) { return this.call('setting_delete', (v) => requiredPayload<SettingResponse>(v, 'Setting', `daemon returned an invalid setting response for ${key}`, isSetting), { key, value: null }); }
   history(limit = 20) { return this.call('recent_history', mapHistory, [], { limit }); }
   async purgeHistory() { return this.control('purge_history'); }
   async deleteHistory(id: string) { return this.control('delete_history', { id }); }
@@ -55,9 +61,9 @@ export class RuntimeClient {
   async dictationStart() { return this.control('dictation_start'); }
   async dictationStop() { return this.call('dictation_stop', mapTranscript, null); }
   async dictationCancel() { return this.control('dictation_cancel'); }
-  async dictationAudio(model: string, audio: unknown[], injectionStrategy?: 'DirectInput' | 'ClipboardPaste') { return this.call('dictation_audio', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null, { model, audio, ...(injectionStrategy ? { injection_strategy: injectionStrategy } : {}) }); }
-  async voiceEdit(selection: VoiceEditSelection, instruction: string, approved = false) { return this.call('voice_edit', (value) => (responsePayload(value, 'VoiceEdit') ?? null) as VoiceEditResponse | null, null, { selection, instruction, approved }); }
-  async runBenchmark(model: string, audio: unknown[], reference: string | null, iterations = 5, sessionId = crypto.randomUUID(), timeoutMs = 60_000) { return this.call('run_benchmark', (v) => responsePayload(v, 'Benchmark') ?? null, null, { model, audio, reference, iterations, session_id: sessionId, timeout_ms: timeoutMs }); }
+  async dictationAudio(model: string, audio: unknown[], injectionStrategy?: 'DirectInput' | 'ClipboardPaste') { return this.call('dictation_audio', mapTranscript, null, { model, audio, ...(injectionStrategy ? { injection_strategy: injectionStrategy } : {}) }); }
+  async voiceEdit(selection: VoiceEditSelection, instruction: string, approved = false) { return this.call('voice_edit', (value) => requiredPayload<VoiceEditResponse>(value, 'VoiceEdit', 'daemon returned an invalid voice edit response', isVoiceEdit), null, { selection, instruction, approved }); }
+  async runBenchmark(model: string, audio: unknown[], reference: string | null, iterations = 5, sessionId = crypto.randomUUID(), timeoutMs = 60_000) { return this.call('run_benchmark', (v) => requiredPayload<unknown>(v, 'Benchmark', 'daemon returned no benchmark response (invalid benchmark response)', isBenchmark), null, { model, audio, reference, iterations, session_id: sessionId, timeout_ms: timeoutMs }); }
   async cancelBenchmark(sessionId: string) { return this.control('cancel_benchmark', { session_id: sessionId }); }
   async recentBenchmarks(limit = 20) { return this.call('recent_benchmarks', (v) => (responsePayload(v, 'Resource') as { value: BenchmarkHistoryPayload } | undefined)?.value ?? { runs: [], recommendation: null }, { runs: [], recommendation: null }, { limit }); }
   async applyBenchmarkRecommendation() { return this.call('apply_benchmark_recommendation', (value) => (responsePayload(value, 'Resource') as { value: unknown } | undefined)?.value ?? null, null); }

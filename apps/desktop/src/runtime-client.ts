@@ -55,7 +55,7 @@ export class RuntimeClient {
   async dictationStart() { return this.control('dictation_start'); }
   async dictationStop() { return this.call('dictation_stop', mapTranscript, null); }
   async dictationCancel() { return this.control('dictation_cancel'); }
-  async dictationAudio(model: string, audio: unknown[]) { return this.call('dictation_audio', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null, { model, audio }); }
+  async dictationAudio(model: string, audio: unknown[], injectionStrategy?: 'DirectInput' | 'ClipboardPaste') { return this.call('dictation_audio', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null, { model, audio, ...(injectionStrategy ? { injection_strategy: injectionStrategy } : {}) }); }
   async voiceEdit(selection: VoiceEditSelection, instruction: string, approved = false) { return this.call('voice_edit', (value) => (responsePayload(value, 'VoiceEdit') ?? null) as VoiceEditResponse | null, null, { selection, instruction, approved }); }
   async runBenchmark(model: string, audio: unknown[], reference: string | null, iterations = 5, sessionId = crypto.randomUUID(), timeoutMs = 60_000) { return this.call('run_benchmark', (v) => responsePayload(v, 'Benchmark') ?? null, null, { model, audio, reference, iterations, session_id: sessionId, timeout_ms: timeoutMs }); }
   async cancelBenchmark(sessionId: string) { return this.control('cancel_benchmark', { session_id: sessionId }); }

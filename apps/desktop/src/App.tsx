@@ -78,6 +78,7 @@ export default function App() {
   const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly', version: null });
   const [runtimeSource, setRuntimeSource] = useState<RuntimeSource>('unavailable');
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const refreshGeneration = useRef(0);
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
 
@@ -100,7 +101,9 @@ export default function App() {
   }, [runtimeClient]);
 
   const refreshRuntime = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
+    if (generation !== refreshGeneration.current) return;
     setRuntimeStatus(statusResult.data);
     setRuntimeSource(statusResult.source);
     setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
@@ -258,8 +261,9 @@ export default function App() {
   const setProfile = async (profile: AppSettings['activeProfile']) => {
     const result = await runtimeClient.setConfig('profile.mode', profile);
     setRuntimeSource(result.source);
-    setRuntimeError(result.error);
-    if (!result.error && result.data.accepted) setSettings((current) => ({ ...current, activeProfile: profile }));
+    const failure = result.error ?? (!result.data.accepted ? result.data.detail : null);
+    setRuntimeError(failure);
+    if (!failure) setSettings((current) => ({ ...current, activeProfile: profile }));
   };
   const saveAssistantVoice = async (next: AssistantVoiceSettings) => {
     const preferences: PersistedPreferences = { version: 1, sidebarCollapsed, sidebarWidth, assistantVoice: next, voiceProfile, activeScreen };
@@ -281,8 +285,9 @@ export default function App() {
     if (!isListening) {
       const result = await runtimeClient.dictationStart();
       setRuntimeSource(result.source);
-      setRuntimeError(result.error);
-      if (!result.error && result.data.accepted) {
+      const failure = result.error ?? (!result.data.accepted ? result.data.detail : null);
+      setRuntimeError(failure);
+      if (!failure) {
         setIsListening(true);
         setInterimTranscript('Capturing microphone audio…');
       }
@@ -291,10 +296,11 @@ export default function App() {
 
     const result = await runtimeClient.dictationStop();
     setRuntimeSource(result.source);
-    setRuntimeError(result.error);
+    const failure = result.error ?? (!result.data ? 'The daemon did not return a transcript.' : null);
+    setRuntimeError(failure);
     setIsListening(false);
     setInterimTranscript('');
-    if (!result.error && result.data?.text) await refreshRuntime();
+    if (!failure) await refreshRuntime();
   };
 
   const handleApplyRecommendedPolicy = async () => {

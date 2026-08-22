@@ -138,3 +138,19 @@ describe('RuntimeClient microphone readiness', () => {
     expect(result.data.detail).toContain('Windows microphone');
   });
 });
+
+describe('RuntimeClient fail-closed control responses', () => {
+  it('does not treat an accepted-less pause as a successful status refresh', async () => {
+    const client = new RuntimeClient(transport({ Control: { accepted: false, detail: 'daemon is stopping' } }));
+    const result = await client.pause();
+    expect(result.source).toBe('unavailable');
+    expect(result.error).toBe('daemon is stopping');
+  });
+
+  it('rejects a dictation stop response without transcript text', async () => {
+    const client = new RuntimeClient(transport({ Control: { accepted: false, detail: 'no transcript was produced' } }));
+    const result = await client.dictationStop();
+    expect(result.source).toBe('unavailable');
+    expect(result.error).toContain('daemon returned no transcript');
+  });
+});

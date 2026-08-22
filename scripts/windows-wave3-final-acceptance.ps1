@@ -45,15 +45,21 @@ function Read-DaemonLease([string]$ExpectedPath, $Listener, [DateTime]$NotBefore
   if ([int]$lease.pid -ne [int]$Listener[0].OwningProcess) { Fail 'daemon lease PID does not own the listener' }
   $process = Get-Process -Id ([int]$lease.pid) -ErrorAction Stop
   if (-not [String]::Equals((Resolve-Path -LiteralPath $process.Path).Path, $path, [StringComparison]::OrdinalIgnoreCase)) { Fail 'live daemon executable does not match the installed daemon' }
-  if ($process.StartTime.ToUniversalTime() -lt $NotBefore) { Fail 'daemon was running before this harness launch; refusing to claim or stop it' }
-  [ordered]@{ process = $process; pid = [int]$lease.pid; lease = $lease; lease_text = $leaseText; lease_generation = Get-LeaseGeneration $leaseText; lease_path = $leasePath }
+  try { $processStartTime = $process.StartTime.ToUniversalTime() } catch { Fail 'live daemon start time could not be verified' }
+  if ($processStartTime -lt $NotBefore) { Fail 'daemon was running before this harness launch; refusing to claim or stop it' }
+  [ordered]@{ process = $process; pid = [int]$lease.pid; start_time = $processStartTime; lease = $lease; lease_text = $leaseText; lease_generation = Get-LeaseGeneration $leaseText; lease_path = $leasePath }
 }
 function Stop-TrackedProcess($Tracked, [string]$ExpectedPath) {
   if (-not $Tracked) { return }
   $process = Get-Process -Id $Tracked.pid -ErrorAction SilentlyContinue
   if (-not $process) { return }
   if (-not [String]::Equals((Resolve-Path -LiteralPath $process.Path).Path, (Resolve-Path -LiteralPath $ExpectedPath).Path, [StringComparison]::OrdinalIgnoreCase)) { Fail "refusing to stop reused PID $($Tracked.pid) with unexpected executable" }
-  if ($process.StartTime.ToUniversalTime() -ne $Tracked.start_time) { Fail "refusing to stop reused PID $($Tracked.pid) with unexpected start time" }
+  if (-not $Tracked.Contains('start_time') -or -not $Tracked.start_time) { Fail "refusing to stop PID $($Tracked.pid): tracked start time is absent" }
+  try {
+    if ($process.StartTime.ToUniversalTime() -ne $Tracked.start_time) { Fail "refusing to stop reused PID $($Tracked.pid) with unexpected start time" }
+  } catch {
+    Fail "refusing to stop PID $($Tracked.pid): process start time could not be verified"
+  }
   Stop-Process -Id $process.Id -Force
 }
 function Invoke-Ipc($Url, $Body, [int]$Timeout = 5) {
@@ -75,13 +81,13 @@ function Read-EditText([IntPtr]$Hwnd) {
     return ($values -join "`n")
   } catch { return '' }
 }
-function Wait-TargetForeground([int]$Pid, [IntPtr]$Hwnd, [int]$Seconds) {
+function Wait-TargetForeground([int]$TargetPid, [IntPtr]$Hwnd, [int]$Seconds) {
   $until = [DateTime]::UtcNow.AddSeconds($Seconds)
   while ([DateTime]::UtcNow -lt $until) {
     [uint32]$foregroundPid = 0
     $foreground = [SoriWave3Native]::GetForegroundWindow()
     [SoriWave3Native]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid) | Out-Null
-    if ($foregroundPid -eq $Pid -and $foreground -eq $Hwnd) { return $true }
+    if ($foregroundPid -eq $TargetPid -and $foreground -eq $Hwnd) { return $true }
     Start-Sleep -Milliseconds 250
   }
   return $false
@@ -95,7 +101,7 @@ $artifact = [ordered]@{
   history = $null; events = $null; frontend_refresh = 'UNVERIFIED_NOT_AUTOMATABLE'; restart = $null; error = $null
   truth_boundary = 'Only the captain physical focus, configured hotkey, and spoken sentence can prove physical voice input. This artifact never synthesizes keyboard, audio, clipboard, or focus input.'
 }
-$app = $null; $daemon = $null; $target = $null; $ipcUrl = $null; $daemonPath = $DaemonExecutable
+$app = $null; $daemon = $null; $target = $null; $ipcUrl = $null; $appPath = $null; $daemonPath = $DaemonExecutable
 $appTrack = $null; $daemonTrack = $null; $launchStarted = $null
 try {
   New-Item -ItemType Directory -Force -Path '.tmp' | Out-Null
@@ -108,7 +114,8 @@ try {
   $artifact.daemon = [ordered]@{ path = (Resolve-Path -LiteralPath $daemonPath).Path }
 
   $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path -Parent $appPath) -PassThru
-  $appTrack = [ordered]@{ pid = $app.Id; start_time = $app.StartTime.ToUniversalTime() }
+  try { $appStartTime = (Get-Process -Id $app.Id -ErrorAction Stop).StartTime.ToUniversalTime() } catch { Fail 'installed app start time could not be verified' }
+  $appTrack = [ordered]@{ pid = $app.Id; start_time = $appStartTime }
   $artifact.installed_app.pid = $app.Id
   for ($i = 0; $i -lt 80; $i++) { $app.Refresh(); if ($app.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 250 }
   if ($app.HasExited) { Fail "installed app exited before readiness (exit=$($app.ExitCode))" }
@@ -202,7 +209,8 @@ public static class SoriWave3EditTarget { [STAThread] public static void Main() 
   if ($staleListener.Count -gt 0) { Fail "old daemon listener remained after stopping harness-owned PID $oldDaemonPid" }
   Assert-EndpointFree
   $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path -Parent $appPath) -PassThru
-  $appTrack = [ordered]@{ pid = $app.Id; start_time = $app.StartTime.ToUniversalTime() }
+  try { $appStartTime = (Get-Process -Id $app.Id -ErrorAction Stop).StartTime.ToUniversalTime() } catch { Fail 'restarted app start time could not be verified' }
+  $appTrack = [ordered]@{ pid = $app.Id; start_time = $appStartTime }
   $restartStatus = $null; $deadline = [DateTime]::UtcNow.AddSeconds(30)
   do { try { $restartStatus = Invoke-Ipc $ipcUrl 'Status' 2; break } catch { Start-Sleep -Milliseconds 300 } } while ([DateTime]::UtcNow -lt $deadline)
   if (-not $restartStatus -or -not $restartStatus.Status.running) { Fail 'daemon did not recover after owned restart' }

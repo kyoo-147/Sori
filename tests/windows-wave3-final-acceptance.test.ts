@@ -11,6 +11,9 @@ describe('Wave 3 Windows acceptance safety contract', () => {
     expect(source).toContain('Stop-TrackedProcess $appTrack $appPath');
     expect(source).toContain('Stop-TrackedProcess $daemonTrack $daemonPath');
     expect(source).toContain('refusing to stop reused PID');
+    expect(source).toContain("start_time = $processStartTime");
+    expect(source).toContain("tracked start time is absent");
+    expect(source).toContain("$appStartTime = (Get-Process -Id $app.Id");
     expect(source).not.toContain('function Get-OwnedDaemon');
     expect(source).not.toContain('function Get-OwnedDaemon');
     expect((source.match(/function Normalize-Text/g) ?? []).length).toBe(1);

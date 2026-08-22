@@ -78,9 +78,11 @@ making Rust builds depend on CMake, CUDA, Metal, or platform toolchains.
 ## Managed install and hardware boundary
 
 `WhisperCppProvider::install_model_from_file` is the reproducible install seam: it
-accepts a user-supplied artifact, verifies an optional SHA-256, writes only below
-`SORI_WHISPER_MODEL_DIR`, and renames atomically. Sori intentionally does not fetch
-arbitrary URLs or execute downloaded code; a host may download an artifact after
+accepts a user-supplied artifact, requires the configured model directory, verifies
+the SHA-256, rejects source/destination aliasing, writes only below
+`SORI_WHISPER_MODEL_DIR`, and renames atomically through a process-unique temporary
+file. Sori intentionally does not fetch arbitrary URLs or execute downloaded code;
+a host may download an artifact after
 showing its license, URL, checksum, and disk estimate. Installation reports
 `Downloading` with 0/100 progress and ends in `Ready` or `Failed`.
 
@@ -108,6 +110,9 @@ created, downloaded, or populated by Sori:
 
 Environment variables take precedence over file values, and PATH discovery is
 the final fallback. Missing or malformed explicit configuration fails closed.
+When a host persists paths through `WhisperCppConfig::persist_config`, the
+executable and model directory are checked first and the JSON is replaced
+atomically, so a restart cannot observe a half-written configuration.
 The daemon re-reads this configuration on every restart, so changing the
 installation does not require editing the repository or committing binaries.
 
@@ -118,7 +123,8 @@ and verify that it can run from a terminal. Configure the executable with
 model files with `SORI_WHISPER_MODEL_DIR` (or `WHISPER_CPP_MODEL_DIR`). A model
 manifest id is resolved as a file name below that directory (for example,
 `models/ggml-base.en.bin`). Missing binaries, directories, and model files are
-reported as provider errors before a process is launched.
+reported as provider errors before a process is launched; runtime status includes
+the unavailable executable or model path in its actionable error field.
 
 The command builder passes arguments directly (never through a shell), including
 `-m <model> -f <wav> -otxt|-oj|-osrt -of <output-prefix>`.
@@ -126,7 +132,9 @@ The production runner drains stdout and stderr concurrently, supervises the chil
 Use `transcribe_audio_with_runner_options` with `CommandProcessRunner` for production;
 the provider removes temporary input/output files on every return path and reports
 cleanup failures. Text, whisper.cpp JSON, and SRT output are parsed only after a
-successful exit status. Cancellation and timeout errors do not produce a transcript.
+successful exit status. Cancellation and timeout errors do not produce a transcript;
+cancellation during sidecar supervision is exposed as the typed cancelled result
+rather than a successful or partial transcript.
 The daemon constructs `WhisperCppProvider` from these settings and registers it
 behind `DaemonRuntime`. Its loopback IPC `Dictation { model, audio }` request accepts
 captured `Vec<AudioChunk>` data and calls `DaemonRuntime::transcribe`, which invokes

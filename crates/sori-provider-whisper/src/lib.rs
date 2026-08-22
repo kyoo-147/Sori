@@ -3,7 +3,6 @@
 //! This crate does not link or vendor whisper.cpp. It discovers a separately
 //! installed executable, builds safe argument vectors, and parses the files
 //! produced by the whisper.cpp CLI.
-//! produced by the whisper.cpp CLI.
 
 use sha2::Digest;
 
@@ -202,6 +201,20 @@ impl WhisperCppConfig {
         executable: &Path,
         model_dir: Option<&Path>,
     ) -> Result<PathBuf, ModelError> {
+        if !executable.is_file() {
+            return Err(ModelError::Inference(format!(
+                "cannot persist Whisper config: executable does not exist: {}",
+                executable.display()
+            )));
+        }
+        if let Some(dir) = model_dir {
+            if !dir.is_dir() {
+                return Err(ModelError::Inference(format!(
+                    "cannot persist Whisper config: model directory does not exist: {}",
+                    dir.display()
+                )));
+            }
+        }
         let path = std::env::var_os("SORI_WHISPER_CONFIG")
             .map(PathBuf::from)
             .or_else(default_config_path)
@@ -214,18 +227,23 @@ impl WhisperCppConfig {
             })?;
         }
         let value = serde_json::json!({ "executable": executable, "model_dir": model_dir });
-        fs::write(
-            &path,
-            serde_json::to_vec_pretty(&value).map_err(|error| {
-                ModelError::Inference(format!("could not encode Sori Whisper config: {error}"))
-            })?,
-        )
-        .map_err(|error| {
+        let bytes = serde_json::to_vec_pretty(&value).map_err(|error| {
+            ModelError::Inference(format!("could not encode Sori Whisper config: {error}"))
+        })?;
+        let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
+        fs::write(&temporary, bytes).map_err(|error| {
             ModelError::Inference(format!(
-                "could not persist Sori Whisper config ({}): {error}",
-                path.display()
+                "could not stage Sori Whisper config ({}): {error}",
+                temporary.display()
             ))
         })?;
+        if let Err(error) = fs::rename(&temporary, &path) {
+            let _ = fs::remove_file(&temporary);
+            return Err(ModelError::Inference(format!(
+                "could not persist Sori Whisper config ({}): {error}",
+                path.display()
+            )));
+        }
         Ok(path)
     }
 
@@ -391,7 +409,14 @@ impl WhisperCppProvider {
                 ModelError::Inference(format!("could not create model directory: {e}"))
             })?;
             let destination = root.join(&model.0);
-            let temporary = destination.with_extension("download");
+            if fs::canonicalize(source).ok().as_deref()
+                == fs::canonicalize(&destination).ok().as_deref()
+            {
+                return Err(ModelError::Inference(
+                    "model source and destination must be different files".into(),
+                ));
+            }
+            let temporary = destination.with_extension(format!("download.{}", std::process::id()));
             fs::write(&temporary, bytes).map_err(|e| {
                 ModelError::Inference(format!("could not write model artifact: {e}"))
             })?;
@@ -536,6 +561,16 @@ impl WhisperCppProvider {
             && matches!(status.lifecycle, WhisperLifecycle::Unavailable)
         {
             status.lifecycle = WhisperLifecycle::Unavailable;
+            status.error = if !self.executable.is_file() {
+                Some(format!(
+                    "whisper.cpp executable is unavailable: {}",
+                    self.executable.display()
+                ))
+            } else if status.model_path.is_none() {
+                Some(format!("whisper.cpp model is unavailable: {}", model.0))
+            } else {
+                None
+            };
         }
         status
     }
@@ -605,8 +640,7 @@ impl WhisperCppProvider {
             return Err(ModelError::Unsupported(model.clone()));
         }
         let model_path = if self.model_dir.is_some() {
-            self.verified_model_path(model)?;
-            self.model_path(model)
+            self.verified_model_path(model)?
         } else {
             self.model_path(model)
         };
@@ -741,6 +775,11 @@ impl WhisperCppProvider {
         ]);
         match (result, cleanup) {
             (Err(error), Ok(())) => {
+                let error = if options.cancelled.load(Ordering::Acquire) {
+                    ModelError::Cancelled
+                } else {
+                    error
+                };
                 if let Ok(mut status) = self.status.lock() {
                     status.lifecycle = WhisperLifecycle::Failed;
                     status.error = Some(error.to_string());
@@ -1493,7 +1532,10 @@ mod tests {
         assert_eq!(spec.arguments[0], "-m");
         assert_eq!(
             spec.arguments[1],
-            model_dir.join("small.en.bin").display().to_string()
+            std::fs::canonicalize(model_dir.join("small.en.bin"))
+                .unwrap()
+                .display()
+                .to_string()
         );
         assert_eq!(&spec.arguments[4..], ["-oj", "-of", "out"]);
         let _ = std::fs::remove_dir_all(model_dir);
@@ -1813,6 +1855,15 @@ mod tests {
         assert_eq!(
             provider.status(&ModelId::from("model.bin")).lifecycle,
             WhisperLifecycle::Unavailable
+        );
+        let unavailable = provider.status(&ModelId::from("model.bin"));
+        assert_eq!(unavailable.lifecycle, WhisperLifecycle::Unavailable);
+        assert!(
+            unavailable
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("executable")
         );
         std::fs::write(root.join("model.bin"), b"model").unwrap();
         assert_eq!(

@@ -42,6 +42,19 @@ npm run e2e:product
 
 ## Full product acceptance
 
+`npm run e2e:native-bridge` exercises the production `RuntimeClient` through
+the same `sori_ipc` command-shaped DTO used by Tauri, against an owned real
+daemon and SQLite database. It verifies native-source status, setting field
+round-trip, explicit provider/model/audio failure, concurrent requests, and
+restart/reconnect restoration. The small invoke adapter stands in only for
+Tauri's command call; rendered React and native-window behavior remain
+covered by `npm run e2e:product` and `npm run e2e:desktop-native`.
+
+```sh
+cargo build -p sorid
+npm run e2e:native-bridge
+```
+
 `npm run e2e:full-product` is the ownership-safe backend acceptance gate for
 the launch brief. It refuses an already-owned loopback endpoint, starts only
 the `sorid` binary it owns, uses a process-unique SQLite database, and verifies

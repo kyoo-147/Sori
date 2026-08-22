@@ -40,3 +40,13 @@ describe('production browser state authority', () => {
     expect(overview).not.toContain('Mock fallback is active');
   });
 });
+
+describe('native bridge acceptance harness contract', () => {
+  it('uses the production RuntimeClient and refuses fabricated fixture success', () => {
+    const source = readFileSync(resolve('scripts/e2e-native-bridge.ts'), 'utf8');
+    expect(source).toContain("new NativeIpcTransport(invoke, () => true)");
+    expect(source).toContain("client.dictationAudio('whisper.cpp/e2e-missing-model', [], 'DirectInput')");
+    expect(source).toContain('provider/model/audio failure became fake success');
+    expect(source).toContain('SQLite state was not restored after reconnect');
+  });
+});

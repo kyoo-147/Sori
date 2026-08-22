@@ -128,6 +128,15 @@ describe('desktop benchmark input contract', () => {
     expect(requests).toEqual([{ operation: 'apply_benchmark_recommendation', params: undefined }]);
   });
 
+  it('preserves the requested dictation injection strategy through the native DTO boundary', async () => {
+    const requests: Array<{ operation: string; params?: Record<string, unknown> }> = [];
+    const transport = { source: 'native' as const, request: async (operation: string, params?: Record<string, unknown>) => { requests.push({ operation, params }); return { Error: { code: 'provider_unavailable', detail: 'fixture provider is unavailable' } }; } };
+    const client = new RuntimeClient(transport);
+    const result = await client.dictationAudio('whisper.cpp/e2e', [], 'ClipboardPaste');
+    expect(result.error).toContain('provider_unavailable');
+    expect(requests).toEqual([{ operation: 'dictation_audio', params: { model: 'whisper.cpp/e2e', audio: [], injection_strategy: 'ClipboardPaste' } }]);
+  });
+
   it('routes a real fixture and reference through canonical benchmark IPC', async () => {
     const requests: Array<{ operation: string; params?: Record<string, unknown> }> = [];
     const transport = { source: 'backend' as const, request: async (operation: string, params?: Record<string, unknown>) => { requests.push({ operation, params }); return { Benchmark: { model: 'local-whisper' } }; } };

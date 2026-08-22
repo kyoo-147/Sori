@@ -588,16 +588,26 @@ async fn main() -> Result<()> {
                 let Some(provider) = handler_model_provider.as_ref() else {
                     return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "model_provider_unavailable".into(), detail: whisper_detail.clone() }));
                 };
-                let route = handler_store.setting("resource.route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                let active = route.as_ref().and_then(|value| value.get("activeModelId")).and_then(|value| value.as_str()).unwrap_or_default();
-                if active == model.0 || active == format!("{}/{}", provider.provider_name(), model.0) {
-                    Response::Error(sori_ipc::IpcErrorResponse { code: "model_in_use".into(), detail: format!("cannot remove model {} because it is the active route", model.0) })
-                } else {
-                    provider.remove_model(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model removal failed: {error}")))?;
-                    handler_store.delete_model_manifest(&model.0).map_err(|error| sori_ipc::IpcError::Transport(format!("model manifest removal failed: {error}")))?;
-                    publish_persisted_event(&handler_store, EventKind::ModelChanged, format!("removed:{}", model.0));
-                    Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
+                // Commit the safe route transition before deleting the asset. A
+                // persistence error therefore aborts removal instead of leaving
+                // SQLite pointing at a file that no longer exists.
+                if let Some(route) = handler_store
+                    .resource("route")
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .or(handler_store.setting("resource.route").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?)
+                {
+                    let (safe_route, changed) = invalidate_route_for_model(&route, provider.provider_name(), &model);
+                    if changed {
+                        handler_store.set_resource("route", &safe_route).map_err(|e| sori_ipc::IpcError::Transport(format!("route invalidation failed: {e}")))?;
+                        handler_store.set_setting("resource.route", &safe_route).map_err(|e| sori_ipc::IpcError::Transport(format!("route invalidation failed: {e}")))?;
+                        handler_store.save_model_route("active", &safe_route).map_err(|e| sori_ipc::IpcError::Transport(format!("route invalidation failed: {e}")))?;
+                        publish_persisted_event(&handler_store, EventKind::ResourceChanged, format!("invalidated:route:{}", model.0));
+                    }
                 }
+                provider.remove_model(&model).map_err(|error| sori_ipc::IpcError::Transport(format!("model removal failed: {error}")))?;
+                handler_store.delete_model_manifest(&model.0).map_err(|error| sori_ipc::IpcError::Transport(format!("model manifest removal failed: {error}")))?;
+                publish_persisted_event(&handler_store, EventKind::ModelChanged, format!("removed:{}", model.0));
+                Response::ModelStatus(sori_ipc::ModelStatusResponse { provider: provider.provider_name().into(), status: provider.runtime_status(&model) })
             }
             Request::ExtensionsList => Response::Extensions(ExtensionsResponse {
                 extensions: handler_store.extensions().map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.into_iter().map(extension_record).collect(),
@@ -1539,6 +1549,46 @@ fn validate_resource(resource: &str) -> Result<(), String> {
     }
 }
 
+fn invalidate_route_for_model(
+    route: &serde_json::Value,
+    provider: &str,
+    model: &ModelId,
+) -> (serde_json::Value, bool) {
+    let qualified = format!("{provider}/{}", model.0);
+    let active = route.get("activeModelId").and_then(|value| value.as_str());
+    let active_invalidated = active.is_some_and(|active| active == model.0 || active == qualified);
+    let fallback_invalidated = route
+        .get("fallbackModelIds")
+        .and_then(|value| value.as_array())
+        .is_some_and(|fallbacks| {
+            fallbacks.iter().any(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|id| id == model.0 || id == qualified)
+            })
+        });
+    if !active_invalidated && !fallback_invalidated {
+        return (route.clone(), false);
+    }
+    let mut next = route.clone();
+    if let Some(object) = next.as_object_mut() {
+        if active_invalidated {
+            object.insert("activeModelId".into(), serde_json::Value::Null);
+        }
+        if let Some(fallbacks) = object
+            .get_mut("fallbackModelIds")
+            .and_then(|value| value.as_array_mut())
+        {
+            fallbacks.retain(|value| {
+                value
+                    .as_str()
+                    .map_or(true, |id| id != model.0 && id != qualified)
+            });
+        }
+    }
+    (next, true)
+}
+
 fn validate_route_resource(
     value: &serde_json::Value,
     provider: &dyn sori_core::ModelProvider,
@@ -1648,5 +1698,46 @@ mod benchmark_recommendation_tests {
     fn recommendation_rejects_unknown_provider_or_model() {
         assert!(validated_benchmark_route(&ModelId::from("other/ready"), &Provider).is_err());
         assert!(validated_benchmark_route(&ModelId::from("missing"), &Provider).is_err());
+    }
+    #[test]
+    fn removing_active_model_clears_route_and_matching_fallbacks() {
+        let route = serde_json::json!({
+            "activeModelId": "test-provider/ready",
+            "policy": "LocalFirst",
+            "fallbackModelIds": ["test-provider/ready", "test-provider/other"]
+        });
+        let (next, invalidated) =
+            invalidate_route_for_model(&route, "test-provider", &ModelId::from("ready"));
+        assert!(invalidated);
+        assert_eq!(next["activeModelId"], serde_json::Value::Null);
+        assert_eq!(
+            next["fallbackModelIds"],
+            serde_json::json!(["test-provider/other"])
+        );
+        assert_eq!(next["policy"], "LocalFirst");
+    }
+    #[test]
+    fn removing_non_active_model_removes_stale_fallback_but_preserves_active_route() {
+        let route = serde_json::json!({
+            "activeModelId": "test-provider/ready",
+            "fallbackModelIds": ["test-provider/other", "test-provider/ready"]
+        });
+        let (next, invalidated) =
+            invalidate_route_for_model(&route, "test-provider", &ModelId::from("other"));
+        assert!(invalidated);
+        assert_eq!(next["activeModelId"], "test-provider/ready");
+        assert_eq!(
+            next["fallbackModelIds"],
+            serde_json::json!(["test-provider/ready"])
+        );
+    }
+
+    #[test]
+    fn removing_non_active_model_preserves_route() {
+        let route = serde_json::json!({"activeModelId": "test-provider/ready"});
+        let (next, invalidated) =
+            invalidate_route_for_model(&route, "test-provider", &ModelId::from("other"));
+        assert!(!invalidated);
+        assert_eq!(next, route);
     }
 }

@@ -63,6 +63,14 @@ pub struct BenchmarkProvenance {
     pub model: ModelId,
     pub run_id: Uuid,
     pub source_commit: Option<String>,
+    #[serde(default)]
+    pub model_sha256: Option<String>,
+    #[serde(default)]
+    pub runtime_sha256: Option<String>,
+    #[serde(default)]
+    pub input_fingerprint: Option<String>,
+    #[serde(default)]
+    pub unavailable_reasons: Vec<String>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BenchmarkResult {
@@ -89,23 +97,29 @@ impl BenchmarkResult {
 
 /// Select a recommendation deterministically, independent of persistence order.
 pub fn recommend_benchmark(results: &[BenchmarkResult]) -> Option<&BenchmarkResult> {
-    results.iter().min_by(|left, right| {
-        left.reliability
-            .failure_rate
-            .total_cmp(&right.reliability.failure_rate)
-            .then_with(|| {
-                left.reliability
-                    .fallback_rate
-                    .unwrap_or(1.0)
-                    .total_cmp(&right.reliability.fallback_rate.unwrap_or(1.0))
-            })
-            .then_with(|| left.latency.p95_ms.total_cmp(&right.latency.p95_ms))
-            .then_with(|| left.latency.p50_ms.total_cmp(&right.latency.p50_ms))
-            .then_with(|| left.real_time_factor.total_cmp(&right.real_time_factor))
-            .then_with(|| left.provider.cmp(&right.provider))
-            .then_with(|| left.model.0.cmp(&right.model.0))
-            .then_with(|| left.run_id.cmp(&right.run_id))
-    })
+    let fingerprint = results
+        .iter()
+        .find_map(|result| result.provenance.input_fingerprint.as_deref())?;
+    results
+        .iter()
+        .filter(|result| result.provenance.input_fingerprint.as_deref() == Some(fingerprint))
+        .min_by(|left, right| {
+            left.reliability
+                .failure_rate
+                .total_cmp(&right.reliability.failure_rate)
+                .then_with(|| {
+                    left.reliability
+                        .fallback_rate
+                        .unwrap_or(1.0)
+                        .total_cmp(&right.reliability.fallback_rate.unwrap_or(1.0))
+                })
+                .then_with(|| left.latency.p95_ms.total_cmp(&right.latency.p95_ms))
+                .then_with(|| left.latency.p50_ms.total_cmp(&right.latency.p50_ms))
+                .then_with(|| left.real_time_factor.total_cmp(&right.real_time_factor))
+                .then_with(|| left.provider.cmp(&right.provider))
+                .then_with(|| left.model.0.cmp(&right.model.0))
+                .then_with(|| left.run_id.cmp(&right.run_id))
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -230,6 +244,42 @@ pub fn run_benchmark_with_options(
         }
     }
     let first_format = input.audio.first().map(|chunk| chunk.format.clone());
+    let model_sha256 = std::env::var("SORI_MODEL_SHA256")
+        .ok()
+        .filter(|value| !value.is_empty());
+    let runtime_sha256 = std::env::var("SORI_RUNTIME_SHA256")
+        .ok()
+        .filter(|value| !value.is_empty());
+    let mut input_digest = sha2::Sha256::new();
+    for chunk in &input.audio {
+        for sample in &chunk.samples {
+            input_digest.update(sample.to_le_bytes());
+        }
+    }
+    if let Some(reference) = &input.reference {
+        input_digest.update(reference.as_bytes());
+    }
+    if let Some(format) = &first_format {
+        input_digest.update(format.sample_rate_hz.to_le_bytes());
+        input_digest.update(format.channels.to_le_bytes());
+        input_digest.update([format.sample_format as u8]);
+    }
+    let mut unavailable_reasons = Vec::new();
+    if model_sha256.is_none() {
+        unavailable_reasons
+            .push("model hash unavailable: provider did not expose an artifact digest".into());
+    }
+    if runtime_sha256.is_none() {
+        unavailable_reasons
+            .push("runtime hash unavailable: provider did not expose a runtime digest".into());
+    }
+    unavailable_reasons
+        .push("RAM telemetry unavailable: provider did not expose process resource samples".into());
+    unavailable_reasons.push(
+        "VRAM telemetry unavailable: provider did not expose accelerator resource samples".into(),
+    );
+    unavailable_reasons
+        .push("fallback telemetry unavailable: provider did not report fallback events".into());
     Ok(BenchmarkResult {
         run_id,
         started_at,
@@ -280,6 +330,10 @@ pub fn run_benchmark_with_options(
             source_commit: std::env::var("SORI_SOURCE_COMMIT")
                 .ok()
                 .filter(|value| !value.is_empty()),
+            model_sha256,
+            runtime_sha256,
+            input_fingerprint: Some(format!("{:x}", input_digest.finalize())),
+            unavailable_reasons,
         },
     })
 }
@@ -426,6 +480,33 @@ mod tests {
         assert_eq!(r.samples, 3);
         assert!(r.accuracy.unwrap().wer.unwrap() > 0.0);
     }
+    #[test]
+    fn recommendation_rejects_mixed_input_fingerprints() {
+        let base = run_benchmark(
+            &Provider,
+            &BenchmarkInput {
+                model: ModelId::from("x"),
+                audio: audio(),
+                reference: None,
+                iterations: 2,
+            },
+        )
+        .unwrap();
+        let mut different = base.clone();
+        different.provenance.input_fingerprint = Some("different-input".into());
+        assert!(recommend_benchmark(&[base, different.clone()]).is_some());
+        let mixed = [different.clone(), {
+            let mut same = different;
+            same.provenance.input_fingerprint = Some("another-input".into());
+            same
+        }];
+        let selected = recommend_benchmark(&mixed).unwrap();
+        assert_eq!(
+            selected.provenance.input_fingerprint.as_deref(),
+            Some("different-input")
+        );
+    }
+
     #[test]
     fn empty_reference_is_explicit_zero_or_full() {
         assert_eq!(error_rate::<char>(&[], &[]), 0.0);

@@ -14,7 +14,7 @@ export interface BackendBenchmarkResult {
   memory?: { ram_bytes?: number | null; vram_bytes?: number | null };
   accuracy?: { wer?: number | null; cer?: number | null } | null;
   reliability?: { failure_rate?: number; fallback_rate?: number | null };
-  provenance?: { manifest_version?: number; evidence_class?: 'deterministic-test' | 'real-provider-fixture' | 'native-device'; audio_sha256?: string | null; audio_bytes?: number | null; audio_duration_seconds?: number | null; sample_rate_hz?: number | null; channels?: number | null; reference_sha256?: string | null; reference_absent_reason?: string | null; source_commit?: string | null };
+  provenance?: { manifest_version?: number; evidence_class?: 'deterministic-test' | 'real-provider-fixture' | 'native-device'; audio_sha256?: string | null; audio_bytes?: number | null; audio_duration_seconds?: number | null; sample_rate_hz?: number | null; channels?: number | null; reference_sha256?: string | null; reference_absent_reason?: string | null; source_commit?: string | null; model_sha256?: string | null; runtime_sha256?: string | null; input_fingerprint?: string | null; unavailable_reasons?: string[] };
 }
 
 /** Map the serde-shaped IPC value without inventing evidence or recommendation state. */
@@ -39,7 +39,7 @@ export function mapBenchmarkResult(value: BackendBenchmarkResult, recommendedRun
     cerPercent: value.accuracy?.cer == null ? null : value.accuracy.cer * 100,
     failureRate: value.reliability?.failure_rate ?? null,
     fallbackRate: value.reliability?.fallback_rate ?? null,
-    provenance: { manifestVersion: value.provenance?.manifest_version ?? null, evidenceClass: value.provenance?.evidence_class ?? null, audioSha256: value.provenance?.audio_sha256 ?? null, audioBytes: value.provenance?.audio_bytes ?? null, audioDurationSeconds: value.provenance?.audio_duration_seconds ?? null, sampleRateHz: value.provenance?.sample_rate_hz ?? null, channels: value.provenance?.channels ?? null, referenceSha256: value.provenance?.reference_sha256 ?? null, referenceAbsentReason: value.provenance?.reference_absent_reason ?? null, sourceCommit: value.provenance?.source_commit ?? null },
+    provenance: { manifestVersion: value.provenance?.manifest_version ?? null, evidenceClass: value.provenance?.evidence_class ?? null, audioSha256: value.provenance?.audio_sha256 ?? null, audioBytes: value.provenance?.audio_bytes ?? null, audioDurationSeconds: value.provenance?.audio_duration_seconds ?? null, sampleRateHz: value.provenance?.sample_rate_hz ?? null, channels: value.provenance?.channels ?? null, referenceSha256: value.provenance?.reference_sha256 ?? null, referenceAbsentReason: value.provenance?.reference_absent_reason ?? null, sourceCommit: value.provenance?.source_commit ?? null, modelSha256: value.provenance?.model_sha256 ?? null, runtimeSha256: value.provenance?.runtime_sha256 ?? null, inputFingerprint: value.provenance?.input_fingerprint ?? null, unavailableReasons: value.provenance?.unavailable_reasons ?? [] },
     isRecommended: value.run_id != null && value.run_id === recommendedRunId,
   };
 }

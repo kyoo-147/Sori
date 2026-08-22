@@ -528,11 +528,40 @@ impl WhisperCppProvider {
                     "whisper.cpp model path escapes model directory".into(),
                 ));
             }
+            let size = fs::metadata(&file)
+                .map_err(|e| {
+                    ModelError::Inference(format!(
+                        "could not inspect whisper.cpp model file ({}): {e}",
+                        file.display()
+                    ))
+                })?
+                .len();
+            if size == 0 {
+                return Err(ModelError::Inference(format!(
+                    "whisper.cpp model file is empty or corrupt: {}",
+                    file.display()
+                )));
+            }
             Ok(file)
         } else if path.is_file() {
-            fs::canonicalize(&path).map_err(|e| {
+            let file = fs::canonicalize(&path).map_err(|e| {
                 ModelError::Inference(format!("could not verify whisper.cpp model path: {e}"))
-            })
+            })?;
+            let size = fs::metadata(&file)
+                .map_err(|e| {
+                    ModelError::Inference(format!(
+                        "could not inspect whisper.cpp model file ({}): {e}",
+                        file.display()
+                    ))
+                })?
+                .len();
+            if size == 0 {
+                return Err(ModelError::Inference(format!(
+                    "whisper.cpp model file is empty or corrupt: {}",
+                    file.display()
+                )));
+            }
+            Ok(file)
         } else {
             Err(ModelError::Inference(format!(
                 "whisper.cpp model file does not exist: {}",
@@ -549,28 +578,21 @@ impl WhisperCppProvider {
             .clone();
         status.model = model.clone();
         status.model_path = self.verified_model_path(model).ok();
-        if status.error.is_none()
-            && status.model_path.is_some()
-            && matches!(
-                status.lifecycle,
-                WhisperLifecycle::Unavailable | WhisperLifecycle::Ready
-            )
-        {
-            status.lifecycle = WhisperLifecycle::Ready;
-        } else if status.error.is_none()
-            && matches!(status.lifecycle, WhisperLifecycle::Unavailable)
-        {
+        if !self.executable.is_file() {
             status.lifecycle = WhisperLifecycle::Unavailable;
-            status.error = if !self.executable.is_file() {
-                Some(format!(
-                    "whisper.cpp executable is unavailable: {}",
-                    self.executable.display()
-                ))
-            } else if status.model_path.is_none() {
-                Some(format!("whisper.cpp model is unavailable: {}", model.0))
-            } else {
-                None
-            };
+            status.error = Some(format!(
+                "whisper.cpp executable is unavailable: {}",
+                self.executable.display()
+            ));
+        } else if status.model_path.is_none() {
+            status.lifecycle = WhisperLifecycle::Unavailable;
+            status.error = Some(format!(
+                "whisper.cpp model is unavailable or corrupt: {}",
+                model.0
+            ));
+        } else if matches!(status.lifecycle, WhisperLifecycle::Unavailable) {
+            status.lifecycle = WhisperLifecycle::Ready;
+            status.error = None;
         }
         status
     }
@@ -594,7 +616,10 @@ impl WhisperCppProvider {
                     ))
                 })?
                 .path();
-            if path.is_file() && path.extension().is_some_and(|ext| ext == "bin") {
+            if path.is_file()
+                && path.extension().is_some_and(|ext| ext == "bin")
+                && fs::metadata(&path).is_ok_and(|metadata| metadata.len() > 0)
+            {
                 let id = path.file_name().unwrap().to_string_lossy().into_owned();
                 let size = fs::metadata(&path).ok().map(|m| m.len());
                 let sha256 = fs::read(&path)
@@ -1848,8 +1873,9 @@ mod tests {
     fn status_reports_unavailable_until_verified_model_exists() {
         let root = std::env::temp_dir().join(format!("sori-whisper-status-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
+        let binary = root.join("whisper-cli");
         let provider = WhisperCppProvider::from_config(
-            WhisperCppConfig::new("missing", Some(root.clone())),
+            WhisperCppConfig::new(binary, Some(root.clone())),
             vec![manifest("model.bin")],
         );
         assert_eq!(
@@ -1865,10 +1891,64 @@ mod tests {
                 .unwrap_or_default()
                 .contains("executable")
         );
+        std::fs::write(root.join("whisper-cli"), b"binary").unwrap();
         std::fs::write(root.join("model.bin"), b"model").unwrap();
         assert_eq!(
             provider.status(&ModelId::from("model.bin")).lifecycle,
             WhisperLifecycle::Ready
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn empty_model_is_not_discovered_or_ready() {
+        let root =
+            std::env::temp_dir().join(format!("sori-whisper-empty-model-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let model = root.join("empty.bin");
+        std::fs::write(&model, []).unwrap();
+        let provider = WhisperCppProvider::from_config(
+            WhisperCppConfig::new("missing", Some(root.clone())),
+            vec![manifest("empty.bin")],
+        );
+        assert!(provider.discover_models().unwrap().is_empty());
+        assert!(
+            provider
+                .verified_model_path(&ModelId::from("empty.bin"))
+                .is_err()
+        );
+        assert_eq!(
+            provider.status(&ModelId::from("empty.bin")).lifecycle,
+            WhisperLifecycle::Unavailable
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn status_recovers_when_missing_model_is_restored() {
+        let root =
+            std::env::temp_dir().join(format!("sori-whisper-recovery-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let binary = root.join("whisper-cli");
+        let model = root.join("model.bin");
+        std::fs::write(&binary, b"binary").unwrap();
+        let provider = WhisperCppProvider::from_config(
+            WhisperCppConfig::new(&binary, Some(root.clone())),
+            vec![manifest("model.bin")],
+        );
+        assert_eq!(
+            provider.status(&ModelId::from("model.bin")).lifecycle,
+            WhisperLifecycle::Unavailable
+        );
+        std::fs::write(&model, b"restored model").unwrap();
+        assert_eq!(
+            provider.status(&ModelId::from("model.bin")).lifecycle,
+            WhisperLifecycle::Ready
+        );
+        std::fs::remove_file(&model).unwrap();
+        assert_eq!(
+            provider.status(&ModelId::from("model.bin")).lifecycle,
+            WhisperLifecycle::Unavailable
         );
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1882,8 +1962,10 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(&source, b"fixture model").unwrap();
         let digest = format!("{:x}", sha2::Sha256::digest(b"fixture model"));
+        let binary = root.join("whisper-cli");
+        std::fs::write(&binary, b"binary").unwrap();
         let provider = WhisperCppProvider::from_config(
-            WhisperCppConfig::new("whisper-cli", Some(model_dir)),
+            WhisperCppConfig::new(binary, Some(model_dir)),
             vec![manifest("fixture.bin")],
         );
         let installed = provider

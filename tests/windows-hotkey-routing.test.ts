@@ -17,13 +17,13 @@ describe('Windows hotkey focused-target contract', () => {
   });
 
   it('owns the focused target for IPC dictation start through stop', () => {
-    expect(daemon).toContain('let dictation_target: Arc<Mutex<Option<RuntimeTarget>>>');
+    expect(daemon).toContain('let dictation_session: DictationSessionState = Arc::new(Mutex::new(None));');
     expect(daemon).toContain('let target = RuntimeTarget::capture()');
-    expect(daemon).toContain('= Some(target);');
-    expect(daemon).toContain('no focused target is owned by the active dictation session');
+    expect(daemon).toContain('set_dictation_target_if(&handler_dictation_session, session_id, target)');
+    expect(daemon).toContain('reserve_dictation_session(&handler_dictation_session)');
     expect(daemon).toContain('target.validate_alive()');
     const stop = daemon.slice(daemon.indexOf('Request::DictationStop'), daemon.indexOf('Request::DictationAudio'));
-    expect(stop).toContain('handler_dictation_target');
+    expect(stop).toContain('handler_dictation_session');
     expect(stop).not.toContain('let target = RuntimeTarget::capture()');
   });
 

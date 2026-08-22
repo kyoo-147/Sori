@@ -289,7 +289,7 @@ fn provider_model_id(provider: &str, model: &str) -> ModelId {
     ModelId::from(model.strip_prefix(&format!("{provider}/")).unwrap_or(model))
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct RuntimeTarget {
     identity: Option<String>,
     #[cfg(windows)]
@@ -297,6 +297,91 @@ struct RuntimeTarget {
     #[cfg(windows)]
     pid: u32,
 }
+struct DictationSession {
+    id: uuid::Uuid,
+    cancellation: CancellationToken,
+    target: Option<RuntimeTarget>,
+}
+
+type DictationSessionState = Arc<Mutex<Option<DictationSession>>>;
+
+fn clear_dictation_session_if(state: &DictationSessionState, id: uuid::Uuid) {
+    if let Ok(mut active) = state.lock() {
+        if active.as_ref().is_some_and(|session| session.id == id) {
+            *active = None;
+        }
+    }
+}
+
+fn clear_dictation_target_if(state: &DictationSessionState, id: uuid::Uuid) {
+    if let Ok(mut active) = state.lock() {
+        if let Some(session) = active.as_mut().filter(|session| session.id == id) {
+            session.target = None;
+        }
+    }
+}
+
+fn set_dictation_target_if(
+    state: &DictationSessionState,
+    id: uuid::Uuid,
+    target: RuntimeTarget,
+) -> bool {
+    state
+        .lock()
+        .ok()
+        .and_then(|mut active| {
+            active
+                .as_mut()
+                .filter(|session| session.id == id)
+                .map(|session| {
+                    session.target = Some(target);
+                    true
+                })
+        })
+        .unwrap_or(false)
+}
+
+fn active_dictation_token(
+    state: &DictationSessionState,
+) -> Result<(uuid::Uuid, CancellationToken), &'static str> {
+    let active = state
+        .lock()
+        .map_err(|_| "dictation session lock poisoned")?;
+    let session = active.as_ref().ok_or("no dictation session is active")?;
+    Ok((session.id, session.cancellation.clone()))
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn dictation_session_matches(
+    state: &DictationSessionState,
+    id: uuid::Uuid,
+    target: &RuntimeTarget,
+) -> bool {
+    state
+        .lock()
+        .ok()
+        .and_then(|active| {
+            active
+                .as_ref()
+                .map(|session| session.id == id && session.target.as_ref() == Some(target))
+        })
+        .unwrap_or(false)
+}
+
+fn active_dictation_session(
+    state: &DictationSessionState,
+) -> Result<(uuid::Uuid, CancellationToken, RuntimeTarget), &'static str> {
+    let active = state
+        .lock()
+        .map_err(|_| "dictation session lock poisoned")?;
+    let session = active.as_ref().ok_or("no dictation session is active")?;
+    let target = session
+        .target
+        .clone()
+        .ok_or("dictation target is not ready")?;
+    Ok((session.id, session.cancellation.clone(), target))
+}
+
 impl RuntimeTarget {
     #[allow(clippy::needless_return)]
     fn capture() -> Result<Self, String> {
@@ -466,6 +551,25 @@ impl sori_core::HistoryRepository for NoopHistory {
         Vec::new()
     }
     fn purge(&self) {}
+}
+
+fn reserve_dictation_session(
+    state: &DictationSessionState,
+) -> Result<(uuid::Uuid, CancellationToken), &'static str> {
+    let id = uuid::Uuid::new_v4();
+    let cancellation = CancellationToken::new();
+    let mut active = state
+        .lock()
+        .map_err(|_| "dictation session lock poisoned")?;
+    if active.is_some() {
+        return Err("dictation session is already active; cancel or stop it before starting again");
+    }
+    *active = Some(DictationSession {
+        id,
+        cancellation: cancellation.clone(),
+        target: None,
+    });
+    Ok((id, cancellation))
 }
 
 #[tokio::main]
@@ -791,12 +895,8 @@ async fn main() -> Result<()> {
     let benchmark_sessions: Arc<Mutex<HashMap<uuid::Uuid, CancellationToken>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let handler_benchmark_sessions = Arc::clone(&benchmark_sessions);
-    let dictation_cancellation: Arc<Mutex<Option<CancellationToken>>> = Arc::new(Mutex::new(None));
-    let handler_dictation_cancellation = Arc::clone(&dictation_cancellation);
-    // Dictation owns the foreground target captured at start. Stop must not
-    // recapture whatever window happens to be focused after the user speaks.
-    let dictation_target: Arc<Mutex<Option<RuntimeTarget>>> = Arc::new(Mutex::new(None));
-    let handler_dictation_target = Arc::clone(&dictation_target);
+    let dictation_session: DictationSessionState = Arc::new(Mutex::new(None));
+    let handler_dictation_session = Arc::clone(&dictation_session);
     let server_task = server.serve(move |request| {
         let config_snapshot = handler_config
             .lock()
@@ -935,59 +1035,68 @@ async fn main() -> Result<()> {
                 };
                 Response::Status(slot.as_ref().map(|runtime| status_response(runtime, &config_snapshot, privacy)).unwrap_or_else(|| busy_status_response(&config_snapshot, privacy)))
             }
+
             Request::DictationStart => {
-                let target = RuntimeTarget::capture()
-                    .map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
-                // Reserve the cancellation slot only after confirming that no
-                // dictation owns the runtime. A rejected rapid second start
-                // must never replace the token used by the active session;
-                // otherwise DictationCancel can acknowledge cancellation
-                // while the real provider keeps running.
-                {
-                    let active = handler_dictation_cancellation
-                        .lock()
-                        .map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))?;
-                    if active.is_some() {
-                        return Err(sori_ipc::IpcError::Transport("dictation session is already active; cancel or stop it before starting again".into()));
+                let (session_id, cancellation) = reserve_dictation_session(&handler_dictation_session)
+                    .map_err(|detail| sori_ipc::IpcError::Transport(detail.into()))?;
+                let target = match RuntimeTarget::capture() {
+                    Ok(target) => target,
+                    Err(error) => {
+                        clear_dictation_session_if(&handler_dictation_session, session_id);
+                        return Err(sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")));
                     }
+                };
+                if !set_dictation_target_if(&handler_dictation_session, session_id, target) {
+                    clear_dictation_session_if(&handler_dictation_session, session_id);
+                    return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "dictation_cancelled".into(), detail: "dictation was cancelled while the focused target was captured".into() }));
                 }
-                let cancellation = CancellationToken::new();
-                let mut runtime = handler_runtime
-                    .try_lock()
-                    .map_err(|_| sori_ipc::IpcError::Transport("runtime operation is busy; retry shortly".into()))?
-                    .take()
-                    .ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
-                *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = Some(cancellation.clone());
+                let mut runtime = match handler_runtime.try_lock() {
+                    Ok(mut slot) => match slot.take() {
+                        Some(runtime) => runtime,
+                        None => {
+                            clear_dictation_session_if(&handler_dictation_session, session_id);
+                            return Err(sori_ipc::IpcError::Transport("runtime operation in progress".into()));
+                        }
+                    },
+                    Err(_) => {
+                        clear_dictation_session_if(&handler_dictation_session, session_id);
+                        return Err(sori_ipc::IpcError::Transport("runtime operation is busy; retry shortly".into()));
+                    }
+                };
                 if let Err(error) = runtime.start_audio() {
                     handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
-                    *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
+                    clear_dictation_session_if(&handler_dictation_session, session_id);
                     return Err(sori_ipc::IpcError::Transport(error.to_string()));
                 }
-                *handler_dictation_target.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation target lock poisoned".into()))? = Some(target);
                 if cancellation.is_cancelled() {
                     let _ = runtime.stop_audio(true);
                     handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
-                    *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
-                    *handler_dictation_target.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation target lock poisoned".into()))? = None;
+                    clear_dictation_session_if(&handler_dictation_session, session_id);
                     return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "dictation_cancelled".into(), detail: "dictation was cancelled while microphone capture was starting".into() }));
                 }
                 handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                 Response::Control(ControlResponse { accepted: true, detail: "microphone capture started".into() })
             }
             Request::DictationStop => {
-                let mut target_slot = handler_dictation_target
-                    .lock()
-                    .map_err(|_| sori_ipc::IpcError::Transport("dictation target lock poisoned".into()))?;
-                target_slot
-                    .as_ref()
-                    .ok_or_else(|| sori_ipc::IpcError::Transport("no focused target is owned by the active dictation session".into()))?
-                    .validate_alive()
-                    .map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
-                let target = target_slot.take().expect("target was checked above");
-                drop(target_slot);
-                let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
-                let mut runtime = slot.take().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
-                drop(slot);
+                let (session_id, _, target) = active_dictation_session(&handler_dictation_session)
+                    .map_err(|detail| sori_ipc::IpcError::Transport(detail.into()))?;
+                target.validate_alive().map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
+                let mut runtime = match handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.take() {
+                    Some(runtime) => runtime,
+                    None => return Err(sori_ipc::IpcError::Transport("runtime operation in progress".into())),
+                };
+                let (current_id, cancellation, current_target) = match active_dictation_session(&handler_dictation_session) {
+                    Ok(session) => session,
+                    Err(detail) => {
+                        handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
+                        return Err(sori_ipc::IpcError::Transport(detail.into()));
+                    }
+                };
+                if current_id != session_id || current_target != target {
+                    handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
+                    return Err(sori_ipc::IpcError::Transport("dictation session changed while stopping; retry the active session".into()));
+                }
+                let target = current_target;
                 let operation: std::result::Result<Response, sori_ipc::IpcError> = std::panic::catch_unwind(
                     std::panic::AssertUnwindSafe(|| (|| {
                 let history_enabled = handler_store
@@ -1035,7 +1144,6 @@ async fn main() -> Result<()> {
                     })).collect() }).unwrap_or_default();
                 // Bound native provider work so a stuck whisper child is killed by
                 // its runner and this IPC operation cannot publish a late result.
-                let cancellation = handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))?.clone().unwrap_or_else(CancellationToken::new);
                 let timeout_token = cancellation.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(30));
@@ -1069,7 +1177,7 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| Err(sori_ipc::IpcError::Transport(
                     "provider panicked; dictation state was reset".into(),
                 )));
-                *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
+                clear_dictation_session_if(&handler_dictation_session, session_id);
                 handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                 operation?
             }
@@ -1086,20 +1194,26 @@ async fn main() -> Result<()> {
                 }
             }
             Request::DictationCancel => {
-                let cancellation = handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))?.clone().ok_or_else(|| sori_ipc::IpcError::Transport("no dictation session is active".into()))?;
+                let (session_id, cancellation) = active_dictation_token(&handler_dictation_session)
+                    .map_err(|detail| sori_ipc::IpcError::Transport(detail.into()))?;
                 cancellation.cancel();
-                // Provider work owns the runtime slot. The token makes that
-                // work terminate without waiting on the runtime mutex.
-                if let Ok(mut slot) = handler_runtime.try_lock() {
-                    if let Some(runtime) = slot.as_mut() {
-                        if let Ok(chunks) = runtime.stop_audio(true) {
+                // Never hold the runtime lock while touching session state.
+                // Provider work may own the runtime slot, so cancellation is
+                // acknowledged even when the audio stop must be retried by it.
+                let cancelled_chunks = match handler_runtime.try_lock() {
+                    Ok(mut slot) => slot.as_mut().and_then(|runtime| {
+                        runtime.stop_audio(true).ok().map(|chunks| {
                             let _ = runtime.take_captured_audio();
-                            *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
-                            *handler_dictation_target.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation target lock poisoned".into()))? = None;
-                            return Ok(Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") }));
-                        }
-                    }
+                            chunks
+                        })
+                    }),
+                    Err(_) => None,
+                };
+                if let Some(chunks) = cancelled_chunks {
+                    clear_dictation_session_if(&handler_dictation_session, session_id);
+                    return Ok(Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") }));
                 }
+                clear_dictation_target_if(&handler_dictation_session, session_id);
                 Response::Control(ControlResponse { accepted: true, detail: "dictation cancellation requested; active provider work will be discarded".into() })
             }
             Request::DictationAudio { model, audio, injection_strategy } => {
@@ -1568,9 +1682,9 @@ async fn main() -> Result<()> {
     // Cleanup is deliberately performed even when the IPC server exits with an error.
     // A provider operation may own the runtime slot, so request cancellation
     // first and wait briefly for the handler to return ownership before shutdown.
-    if let Ok(active) = dictation_cancellation.lock() {
-        if let Some(token) = active.as_ref() {
-            token.cancel();
+    if let Ok(active) = dictation_session.lock() {
+        if let Some(session) = active.as_ref() {
+            session.cancellation.cancel();
         }
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -2188,5 +2302,136 @@ mod daemon_owner_tests {
         let encoded = serde_json::to_value(&owner).unwrap();
         assert!(encoded["process_start_time"].as_u64().is_some());
         assert!(encoded["lease_id"].as_str().unwrap().len() >= 16);
+    }
+}
+
+#[cfg(test)]
+mod dictation_session_tests {
+    use super::{
+        DictationSessionState, RuntimeTarget, active_dictation_session, clear_dictation_session_if,
+        clear_dictation_target_if, reserve_dictation_session, set_dictation_target_if,
+    };
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    fn target(name: &str) -> RuntimeTarget {
+        RuntimeTarget {
+            identity: Some(name.into()),
+            #[cfg(windows)]
+            hwnd: 1,
+            #[cfg(windows)]
+            pid: 1,
+        }
+    }
+
+    #[test]
+    fn duplicate_reservation_is_busy_and_does_not_capture_or_replace_target() {
+        let state: DictationSessionState = Arc::new(Mutex::new(None));
+        let (id, _) = reserve_dictation_session(&state).unwrap();
+        assert!(reserve_dictation_session(&state).is_err());
+        assert!(set_dictation_target_if(&state, id, target("owned")));
+        let (_, _, held) = active_dictation_session(&state).unwrap();
+        assert_eq!(held.identity.as_deref(), Some("owned"));
+    }
+
+    #[test]
+    fn failed_stop_observation_keeps_target_until_terminal_cleanup() {
+        let state: DictationSessionState = Arc::new(Mutex::new(None));
+        let (id, _) = reserve_dictation_session(&state).unwrap();
+        assert!(set_dictation_target_if(&state, id, target("owned")));
+        assert_eq!(
+            active_dictation_session(&state)
+                .unwrap()
+                .2
+                .identity
+                .as_deref(),
+            Some("owned")
+        );
+        clear_dictation_session_if(&state, id);
+        assert!(active_dictation_session(&state).is_err());
+    }
+
+    #[test]
+    fn cancel_clears_only_its_target_and_stale_terminal_cleanup_cannot_clear_new_session() {
+        let state: DictationSessionState = Arc::new(Mutex::new(None));
+        let (old_id, _) = reserve_dictation_session(&state).unwrap();
+        assert!(set_dictation_target_if(&state, old_id, target("old")));
+        clear_dictation_target_if(&state, old_id);
+        assert!(active_dictation_session(&state).is_err());
+        clear_dictation_session_if(&state, old_id);
+        let (new_id, _) = reserve_dictation_session(&state).unwrap();
+        assert!(set_dictation_target_if(&state, new_id, target("new")));
+        clear_dictation_session_if(&state, old_id);
+        assert_eq!(
+            active_dictation_session(&state)
+                .unwrap()
+                .2
+                .identity
+                .as_deref(),
+            Some("new")
+        );
+    }
+
+    #[test]
+    fn concurrent_reservation_has_one_owner() {
+        let state: DictationSessionState = Arc::new(Mutex::new(None));
+        let results = (0..8)
+            .map(|_| {
+                let state = Arc::clone(&state);
+                thread::spawn(move || reserve_dictation_session(&state).is_ok())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            results
+                .into_iter()
+                .map(|result| result.join().unwrap())
+                .filter(|result| *result)
+                .count(),
+            1
+        );
+    }
+}
+
+#[cfg(test)]
+mod dictation_aba_tests {
+    use super::{
+        DictationSessionState, RuntimeTarget, active_dictation_token, clear_dictation_session_if,
+        dictation_session_matches, reserve_dictation_session, set_dictation_target_if,
+    };
+    use std::sync::{Arc, Mutex};
+
+    fn target(name: &str) -> RuntimeTarget {
+        RuntimeTarget {
+            identity: Some(name.into()),
+            #[cfg(windows)]
+            hwnd: 1,
+            #[cfg(windows)]
+            pid: 1,
+        }
+    }
+
+    #[test]
+    fn cancel_can_claim_reserved_session_before_target_capture() {
+        let state: DictationSessionState = Arc::new(Mutex::new(None));
+        let (id, cancellation) = reserve_dictation_session(&state).unwrap();
+        let (observed_id, observed_cancel) = active_dictation_token(&state).unwrap();
+        assert_eq!(observed_id, id);
+        observed_cancel.cancel();
+        assert!(cancellation.is_cancelled());
+        clear_dictation_session_if(&state, id);
+        assert!(active_dictation_token(&state).is_err());
+    }
+    #[test]
+    fn stale_stop_generation_cannot_match_new_session_target() {
+        let state: DictationSessionState = Arc::new(Mutex::new(None));
+        let (old_id, _) = reserve_dictation_session(&state).unwrap();
+        let old_target = target("old");
+        assert!(set_dictation_target_if(&state, old_id, old_target.clone()));
+        clear_dictation_session_if(&state, old_id);
+        let (new_id, _) = reserve_dictation_session(&state).unwrap();
+        let new_target = target("new");
+        assert!(set_dictation_target_if(&state, new_id, new_target.clone()));
+        assert!(!dictation_session_matches(&state, old_id, &old_target));
+        assert!(dictation_session_matches(&state, new_id, &new_target));
     }
 }

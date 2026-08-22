@@ -9,8 +9,10 @@ describe('Wave 6 installed real Whisper acceptance contract', () => {
     expect(source).toContain('InstalledDesktopExecutable');
     expect(source).not.toContain('CliExecutable');
     expect(source).toContain('ggml-base.en.bin');
+    expect(source).toContain('FreshPackagedDaemon');
+    expect(source).toContain('installed daemon is stale/wrong bundle');
+    expect(source).toContain('Get-FileEvidence');
     expect(source).toContain('whisper-cli.exe');
-    expect(source).toContain('Require-AbsoluteFile $ModelPath');
     expect(source).toContain('Require-AbsoluteFile $ModelPath');
     expect(source).toContain('MEASURED_REAL_QUALITY');
     expect(source).toContain("reference = $expectedText; actual = $evidence.transcript");
@@ -28,7 +30,6 @@ describe('Wave 6 installed real Whisper acceptance contract', () => {
 
   it('proves restart persistence through direct IPC without claiming frontend proof', () => {
     expect(source).toContain('Frontend visual refresh is NOT CLAIMED');
-    expect(source).toContain('Frontend visual refresh is NOT CLAIMED');
     expect(source).not.toContain('Run-Json');
     expect(source).not.toContain('CliExecutable');
   });
@@ -37,7 +38,6 @@ describe('Wave 6 installed real Whisper acceptance contract', () => {
     expect(native).toContain('[string]$DaemonExecutable =');
     expect(native).toContain('SORI_DAEMON_OWNER_PATH');
     expect(native).toContain('Stop-TrackedDaemon');
-    expect(native).toContain('creation time');
     expect(native).toContain('creation time');
     expect(native).toContain('ExpectedReference');
     expect(native).toContain('expected_reference');

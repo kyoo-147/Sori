@@ -25,10 +25,10 @@ pub const DEFAULT_ENDPOINT: &str = "127.0.0.1:17373";
 /// Socket bounds keep native UI calls from waiting on a stalled daemon.
 pub const IPC_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
 pub const IPC_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(750);
-/// Provider-backed dictation and benchmark responses may include real local
-/// Whisper inference, which is intentionally bounded separately from fast
-/// control/status requests.
-pub const IPC_LONG_OPERATION_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+pub const IPC_AUDIO_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+pub const IPC_PROVIDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(35);
+pub const IPC_BENCHMARK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+pub const IPC_BENCHMARK_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
@@ -165,6 +165,22 @@ impl Request {
                 | Self::DictationStop
                 | Self::RunBenchmark { .. }
         )
+    }
+}
+
+fn io_timeout_for_request(request: &Request) -> std::time::Duration {
+    match request {
+        Request::DictationStart => IPC_AUDIO_START_TIMEOUT,
+        Request::DictationAudio { .. } | Request::Dictation { .. } | Request::DictationStop => {
+            IPC_PROVIDER_TIMEOUT
+        }
+        Request::RunBenchmark { timeout_ms, .. } => timeout_ms
+            .map(std::time::Duration::from_millis)
+            .map(|timeout| timeout.saturating_add(IPC_BENCHMARK_GRACE))
+            .map_or(IPC_BENCHMARK_TIMEOUT, |timeout| {
+                timeout.min(IPC_BENCHMARK_TIMEOUT)
+            }),
+        _ => IPC_IO_TIMEOUT,
     }
 }
 
@@ -426,11 +442,7 @@ impl Transport for LocalIpcClient {
                     IpcError::Unavailable
                 }
             })?;
-        let io_timeout = if request.is_long_running() {
-            IPC_LONG_OPERATION_IO_TIMEOUT
-        } else {
-            IPC_IO_TIMEOUT
-        };
+        let io_timeout = io_timeout_for_request(&request);
         stream
             .set_read_timeout(Some(io_timeout))
             .and_then(|_| stream.set_write_timeout(Some(io_timeout)))
@@ -939,6 +951,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn long_request_can_exceed_fast_socket_deadline() {
+        let server = LocalIpcServer::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let endpoint = server.local_addr().unwrap();
+        let task = tokio::spawn(server.serve(|request| match request {
+            Request::DictationStart => {
+                std::thread::sleep(std::time::Duration::from_millis(850));
+                Ok(Response::Control(ControlResponse {
+                    accepted: true,
+                    detail: "started".into(),
+                }))
+            }
+            _ => Err(IpcError::UnexpectedResponse {
+                request: Box::new(request),
+            }),
+        }));
+        let client = LocalIpcClient::connect_to(endpoint).unwrap();
+        let response = tokio::task::spawn_blocking(move || client.request(Request::DictationStart))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(response, Response::Control(control) if control.accepted));
+        task.abort();
+    }
+
+    #[tokio::test]
     async fn local_client_server_roundtrip_uses_ephemeral_loopback_port() {
         let server = LocalIpcServer::bind("127.0.0.1:0".parse().unwrap())
             .await
@@ -975,11 +1014,40 @@ mod tests {
     }
 
     #[test]
-    fn long_operations_have_a_realistic_but_bounded_socket_deadline() {
-        assert!(IPC_LONG_OPERATION_IO_TIMEOUT > IPC_IO_TIMEOUT);
+    fn request_deadlines_are_specific_and_bounded() {
+        assert_eq!(io_timeout_for_request(&Request::Status), IPC_IO_TIMEOUT);
         assert_eq!(
-            IPC_LONG_OPERATION_IO_TIMEOUT,
-            std::time::Duration::from_secs(300)
+            io_timeout_for_request(&Request::DictationStart),
+            IPC_AUDIO_START_TIMEOUT
+        );
+        assert_eq!(
+            io_timeout_for_request(&Request::Dictation {
+                model: "local".into(),
+                audio: Vec::new()
+            }),
+            IPC_PROVIDER_TIMEOUT
+        );
+        assert_eq!(
+            io_timeout_for_request(&Request::RunBenchmark {
+                model: "local".into(),
+                audio: Vec::new(),
+                reference: None,
+                iterations: 2,
+                session_id: None,
+                timeout_ms: Some(1_000),
+            }),
+            std::time::Duration::from_secs(3)
+        );
+        assert_eq!(
+            io_timeout_for_request(&Request::RunBenchmark {
+                model: "local".into(),
+                audio: Vec::new(),
+                reference: None,
+                iterations: 2,
+                session_id: None,
+                timeout_ms: Some(u64::MAX),
+            }),
+            IPC_BENCHMARK_TIMEOUT
         );
     }
 

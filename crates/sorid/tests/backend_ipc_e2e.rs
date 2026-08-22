@@ -853,3 +853,138 @@ async fn daemon_setting_delete_resets_live_state_and_survives_restart() {
     restarted.0 = None;
     let _ = std::fs::remove_file(database);
 }
+
+
+#[test]
+fn real_daemon_rejects_blank_deterministic_provider_text() {
+    let database = std::env::temp_dir().join(format!(
+        "sori-blank-provider-{}.sqlite",
+        uuid::Uuid::new_v4()
+    ));
+    let endpoint = format!(
+        "127.0.0.1:{}",
+        TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sorid"))
+        .env("SORI_DATABASE_PATH", &database)
+        .env("SORI_IPC_ADDR", &endpoint)
+        .env("SORI_TEST_PROVIDER", "deterministic-sapi")
+        .env("SORI_TEST_PROVIDER_TEXT", " \t\r\n")
+        .spawn()
+        .unwrap();
+    for _ in 0..100 {
+        if child.try_wait().unwrap().is_some() {
+            let _ = std::fs::remove_file(database);
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_file(database);
+    panic!("sorid did not reject blank SORI_TEST_PROVIDER_TEXT at startup");
+}
+
+#[cfg(windows)]
+#[test]
+fn real_daemon_deterministic_audio_persists_exact_transcript_across_restart() {
+    let expected = "Installed deterministic transcript";
+    let database = std::env::temp_dir().join(format!(
+        "sori-installed-provider-{}.sqlite",
+        uuid::Uuid::new_v4()
+    ));
+    let endpoint = format!(
+        "127.0.0.1:{}",
+        TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    );
+    let start = || {
+        Command::new(env!("CARGO_BIN_EXE_sorid"))
+            .env("SORI_DATABASE_PATH", &database)
+            .env("SORI_IPC_ADDR", &endpoint)
+            .env("SORI_TEST_PROVIDER", "deterministic-sapi")
+            .env("SORI_TEST_PROVIDER_TEXT", expected)
+            .env("SORI_HOTKEY_OVERRIDE", "Alt+Space")
+            .spawn()
+            .unwrap()
+    };
+    let mut daemon = KillOnDrop(Some(start()));
+    let endpoint_addr = endpoint.parse().unwrap();
+    let request = |request: Request| -> Response {
+        for _ in 0..200 {
+            if let Ok(client) = LocalIpcClient::connect_to(endpoint_addr) {
+                if let Ok(response) = client.request(request.clone()) {
+                    return response;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("sorid did not become ready at {endpoint}");
+    };
+    let audio = vec![AudioChunk {
+        captured_at: OffsetDateTime::now_utc(),
+        format: AudioFormat {
+            sample_rate_hz: 16_000,
+            channels: 1,
+            sample_format: SampleFormat::F32,
+        },
+        samples: vec![0.25; 320],
+    }];
+    let response = request(Request::DictationAudio {
+        model: ModelId::from("sapi-wav-test"),
+        audio,
+        injection_strategy: Some(sori_core::InjectionStrategy::DirectInput),
+    });
+    assert!(
+        matches!(&response, Response::Transcript(transcript) if transcript.text == expected),
+        "deterministic audio response: {response:?}"
+    );
+    let history = request(Request::RecentHistory { limit: 20 });
+    assert!(
+        matches!(&history, Response::RecentHistory(entries) if entries.entries.iter().any(|entry| entry.transcript.text == expected && entry.inserted_text.as_deref() == Some(expected))),
+        "deterministic history response: {history:?}"
+    );
+    let row_count = SqliteStore::open(&database)
+        .unwrap()
+        .try_recent_history(20)
+        .unwrap()
+        .iter()
+        .filter(|entry| entry.transcript.text == expected)
+        .count();
+    assert_eq!(
+        row_count, 1,
+        "SQLite must contain the exact deterministic transcript"
+    );
+    daemon.0.as_mut().unwrap().kill().unwrap();
+    let _ = daemon.0.as_mut().unwrap().wait();
+    daemon.0 = None;
+    let mut restarted = KillOnDrop(Some(start()));
+    let restarted_history = loop {
+        if let Ok(client) = LocalIpcClient::connect_to(endpoint_addr) {
+            if let Ok(Response::RecentHistory(history)) =
+                client.request(Request::RecentHistory { limit: 20 })
+            {
+                break history;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    assert!(
+        restarted_history
+            .entries
+            .iter()
+            .any(|entry| entry.transcript.text == expected),
+        "exact transcript missing after daemon restart"
+    );
+    restarted.0.as_mut().unwrap().kill().unwrap();
+    let _ = restarted.0.as_mut().unwrap().wait();
+    restarted.0 = None;
+    let _ = std::fs::remove_file(database);
+}

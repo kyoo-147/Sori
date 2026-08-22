@@ -298,6 +298,13 @@ async fn main() -> Result<()> {
     config.validate().map_err(anyhow::Error::msg)?;
     let whisper_model =
         std::env::var("SORI_WHISPER_MODEL").unwrap_or_else(|_| "ggml-base.en.bin".into());
+    if let Ok(text) = std::env::var("SORI_TEST_PROVIDER_TEXT") {
+        if text.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "SORI_TEST_PROVIDER_TEXT must contain non-whitespace text"
+            ));
+        }
+    }
     let (whisper_provider, whisper_detail): (Option<Arc<dyn sori_core::ModelProvider>>, String) =
         if let (Ok(mode), Ok(text)) = (
             std::env::var("SORI_TEST_PROVIDER"),

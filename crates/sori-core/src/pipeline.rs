@@ -85,6 +85,20 @@ fn publish(bus: &dyn EventBus, kind: EventKind, payload: &str) {
 /// Execute the synchronous, non-LLM dictation hot path. All device, ASR, and OS
 /// side effects are supplied by adapters, which makes this function deterministic
 /// with fakes and keeps persistence at an explicit boundary.
+fn canonicalize_audio(chunks: Vec<AudioChunk>) -> Result<Vec<AudioChunk>, PipelineError> {
+    if chunks.is_empty() {
+        return Err(PipelineError::Audio(crate::AudioError::Pipeline(
+            "dictation audio is empty".into(),
+        )));
+    }
+    let mut dsp = crate::AudioDsp::new(crate::DspPipelineConfig::default())?;
+    chunks
+        .iter()
+        .map(|chunk| dsp.process(chunk))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(PipelineError::Audio)
+}
+
 pub fn complete_dictation(
     chunks: Vec<AudioChunk>,
     asr: &dyn ModelProvider,
@@ -118,6 +132,7 @@ pub fn complete_dictation_with_vocabulary(
     events: &dyn EventBus,
     vocabulary: &Vocabulary,
 ) -> Result<DictationResult, PipelineError> {
+    let chunks = canonicalize_audio(chunks)?;
     if route.provider != asr.provider_name() {
         return Err(PipelineError::Route(format!(
             "route provider {} is not served by {}",
@@ -197,6 +212,7 @@ pub fn complete_dictation_with_vocabulary_options(
     cancellation: &crate::CancellationToken,
     timeout: Option<std::time::Duration>,
 ) -> Result<DictationResult, PipelineError> {
+    let chunks = canonicalize_audio(chunks)?;
     let started = std::time::Instant::now();
     if cancellation.is_cancelled() {
         return Err(PipelineError::Asr(ModelError::Inference(
@@ -479,6 +495,25 @@ mod tests {
             Some(std::time::Duration::ZERO),
         );
         assert!(timed_out.is_err());
+        assert!(history.recent(1).is_empty());
+    }
+
+    #[test]
+    fn empty_audio_is_rejected_before_provider_or_injection() {
+        let history = crate::InMemoryHistory::default();
+        let events = crate::InMemoryEventBus::default();
+        let mut injector = InjectorFake { fail: false };
+        let error = complete_dictation(
+            Vec::new(),
+            &AsrFake,
+            &mut injector,
+            &TargetFake,
+            &route(),
+            &history,
+            &events,
+        )
+        .unwrap_err();
+        assert!(matches!(error, PipelineError::Audio(_)));
         assert!(history.recent(1).is_empty());
     }
 

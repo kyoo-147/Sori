@@ -13,6 +13,10 @@ benchmark line. No quality pass threshold is invented.
 
 The harness requires an absolute daemon executable, sets a unique absolute
 `SORI_DAEMON_OWNER_PATH` under `DataRoot`, and verifies endpoint, exact daemon
+payload hash, length, file version, PID, process creation time, and lease generation.
+The default freshness payload is the repository `target\debug\sorid.exe`, which
+`scripts/prepare-desktop-bundle.mjs` stages from freshly built
+`target\release\sorid.exe` and which Tauri packages as its resource.
 path, PID, process creation time, and lease generation. It requires a nonblank
 real transcript, then requires owned EDIT readback, SQLite history, and restart
 history to preserve that actual transcript exactly. The manifest reference is
@@ -22,6 +26,7 @@ not used as an exact ASR-equality gate.
 npm run e2e:windows-wave6-real -- `
   -InstalledDesktopExecutable "$env:LOCALAPPDATA\Programs\Sori-Acceptance\sori-desktop.exe" `
   -DaemonExecutable "$env:LOCALAPPDATA\Programs\Sori-Acceptance\sorid.exe" `
+  -FreshPackagedDaemon .\target\debug\sorid.exe `
   -CorpusDirectory .\.tmp\audio-corpus `
   -BenchmarkCli .\target\release\sori.exe
 ```

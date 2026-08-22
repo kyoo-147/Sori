@@ -109,3 +109,29 @@ machine and microphone.
   discussion in [CPAL issue #753](https://github.com/RustAudio/cpal/issues/753);
   Sori uses its own small linear stage rather than introducing a competing
   capture pipeline or copying third-party code.
+
+## Windows playback/loopback gate
+
+The opt-in `scripts/windows-audio-loopback-acceptance.ps1` gate starts the real
+CPAL input controller, plays a verified local SAPI WAV through Windows
+PowerShell, drains the canonical mono 16 kHz DSP output, exercises the optional
+Whisper handoff, and checks controller restart. It detects missing Windows,
+PowerShell, WAV, or input-device capability before capture and preserves the
+actual CPAL error when a device is unavailable.
+
+Playback alone is **not** loopback evidence: the selected CPAL input may be a
+microphone while the WAV is sent to speakers. The harness therefore prints
+`route=unknown` and `UNVERIFIED` unless a human verifies that the selected input
+is a Windows loopback or virtual route. No generated SAPI fixture is labeled as
+microphone speech.
+
+Example (no model required):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-audio-loopback-acceptance.ps1
+```
+
+Add `-DeviceId 'N:device name'` for an explicitly enumerated loopback/virtual
+input. Add `-Transcribe` only with the existing user-owned Whisper executable,
+model directory, and model environment configured; unavailable Whisper remains
+a truthful gate failure rather than a fixture transcript.

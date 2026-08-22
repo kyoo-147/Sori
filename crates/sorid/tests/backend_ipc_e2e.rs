@@ -14,11 +14,11 @@ use sori_core::{
 use sori_ipc::{IpcClient, LocalIpcClient, LocalIpcServer, Request, Response};
 use sori_persistence::SqliteStore;
 use sorid::{DaemonRuntime, SharedEventBus};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::net::TcpListener;
 use std::process::{Child, Command};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use time::OffsetDateTime;
 
 const MODEL: &str = "fake-whisper";
@@ -756,8 +756,15 @@ async fn canonical_ipc_persistence_survives_daemon_restart_and_sqlite_reopen() {
 
 #[tokio::test]
 async fn daemon_setting_delete_resets_live_state_and_survives_restart() {
-    let database = std::env::temp_dir().join(format!("sori-setting-delete-{}.sqlite", uuid::Uuid::new_v4()));
-    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let database = std::env::temp_dir().join(format!(
+        "sori-setting-delete-{}.sqlite",
+        uuid::Uuid::new_v4()
+    ));
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
     let endpoint = format!("127.0.0.1:{port}");
     let start = || {
         Command::new(env!("CARGO_BIN_EXE_sorid"))
@@ -782,23 +789,47 @@ async fn daemon_setting_delete_resets_live_state_and_survives_restart() {
         panic!("sorid did not become ready at {endpoint}");
     };
     let set = |key: &str, value: serde_json::Value| {
-        let response = request(Request::SetConfig { key: key.into(), value });
-        assert!(matches!(&response, Response::Control(control) if control.accepted), "{key}: {response:?}");
+        let response = request(Request::SetConfig {
+            key: key.into(),
+            value,
+        });
+        assert!(
+            matches!(&response, Response::Control(control) if control.accepted),
+            "{key}: {response:?}"
+        );
     };
     set("hotkey.binding", serde_json::json!("Ctrl+Alt+S"));
     set("audio.device_id", serde_json::json!("deterministic-device"));
     set("privacy.mode", serde_json::json!("CloudAllowed"));
     set("route.policy", serde_json::json!("Performance"));
-    assert!(matches!(request(Request::Status), Response::Status(status) if status.hotkey == "Ctrl+Alt+S" && status.privacy == sori_core::PrivacyMode::CloudAllowed && !status.route.prefer_local && status.route.allow_cloud && status.route.prefer_warm_runtime));
-    assert!(matches!(request(Request::ResourceGet { resource: "route".into() }), Response::Resource(resource) if resource.value["policy"] == "Performance"));
+    assert!(
+        matches!(request(Request::Status), Response::Status(status) if status.hotkey == "Ctrl+Alt+S" && status.privacy == sori_core::PrivacyMode::CloudAllowed && !status.route.prefer_local && status.route.allow_cloud && status.route.prefer_warm_runtime)
+    );
+    assert!(
+        matches!(request(Request::ResourceGet { resource: "route".into() }), Response::Resource(resource) if resource.value["policy"] == "Performance")
+    );
 
-    for key in ["hotkey.binding", "audio.device_id", "privacy.mode", "route.policy"] {
+    for key in [
+        "hotkey.binding",
+        "audio.device_id",
+        "privacy.mode",
+        "route.policy",
+    ] {
         let response = request(Request::SettingDelete { key: key.into() });
-        assert!(matches!(&response, Response::Setting(setting) if setting.value.is_none()), "{key}: {response:?}");
+        assert!(
+            matches!(&response, Response::Setting(setting) if setting.value.is_none()),
+            "{key}: {response:?}"
+        );
     }
-    assert!(matches!(request(Request::Status), Response::Status(status) if status.hotkey == "Alt+Space" && status.privacy == sori_core::PrivacyMode::LocalOnly && status.route.prefer_local && status.route.allow_cloud && !status.route.prefer_warm_runtime && !status.route.optimize_battery));
-    assert!(matches!(request(Request::SettingGet { key: "audio.device_id".into() }), Response::Setting(setting) if setting.value.is_none()));
-    assert!(matches!(request(Request::ResourceGet { resource: "route".into() }), Response::Resource(resource) if resource.value["policy"] == "LocalFirst"));
+    assert!(
+        matches!(request(Request::Status), Response::Status(status) if status.hotkey == "Alt+Space" && status.privacy == sori_core::PrivacyMode::LocalOnly && status.route.prefer_local && status.route.allow_cloud && !status.route.prefer_warm_runtime && !status.route.optimize_battery)
+    );
+    assert!(
+        matches!(request(Request::SettingGet { key: "audio.device_id".into() }), Response::Setting(setting) if setting.value.is_none())
+    );
+    assert!(
+        matches!(request(Request::ResourceGet { resource: "route".into() }), Response::Resource(resource) if resource.value["policy"] == "LocalFirst")
+    );
 
     daemon.0.as_mut().unwrap().kill().unwrap();
     let _ = daemon.0.as_mut().unwrap().wait();
@@ -814,7 +845,9 @@ async fn daemon_setting_delete_resets_live_state_and_survives_restart() {
     };
     assert_eq!(restarted_status.hotkey, "Alt+Space");
     assert_eq!(restarted_status.privacy, sori_core::PrivacyMode::LocalOnly);
-    assert!(matches!(LocalIpcClient::connect_to(endpoint_addr).unwrap().request(Request::ResourceGet { resource: "route".into() }).unwrap(), Response::Resource(resource) if resource.value["policy"] == "LocalFirst"));
+    assert!(
+        matches!(LocalIpcClient::connect_to(endpoint_addr).unwrap().request(Request::ResourceGet { resource: "route".into() }).unwrap(), Response::Resource(resource) if resource.value["policy"] == "LocalFirst")
+    );
     restarted.0.as_mut().unwrap().kill().unwrap();
     let _ = restarted.0.as_mut().unwrap().wait();
     restarted.0 = None;

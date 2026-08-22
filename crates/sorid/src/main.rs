@@ -289,6 +289,7 @@ fn provider_model_id(provider: &str, model: &str) -> ModelId {
     ModelId::from(model.strip_prefix(&format!("{provider}/")).unwrap_or(model))
 }
 
+#[derive(Clone)]
 struct RuntimeTarget {
     identity: Option<String>,
     #[cfg(windows)]
@@ -792,6 +793,10 @@ async fn main() -> Result<()> {
     let handler_benchmark_sessions = Arc::clone(&benchmark_sessions);
     let dictation_cancellation: Arc<Mutex<Option<CancellationToken>>> = Arc::new(Mutex::new(None));
     let handler_dictation_cancellation = Arc::clone(&dictation_cancellation);
+    // Dictation owns the foreground target captured at start. Stop must not
+    // recapture whatever window happens to be focused after the user speaks.
+    let dictation_target: Arc<Mutex<Option<RuntimeTarget>>> = Arc::new(Mutex::new(None));
+    let handler_dictation_target = Arc::clone(&dictation_target);
     let server_task = server.serve(move |request| {
         let config_snapshot = handler_config
             .lock()
@@ -931,6 +936,8 @@ async fn main() -> Result<()> {
                 Response::Status(slot.as_ref().map(|runtime| status_response(runtime, &config_snapshot, privacy)).unwrap_or_else(|| busy_status_response(&config_snapshot, privacy)))
             }
             Request::DictationStart => {
+                let target = RuntimeTarget::capture()
+                    .map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
                 // Reserve the cancellation slot only after confirming that no
                 // dictation owns the runtime. A rejected rapid second start
                 // must never replace the token used by the active session;
@@ -956,16 +963,28 @@ async fn main() -> Result<()> {
                     *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
                     return Err(sori_ipc::IpcError::Transport(error.to_string()));
                 }
+                *handler_dictation_target.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation target lock poisoned".into()))? = Some(target);
                 if cancellation.is_cancelled() {
                     let _ = runtime.stop_audio(true);
                     handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                     *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
+                    *handler_dictation_target.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation target lock poisoned".into()))? = None;
                     return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "dictation_cancelled".into(), detail: "dictation was cancelled while microphone capture was starting".into() }));
                 }
                 handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                 Response::Control(ControlResponse { accepted: true, detail: "microphone capture started".into() })
             }
             Request::DictationStop => {
+                let mut target_slot = handler_dictation_target
+                    .lock()
+                    .map_err(|_| sori_ipc::IpcError::Transport("dictation target lock poisoned".into()))?;
+                target_slot
+                    .as_ref()
+                    .ok_or_else(|| sori_ipc::IpcError::Transport("no focused target is owned by the active dictation session".into()))?
+                    .validate_alive()
+                    .map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
+                let target = target_slot.take().expect("target was checked above");
+                drop(target_slot);
                 let mut slot = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?;
                 let mut runtime = slot.take().ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
                 drop(slot);
@@ -1005,8 +1024,6 @@ async fn main() -> Result<()> {
                 let fallback = route_config.get("fallbackModelIds").and_then(|ids| ids.as_array()).map(|ids| ids.iter().filter_map(|id| id.as_str().map(|id| ModelId::from(id.strip_prefix("whisper.cpp/").unwrap_or(id)))).collect()).unwrap_or_default();
                 let route = ModelRoute { provider: "whisper.cpp".into(), model: ModelId::from(selected_model), reason: format!("{} policy", route_config.get("policy").and_then(|p| p.as_str()).unwrap_or("LocalFirst")), fallback };
                 let mut injector = RuntimeInjector::new();
-                let target = RuntimeTarget::capture()
-                    .map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
                 let no_history = NoopHistory;
                 let history: &dyn HistoryRepository = if history_enabled { handler_store.as_ref() } else { &no_history };
                 let vocabulary = handler_store.resource("vocabulary").ok().flatten().or_else(|| handler_store.setting("resource.vocabulary").ok().flatten())
@@ -1078,6 +1095,7 @@ async fn main() -> Result<()> {
                         if let Ok(chunks) = runtime.stop_audio(true) {
                             let _ = runtime.take_captured_audio();
                             *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;
+                            *handler_dictation_target.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation target lock poisoned".into()))? = None;
                             return Ok(Response::Control(ControlResponse { accepted: true, detail: format!("dictation cancelled after {chunks} chunks") }));
                         }
                     }

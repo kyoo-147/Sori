@@ -16,6 +16,17 @@ describe('Windows hotkey focused-target contract', () => {
     expect(runtime).toContain('global hotkey; target={}');
   });
 
+  it('owns the focused target for IPC dictation start through stop', () => {
+    expect(daemon).toContain('let dictation_target: Arc<Mutex<Option<RuntimeTarget>>>');
+    expect(daemon).toContain('let target = RuntimeTarget::capture()');
+    expect(daemon).toContain('= Some(target);');
+    expect(daemon).toContain('no focused target is owned by the active dictation session');
+    expect(daemon).toContain('target.validate_alive()');
+    const stop = daemon.slice(daemon.indexOf('Request::DictationStop'), daemon.indexOf('Request::DictationAudio'));
+    expect(stop).toContain('handler_dictation_target');
+    expect(stop).not.toContain('let target = RuntimeTarget::capture()');
+  });
+
   it('requires actual foreground ownership in native focus acceptance', () => {
     expect(acceptance).toContain('return foregroundPid == targetPid && (edit == IntPtr.Zero || childFocused);');
   });

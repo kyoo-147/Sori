@@ -26,7 +26,6 @@ public static class SoriWave3Native {
 '@
 function Fail([string]$Message) { throw "wave3 acceptance failed: $Message" }
 function Normalize-Text([string]$Text) { return (($Text -replace "`r`n", "`n" -replace "`r", "`n").Trim()) }
-function Normalize-Text([string]$Text) { return (($Text -replace "`r`n", "`n" -replace "`r", "`n").Trim()) }
 function Get-LeaseGeneration([string]$Text) {
   $sha = [Security.Cryptography.SHA256]::Create()
   try { return [Convert]::ToBase64String($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text))) } finally { $sha.Dispose() }
@@ -128,20 +127,21 @@ try {
   $artifact.daemon.lease_generation = $daemonTrack.lease_generation
   $artifact.preflight.status = $status.Status
   $artifact.preflight.doctor = Invoke-Ipc $ipcUrl 'Doctor'
-  $artifact.preflight.permissions = Invoke-Ipc $ipcUrl @{ ResourceGet = @{ resource = 'permissions' } }
-  $artifact.preflight.permissions = Invoke-Ipc $ipcUrl @{ ResourceGet = @{ resource = 'permissions' } }
+  try { $artifact.preflight.permissions = Invoke-Ipc $ipcUrl @{ ResourceGet = @{ resource = 'permissions' } } } catch { $artifact.preflight.permissions = $null }
+  try { $artifact.preflight.onboarding = Invoke-Ipc $ipcUrl @{ ResourceGet = @{ resource = 'onboarding' } } } catch { $artifact.preflight.onboarding = $null }
   $artifact.preflight.audio_device = Invoke-Ipc $ipcUrl @{ SettingGet = @{ key = 'audio.device_id' } }
   $artifact.preflight.audio_readiness = Invoke-Ipc $ipcUrl 'AudioReadiness'
   $artifact.preflight.models = Invoke-Ipc $ipcUrl 'Models'
   $checks = @($artifact.preflight.doctor.Doctor.checks)
   if ($checks | Where-Object { -not $_.ok }) { Fail 'Doctor reported a failed installed-runtime check; see artifact.preflight.doctor' }
+  $requiredDoctorChecks = @('audio', 'hotkey', 'whisper', 'text-injection')
+  $missingDoctorChecks = @($requiredDoctorChecks | Where-Object { $name = $_; -not (@($checks | Where-Object { $_.name -eq $name -and $_.ok }).Count) })
+  if ($missingDoctorChecks.Count -gt 0) { Fail "Doctor did not provide green capability checks: $($missingDoctorChecks -join ', ')" }
   if ($status.Status.hotkey -ne $Hotkey) { Fail "runtime hotkey '$($status.Status.hotkey)' does not equal requested -Hotkey '$Hotkey'" }
   $permissionResponse = $artifact.preflight.permissions.Resource
-  if (-not $permissionResponse -or $permissionResponse.resource -ne 'permissions' -or $null -eq $permissionResponse.value -or $permissionResponse.value -eq $null) { Fail 'permissions resource did not return a concrete state' }
-  $permissionItems = @($permissionResponse.value)
-  if ($permissionItems.Count -eq 0) { Fail 'permissions resource is empty; refusing to treat unknown permission state as granted' }
-  $badPermission = @($permissionItems | Where-Object { -not $_.state -or @('granted','allowed','ready') -notcontains ([string]$_.state).ToLowerInvariant() })
-  if ($badPermission.Count -gt 0) { Fail 'permissions resource contains a non-granted state' }
+  $artifact.preflight.permissions_state = if ($permissionResponse -and $permissionResponse.resource -eq 'permissions') { if (@($permissionResponse.value).Count -eq 0) { 'empty_default_not_a_capability_gate' } else { 'recorded_only' } } else { 'unavailable_not_a_capability_gate' }
+  $onboardingResponse = if ($artifact.preflight.onboarding) { $artifact.preflight.onboarding.Resource } else { $null }
+  if ($onboardingResponse -and $onboardingResponse.resource -eq 'onboarding' -and $null -ne $onboardingResponse.value) { $artifact.preflight.onboarding_state = $onboardingResponse.value }
   $audio = $artifact.preflight.audio_readiness.AudioReadiness
   if ($audio.state -ne 'Ready' -or -not $audio.configured -or $audio.detail -notmatch 'configured input device') { Fail "selected audio device is not ready: $($audio.detail)" }
   $artifact.preflight.selected_audio_device = if ($artifact.preflight.audio_device.Setting.value) { $artifact.preflight.audio_device.Setting.value } else { 'Windows default input device' }

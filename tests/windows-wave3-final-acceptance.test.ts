@@ -12,14 +12,17 @@ describe('Wave 3 Windows acceptance safety contract', () => {
     expect(source).toContain('Stop-TrackedProcess $daemonTrack $daemonPath');
     expect(source).toContain('refusing to stop reused PID');
     expect(source).not.toContain('function Get-OwnedDaemon');
+    expect(source).not.toContain('function Get-OwnedDaemon');
+    expect((source.match(/function Normalize-Text/g) ?? []).length).toBe(1);
+    expect((source.match(/preflight\.permissions = Invoke-Ipc/g) ?? []).length).toBe(1);
     expect(source).not.toContain('Stop-Process -Id $oldDaemonPid');
   });
 
   it('validates runtime configuration instead of merely recording it', () => {
     expect(source).toContain('$status.Status.hotkey -ne $Hotkey');
-    expect(source).toContain('permissions resource is empty');
-    expect(source).toContain('permissions resource is empty');
-    expect(source).toContain('-not $_.state');
+    expect(source).toContain("empty_default_not_a_capability_gate");
+    expect(source).not.toContain('permissions resource is empty;');
+    expect(source).toContain("requiredDoctorChecks = @('audio', 'hotkey', 'whisper', 'text-injection')");
     expect(source).toContain('selected audio device is not ready');
     expect(source).toContain('ModelStatus');
     expect(source).toContain("status.phase -ne 'Ready'");

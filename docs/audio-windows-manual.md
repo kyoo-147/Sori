@@ -41,8 +41,11 @@ build. Supply the installed desktop executable and an already-installed model:
 npm run e2e:windows-wave3-acceptance -- -InstalledAppExecutable 'C:\Program Files\Sori\sori.exe' -Model 'ggml-base.en.bin' -Hotkey 'Alt+Space' -ExpectedText 'known sentence'
 ```
 
-The script preflights the installed app/daemon ownership lease, Doctor,
-persisted permissions, `AudioReadiness`, and the real model catalog. It creates
+The script preflights the installed app/daemon ownership lease and requires
+green Doctor capability checks for text injection, audio, hotkey, and Whisper.
+It records the persisted permissions/onboarding resources when available;
+their default empty permissions array is not treated as a synthetic failure.
+It also validates `AudioReadiness` and the real model catalog. It creates
 one harness-owned Win32 EDIT target, records its HWND/PID, and stops for the
 captain to focus that target, press the configured hotkey, speak one known
 sentence, and release. It never synthesizes focus, keys, audio, or clipboard

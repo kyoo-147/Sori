@@ -46,7 +46,7 @@ function Read-Track([string]$LeasePath, [string]$DaemonPath, [int]$Port, [DateTi
   if (-not [String]::Equals((Resolve-Path -LiteralPath $process.Path).Path, $expected, [StringComparison]::OrdinalIgnoreCase)) { Fail 'live daemon executable mismatch' }
   try { $start = $process.StartTime.ToUniversalTime() } catch { Fail 'daemon creation time unavailable' }
   if ($start -lt $NotBefore -or [uint64]$lease.process_start_time -ne [uint64]$start.ToFileTimeUtc()) { Fail 'daemon creation time does not match the lease' }
-  return [ordered]@{ pid = [int]$lease.pid; start_time = $start; lease_id = [string]$lease.lease_id; executable = $expected; lease_path = $LeasePath }
+  return [ordered]@{ pid = [int]$lease.pid; port = $Port; start_time = $start; lease_id = [string]$lease.lease_id; executable = $expected; lease_path = $LeasePath }
 }
 function Stop-Tracked([object]$Track) {
   if (-not $Track) { return }
@@ -58,7 +58,7 @@ function Stop-Tracked([object]$Track) {
   if (-not $process) { return }
   if (-not [String]::Equals((Resolve-Path -LiteralPath $process.Path).Path, $Track.executable, [StringComparison]::OrdinalIgnoreCase)) { Fail 'refusing cleanup: executable changed' }
   try { if ($process.StartTime.ToUniversalTime() -ne $Track.start_time) { Fail 'refusing cleanup: creation time changed' } } catch { Fail 'refusing cleanup: creation time unavailable' }
-  $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+  $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Track.port -State Listen -ErrorAction SilentlyContinue)
   if ($listener.Count -ne 1 -or [int]$listener[0].OwningProcess -ne $Track.pid) { Fail 'refusing cleanup: daemon no longer owns the tracked endpoint' }
   Stop-Process -Id $process.Id -Force
 }
@@ -76,7 +76,7 @@ function Write-Report([hashtable]$Evidence, [string]$Path) {
   Set-Content -LiteralPath $Path -Value ($lines -join "`r`n") -Encoding UTF8
 }
 
-$evidence = @{ status = 'BLOCKED'; reason = 'not run'; started_utc = [DateTime]::UtcNow.ToString('o'); source_commit = $null; port = $IpcPort; data = $DataRoot; owner = $null; desktop = $null; daemon = $null; daemon_installed = @{ sha256 = 'UNAVAILABLE' }; daemon_packaged = @{ sha256 = 'UNAVAILABLE' }; whisper = $null; benchmark_cli = $null; model = $null; model_hash = $null; fixture = $null; fixture_hash = $null; expected_reference = $null; transcript = $null; readback = $null; history = $null; benchmark = $null; restart_history = $null }
+$evidence = @{ status = 'BLOCKED'; reason = 'not run'; primary_error = $null; cleanup_errors = @(); started_utc = [DateTime]::UtcNow.ToString('o'); source_commit = $null; port = $IpcPort; data = $DataRoot; owner = $null; desktop = $null; daemon = $null; daemon_installed = @{ sha256 = 'UNAVAILABLE' }; daemon_packaged = @{ sha256 = 'UNAVAILABLE' }; whisper = $null; benchmark_cli = $null; model = $null; model_hash = $null; fixture = $null; fixture_hash = $null; expected_reference = $null; transcript = $null; readback = $null; history = $null; benchmark = $null; restart_history = $null }
 $desktop = $null; $restartDesktop = $null; $restartDesktopTrack = $null; $restartTrack = $null; $cleanupErrors = [Collections.Generic.List[string]]::new()
 $old = @{}; foreach ($name in @('SORI_IPC_ADDR','SORI_IPC_URL','SORI_DATABASE_PATH','SORI_DB_PATH','SORI_DAEMON_PATH','SORI_DAEMON_OWNER_PATH','SORI_WHISPER_CPP_BIN','SORI_WHISPER_MODEL_DIR','SORI_WHISPER_MODEL','SORI_TEST_PROVIDER','SORI_TEST_PROVIDER_TEXT','SORI_TEST_NO_OS_INJECTION')) { $old[$name] = [Environment]::GetEnvironmentVariable($name) }
 try {
@@ -97,7 +97,7 @@ try {
   $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
   $record = @($manifest.files | Where-Object { $_.file -eq 'en-greeting--base.wav' } | Select-Object -First 1)
   if ($record.Count -ne 1) { Fail 'verified SAPI manifest lacks en-greeting--base.wav' }
-  $fixturePath = Require-AbsoluteFile (Join-Path $CorpusDirectory $record[0].file) 'verified SAPI fixture'
+  $fixturePath = Require-AbsoluteFile (Join-Path $corpusPath $record[0].file) 'verified SAPI fixture'
   $fixtureHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $fixturePath).Hash.ToLowerInvariant()
   if ($fixtureHash -ne ([string]$record[0].sha256).ToLowerInvariant()) { Fail 'SAPI fixture hash disagrees with manifest' }
   $expectedText = [string]$record[0].expected_transcript
@@ -116,13 +116,14 @@ try {
   $restart = Invoke-Ipc $env:SORI_IPC_URL @{ RecentHistory = @{ limit = 20 } } 10; $entry = @($restart.RecentHistory.entries | Where-Object { $_.transcript.text -eq $evidence.transcript -and $_.inserted_text -eq $evidence.transcript } | Select-Object -First 1); if ($entry.Count -ne 1) { Fail 'restart IPC history did not contain exact actual transcript/insertion' }; $evidence.restart_history = $entry[0]
   $benchmarkOutput = (& $benchmarkCliPath benchmark --model ggml-base.en.bin --audio $fixturePath --reference $expectedText --iterations 3 2>&1 | Out-String); if ($LASTEXITCODE -ne 0) { Fail "canonical benchmark CLI failed: $benchmarkOutput" }; $benchmarkLine = ($benchmarkOutput -split "`r?`n" | Where-Object { $_ -match '^model=' } | Select-Object -Last 1); if (-not $benchmarkLine) { Fail 'canonical benchmark emitted no parseable metrics' }; $fields = @{}; foreach ($pair in ($benchmarkLine -split ' ')) { if ($pair -match '^([^=]+)=(.*)$') { $fields[$Matches[1]] = $Matches[2] } }; $evidence.benchmark = [ordered]@{ status = 'MEASURED_REAL_QUALITY'; reference = $expectedText; actual = $evidence.transcript; wer = $fields['wer']; cer = $fields['cer']; provider = $fields['provider']; p50_ms = $fields['p50_ms']; p95_ms = $fields['p95_ms']; raw = $benchmarkLine }
   $evidence.status = 'VERIFIED'; $evidence.reason = 'fresh packaged daemon matched installed payload; real Whisper measured quality, actual transcript readback, history, and restart checks passed'
-} catch { $evidence.reason = $_.Exception.Message; throw } finally {
+} catch { $evidence.primary_error = $_.Exception.Message; $evidence.reason = "primary failure: $($evidence.primary_error)" } finally {
   foreach ($cleanup in @(
     @{ name = 'restart desktop'; track = $restartDesktopTrack; action = { Stop-TrackedProcess $restartDesktopTrack } },
     @{ name = 'daemon'; track = $restartTrack; action = { Stop-Tracked $restartTrack } }
   )) { if ($cleanup.track) { try { & $cleanup.action } catch { [void]$cleanupErrors.Add("$($cleanup.name): $($_.Exception.Message)") } } }
   foreach ($name in $old.Keys) { try { [Environment]::SetEnvironmentVariable($name, $old[$name]) } catch { [void]$cleanupErrors.Add("restore ${name}: $($_.Exception.Message)") } }
-  if ($cleanupErrors.Count -gt 0) { $evidence.status = 'BLOCKED'; $evidence.reason = "safe cleanup failed: $($cleanupErrors -join '; ')" }
+  if ($cleanupErrors.Count -gt 0) { $evidence.status = 'BLOCKED'; $cleanupReason = "safe cleanup failed: $($cleanupErrors -join '; ')"; $evidence.reason = if ($evidence.primary_error) { "$($evidence.reason); $cleanupReason" } else { $cleanupReason } }
   $evidence.cleanup_errors = @($cleanupErrors)
   Write-Report $evidence $ArtifactPath
 }
+if ($evidence.primary_error -or $cleanupErrors.Count -gt 0) { exit 1 }

@@ -191,7 +191,7 @@ function Read-TargetText([IntPtr]$Handle) {
   return ($values -join "`n")
 }
 
-$artifact = [ordered]@{ status = 'FAILED'; cleanup_errors = @(); steps = [Collections.Generic.List[string]]::new(); expected_reference = $ExpectedReference; transcript = $null; history = $null; target_text = $null }
+$artifact = [ordered]@{ status = 'FAILED'; primary_error = $null; cleanup_errors = @(); steps = [Collections.Generic.List[string]]::new(); expected_reference = $ExpectedReference; transcript = $null; history = $null; target_text = $null }
 $desktop = $null; $target = $null; $desktopTrack = $null; $targetTrack = $null; $ownedDaemonTrack = $null; $cleanupErrors = [Collections.Generic.List[string]]::new(); $launchStarted = [DateTime]::UtcNow
 $oldIpcAddr = $env:SORI_IPC_ADDR; $oldIpcUrl = $env:SORI_IPC_URL; $oldDb = $env:SORI_DATABASE_PATH; $oldDbAlias = $env:SORI_DB_PATH; $oldEditTitle = $env:SORI_EDIT_TARGET_TITLE; $oldTestProvider = $env:SORI_TEST_PROVIDER; $oldTestText = $env:SORI_TEST_PROVIDER_TEXT; $oldNoOsInjection = $env:SORI_TEST_NO_OS_INJECTION; $oldOwnerPath = $env:SORI_DAEMON_OWNER_PATH
 try {
@@ -296,8 +296,8 @@ try {
   $artifact.steps.Add('canonical RecentHistory returned persisted SQLite evidence after target readback')
   $artifact.status = 'VERIFIED'
 } catch {
-  $artifact.steps.Add("ERROR: $($_.Exception.Message)")
-  throw
+  $artifact.primary_error = $_.Exception.Message
+  $artifact.steps.Add("ERROR: $($artifact.primary_error)")
 } finally {
   foreach ($cleanup in @(
     @{ name = 'desktop'; track = $desktopTrack; action = { Stop-TrackedProcess $desktopTrack } },
@@ -310,4 +310,4 @@ try {
   $artifactDir = Split-Path -Parent $ArtifactPath; if ($artifactDir) { New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null }
   $artifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $ArtifactPath -Encoding UTF8
 }
-if ($cleanupErrors.Count -gt 0) { exit 1 }
+if ($artifact.primary_error -or $cleanupErrors.Count -gt 0) { exit 1 }

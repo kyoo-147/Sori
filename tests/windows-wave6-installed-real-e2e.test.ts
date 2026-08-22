@@ -24,7 +24,16 @@ describe('installed real-Whisper acceptance', () => {
     expect(source).toContain('FreshPackagedDaemon');
     expect(source).toContain('MEASURED_REAL_QUALITY');
     expect(source).toContain('windows-audio-fixture-corpus-verify.ps1');
+    expect(source).toContain("Join-Path $corpusPath $record[0].file");
+    expect(source).not.toContain("Join-Path $CorpusDirectory $record[0].file");
+    expect(source).toContain('port = $Port');
+    expect(source).toContain('$Track.port');
+    const cleanup = source.slice(source.indexOf('function Stop-Tracked('), source.indexOf('function Stop-TrackedProcess('));
+    expect(cleanup).toContain('$Track.port');
+    expect(cleanup).not.toContain('LocalPort $Port');
     expect(source).toContain('safe cleanup failed');
+    expect(source).toContain('primary_error');
+    expect(source).toContain('if ($evidence.primary_error -or $cleanupErrors.Count -gt 0) { exit 1 }');
     expect(native).toContain('foreach (uint thread in new uint[] { targetThread, foregroundThread })');
     expect(native).toContain('finally { foreach (uint thread in attached) AttachThreadInput');
     expect(native).toContain('Join-Path $dataPath $targetFileName');

@@ -42,3 +42,11 @@ A successful run writes the configured report. If the latest build/install or
 assets are unavailable, the run remains BLOCKED and makes no VERIFIED claim.
 SAPI playback is synthetic/local fixture input, not physical microphone or
 physical hotkey proof; frontend visual refresh is not claimed.
+
+## Evidence boundary for the installed run
+
+`CREATE_NO_WINDOW` hardens the whisper.cpp console sidecar against console-side
+activation; it does not explain or prevent every foreground change. In the
+latest full run, PID `14704` was confirmed to be Chrome, not whisper.cpp. The
+remaining Chrome foreground change is an external OS/session prerequisite, so
+the installed vertical remains **BLOCKED** and is not claimed **VERIFIED**.

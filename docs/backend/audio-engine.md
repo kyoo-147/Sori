@@ -113,19 +113,19 @@ machine and microphone.
 ## Windows playback/loopback gate
 
 The opt-in `scripts/windows-audio-loopback-acceptance.ps1` gate starts the real
-CPAL input controller, plays a verified local SAPI WAV through Windows
-PowerShell, drains the canonical mono 16 kHz DSP output, exercises the optional
-Whisper handoff, and checks controller restart. It detects missing Windows,
-PowerShell, WAV, or input-device capability before capture and preserves the
-actual CPAL error when a device is unavailable.
+CPAL input controller, plays the default verified SAPI corpus member through
+Windows PowerShell, drains the canonical mono 16 kHz DSP output, exercises the
+optional Whisper handoff, and checks controller restart. A custom
+`PlaybackWav` outside the verified manifest is instead evidenced only by its
+measured SHA-256 and RIFF header; it is not granted SAPI or manifest provenance.
+The gate detects missing Windows, PowerShell, WAV, or input-device capability
+before capture and preserves the actual CPAL error when a device is unavailable.
 
 Playback alone is **not** loopback evidence: the selected CPAL input may be a
 microphone while the WAV is sent to speakers. The harness therefore prints
 `route=unknown` and `UNVERIFIED` unless a human verifies that the selected input
 is a Windows loopback or virtual route. No generated SAPI fixture is labeled as
 microphone speech.
-`route=unknown` and `UNVERIFIED` unless a human verifies that the selected input
-is a Windows loopback or virtual route. No generated SAPI fixture is labeled as
 microphone speech.
 
 The evidence JSON distinguishes `corpus_manifest_verified` from

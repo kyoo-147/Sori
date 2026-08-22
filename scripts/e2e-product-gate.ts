@@ -1,11 +1,12 @@
 import { createServer, request as httpRequest, type Server } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { DEFAULT_IPC_URL, binaryPath, parseEndpoint, requireEndpointFree, waitForEndpoint } from './e2e-desktop-backend.js';
+import { binaryPath, parseEndpoint, requireEndpointFree, waitForEndpoint } from './e2e-desktop-backend.js';
 
 export const PRODUCT_NAVIGATION = [
   { label: 'Home', expected: ['Runtime overview', 'Focused target window'] },
@@ -54,18 +55,22 @@ async function runCommand(command: string, args: string[], env: NodeJS.ProcessEn
   return run(executable, executableArgs, env);
 }
 
-async function stop(child: ChildProcess | null): Promise<void> {
+export async function stopOwnedChild(child: ChildProcess | null): Promise<void> {
   if (!child || child.exitCode !== null) return;
   if (process.platform === 'win32' && child.pid) {
     await runCommand('taskkill', ['/pid', String(child.pid), '/t', '/f']).catch(() => undefined);
-    return;
+  } else {
+    child.kill('SIGINT');
   }
-  child.kill('SIGINT');
   await Promise.race([
     new Promise<void>((resolveStop) => child.once('close', () => resolveStop())),
     delay(3_000),
   ]);
   if (child.exitCode === null) child.kill('SIGKILL');
+  if (child.exitCode === null) await Promise.race([
+    new Promise<void>((resolveStop) => child.once('close', () => resolveStop())),
+    delay(1_000),
+  ]);
 }
 
 function start(command: string, args: string[], env: NodeJS.ProcessEnv = {}): ChildProcess {
@@ -126,11 +131,28 @@ function startSameOriginProxy(endpoint: URL, vitePort: number, proxyPort: number
   return server;
 }
 
-async function stopServer(server: Server | null): Promise<void> {
-  if (!server) return;
-  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+export async function stopServer(server: Server | null): Promise<void> {
+  if (!server || !server.listening) return;
+  server.closeIdleConnections();
+  server.closeAllConnections();
+  await Promise.race([
+    new Promise<void>((resolveClose) => server.close(() => resolveClose())),
+    delay(2_000),
+  ]);
 }
 
+async function freePort(): Promise<number> {
+  const server = createNetServer();
+  await new Promise<void>((resolveListen, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolveListen());
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  await new Promise<void>((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()));
+  if (!port) throw new Error('could not allocate an ephemeral E2E port');
+  return port;
+}
 function browserEnv(session: string): NodeJS.ProcessEnv {
   return {
     CHROME_DEVTOOLS_AXI_SESSION: session,
@@ -218,18 +240,18 @@ async function checkBrowserAvailable(session: string): Promise<boolean> {
 }
 
 async function runProductGate(): Promise<void> {
-  const endpoint = parseEndpoint(process.env.SORI_IPC_URL ?? DEFAULT_IPC_URL);
+  const evidenceDir = resolve('.tmp', 'e2e-product-gate', String(process.pid));
+  mkdirSync(evidenceDir, { recursive: true });
+  const endpoint = parseEndpoint(process.env.SORI_IPC_URL ?? `http://127.0.0.1:${await freePort()}/ipc`);
   await requireEndpointFree(endpoint);
 
   const session = `sori-product-e2e-${process.pid}`;
   if (!(await checkBrowserAvailable(session))) return;
 
-  const evidenceDir = resolve('.tmp', 'e2e-product-gate', String(process.pid));
-  mkdirSync(evidenceDir, { recursive: true });
   const db = join(evidenceDir, 'sori.db');
   const owner = join(evidenceDir, 'daemon-owner.json');
-  const vitePort = Number(process.env.SORI_E2E_WEB_PORT ?? 4173);
-  const proxyPort = Number(process.env.SORI_E2E_PROXY_PORT ?? vitePort + 1);
+  const vitePort = Number(process.env.SORI_E2E_WEB_PORT ?? await freePort());
+  const proxyPort = Number(process.env.SORI_E2E_PROXY_PORT ?? await freePort());
   const webUrl = `http://127.0.0.1:${proxyPort}/`;
   let daemon: ChildProcess | null = null;
   let vite: ChildProcess | null = null;
@@ -352,10 +374,11 @@ async function runProductGate(): Promise<void> {
     try { writeFileSync(join(evidenceDir, 'failure-snapshot.txt'), await snapshot(session)); } catch { /* preserve original failure */ }
     throw error;
   } finally {
-    await stopServer(proxy);
-    await stop(vite);
-    await stop(daemon);
     await browser(['stop'], session).catch(() => undefined);
+    await stopServer(proxy);
+    await stopOwnedChild(vite);
+    await stopOwnedChild(daemon);
+    await requireEndpointFree(endpoint);
   }
 }
 

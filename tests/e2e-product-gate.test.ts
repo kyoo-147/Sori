@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
+import { createConnection } from 'node:net';
+import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PRODUCT_NAVIGATION, UNVERIFIED_HARDWARE_CAPABILITIES } from '../scripts/e2e-product-gate.js';
+import { PRODUCT_NAVIGATION, UNVERIFIED_HARDWARE_CAPABILITIES, stopOwnedChild, stopServer } from '../scripts/e2e-product-gate.js';
 
 describe('sequential product E2E gate contract', () => {
   it('keeps every primary desktop route in the semantic navigation sequence', () => {
@@ -57,4 +60,22 @@ describe('product gate daemon ownership isolation', () => {
     expect(source).toContain("const owner = join(evidenceDir, 'daemon-owner.json');");
     expect(source).toContain('SORI_DAEMON_OWNER_PATH: owner');
   });
+});
+
+describe('product gate deterministic cleanup', () => {
+  it('closes owned keep-alive endpoints and child processes without global process cleanup', async () => {
+    const server = createServer((_request, response) => response.end('ok'));
+    await new Promise<void>((resolveListen) => server.listen(0, '127.0.0.1', () => resolveListen()));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('test server did not expose a port');
+    const socket = createConnection(address.port, '127.0.0.1');
+    await new Promise<void>((resolveConnect, reject) => { socket.once('connect', () => resolveConnect()); socket.once('error', reject); });
+    await stopServer(server);
+    expect(server.listening).toBe(false);
+    socket.destroy();
+
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    await stopOwnedChild(child);
+    expect(child.exitCode).not.toBeNull();
+  }, 10_000);
 });

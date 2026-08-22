@@ -5,6 +5,21 @@ expose CPAL types: device discovery and capture are represented by
 `AudioDeviceProvider` and `AudioEngine`, while `CaptureConfig` describes the
 requested format and chunk size.
 
+## Deterministic local speech corpus
+
+Build a legal, machine-local corpus from an already installed Windows SAPI voice:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-audio-fixture-corpus.ps1 -OutputDirectory .\data\audio-corpus
+```
+
+The script writes mono 16 kHz PCM WAV files plus `manifest.json` containing the
+expected transcript, selected voice/culture, variant (silence/pause, speed, or
+volume), generation provenance, and SHA-256. It never downloads assets, opens a
+microphone, or claims physical-device evidence. `-IncludeVietnamese` adds a
+Vietnamese sentence only when the selected installed SAPI voice has a `vi-*`
+culture; otherwise it explicitly skips that case.
+
 ## Current scope
 
 - `AudioDeviceInfo` and `AudioDeviceProvider` describe input-device listing.

@@ -14,6 +14,11 @@ function record(value: unknown): Record<string, unknown> { return value && typeo
 function text(value: unknown, fallback: string | null = null): string | null { return typeof value === 'string' ? value : fallback; }
 function unwrap(value: unknown, tag: string): Record<string, unknown> { const root = record(value); const pascal = tag.split('_').map((p) => p[0].toUpperCase() + p.slice(1)).join(''); const tagged = record(responsePayload(value, pascal as keyof IpcResponseMap) ?? root[tag]); return Object.keys(tagged).length ? tagged : root; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function mapTranscript(value: unknown): TranscriptResponse {
+  const transcript = unwrap(value, 'transcript');
+  if (typeof transcript.text !== 'string') throw new Error('daemon returned no transcript');
+  return transcript as unknown as TranscriptResponse;
+}
 export { requestShape } from './ipc-contract.js';
 export function mapStatus(value: unknown): DaemonStatus { const raw = unwrap(value, 'status'); return { daemon: raw.daemon === 'starting' || raw.daemon === 'stopping' || raw.daemon === 'running' ? raw.daemon : raw.running === true ? 'running' : 'unavailable', activity: raw.paused === true || raw.activity === 'Paused' ? 'paused' : raw.activity === 'Idle' ? 'idle' : 'error', paused: raw.paused === true || raw.activity === 'Paused', hotkey: text(raw.hotkey, 'Alt+Space')!, route: { prefer_local: record(raw.route).prefer_local === true, allow_cloud: record(raw.route).allow_cloud === true, prefer_warm_runtime: record(raw.route).prefer_warm_runtime === true, optimize_battery: record(raw.route).optimize_battery === true }, profile: text(raw.profile, 'Basic')!, privacy: text(raw.privacy, 'LocalOnly')!, version: text(raw.daemon_version) ?? text(raw.version) }; }
 export function mapDoctor(value: unknown): DoctorCheck[] { const checks = unwrap(value, 'doctor').checks; return Array.isArray(checks) ? checks.filter((check): check is DoctorCheck => { const item = record(check); return typeof item.name === 'string' && typeof item.ok === 'boolean' && typeof item.detail === 'string'; }) : []; }
@@ -48,7 +53,7 @@ export class RuntimeClient {
   async setConfig(key: string, value: unknown) { return this.control('set_config', { key, value }); }
   async reconnect() { return this.status(); }
   async dictationStart() { return this.control('dictation_start'); }
-  async dictationStop() { return this.call('dictation_stop', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null); }
+  async dictationStop() { return this.call('dictation_stop', mapTranscript, null); }
   async dictationCancel() { return this.control('dictation_cancel'); }
   async dictationAudio(model: string, audio: unknown[]) { return this.call('dictation_audio', (v) => unwrap(v, 'transcript') as unknown as TranscriptResponse, null, { model, audio }); }
   async voiceEdit(selection: VoiceEditSelection, instruction: string, approved = false) { return this.call('voice_edit', (value) => (responsePayload(value, 'VoiceEdit') ?? null) as VoiceEditResponse | null, null, { selection, instruction, approved }); }
@@ -76,8 +81,8 @@ export class RuntimeClient {
     this.resourceWrites.set(name, write);
     try { return await write; } finally { if (this.resourceWrites.get(name) === write) this.resourceWrites.delete(name); }
   }
-  async pause() { const result = await this.control('pause'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }
-  async resume() { const result = await this.control('resume'); return result.error ? { data: unavailable, source: 'unavailable' as const, error: result.error } : this.status(); }
+  async pause() { const result = await this.control('pause'); return result.error || !result.data.accepted ? { data: unavailable, source: 'unavailable' as const, error: result.error ?? result.data.detail } : this.status(); }
+  async resume() { const result = await this.control('resume'); return result.error || !result.data.accepted ? { data: unavailable, source: 'unavailable' as const, error: result.error ?? result.data.detail } : this.status(); }
   extensions() { return this.call('extensions_list', (v) => (responsePayload(v, 'Extensions') as { extensions: ExtensionRecord[] }).extensions, []); }
   extensionEnable(id: string) { return this.control('extension_enable', { id }); }
   extensionDisable(id: string) { return this.control('extension_disable', { id }); }

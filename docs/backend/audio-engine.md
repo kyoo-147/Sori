@@ -124,6 +124,13 @@ microphone while the WAV is sent to speakers. The harness therefore prints
 `route=unknown` and `UNVERIFIED` unless a human verifies that the selected input
 is a Windows loopback or virtual route. No generated SAPI fixture is labeled as
 microphone speech.
+`route=unknown` and `UNVERIFIED` unless a human verifies that the selected input
+is a Windows loopback or virtual route. No generated SAPI fixture is labeled as
+microphone speech.
+
+The evidence JSON distinguishes `corpus_manifest_verified` from
+`playback_manifest_verified`; a custom WAV outside the corpus records only its
+measured SHA-256 and RIFF header, not corpus provenance.
 
 Example (no model required):
 

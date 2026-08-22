@@ -181,7 +181,7 @@ pub enum Response {
     Transcript(Transcript),
     VoiceEdit(sori_core::VoiceEditResponse),
     Extensions(ExtensionsResponse),
-    Benchmark(BenchmarkResult),
+    Benchmark(Box<BenchmarkResult>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

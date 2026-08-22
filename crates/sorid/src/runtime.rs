@@ -387,7 +387,10 @@ impl<B: EventBus> DaemonRuntime<B> {
                 let route = ModelRoute {
                     provider: "whisper.cpp".into(),
                     model: model.clone(),
-                    reason: "global hotkey".into(),
+                    reason: format!(
+                        "global hotkey; target={}",
+                        target.identity().unwrap_or("unknown")
+                    ),
                     fallback: Vec::new(),
                 };
                 self.complete_captured_dictation_with_vocabulary(

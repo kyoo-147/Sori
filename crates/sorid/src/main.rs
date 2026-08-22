@@ -327,6 +327,9 @@ async fn main() -> Result<()> {
         )
     })?;
     let hotkey_history = Arc::clone(&store);
+    // Bind the focused target at physical key-down; release must not retarget.
+    let hotkey_target_state = Arc::new(Mutex::new(None::<RuntimeTarget>));
+    let hotkey_target_for_callback = Arc::clone(&hotkey_target_state);
     let hotkey_result: Result<(HotkeyService, HotkeyServiceStatus), _> = start_hotkey_service(
         Arc::new(events.clone()),
         hotkey,
@@ -335,18 +338,35 @@ async fn main() -> Result<()> {
                 if let Some(mut runtime) = slot.take() {
                     drop(slot);
                     match event {
-                        sori_core::HotkeyEvent::Pressed => {
-                            runtime.handle_hotkey_with_pipeline(
-                                event,
-                                &hotkey_model,
-                                &mut RuntimeInjector::new(),
-                                &RuntimeTarget { identity: None },
-                                hotkey_history.as_ref(),
-                                &Vocabulary::default(),
-                            );
-                        }
-                        _ => match RuntimeTarget::capture() {
+                        sori_core::HotkeyEvent::Pressed => match RuntimeTarget::capture() {
                             Ok(target) => {
+                                let target_for_pipeline = RuntimeTarget {
+                                    identity: target.identity.clone(),
+                                };
+                                if let Ok(mut held) = hotkey_target_for_callback.lock() {
+                                    *held = Some(target);
+                                }
+                                let mut injector = RuntimeInjector::new();
+                                runtime.handle_hotkey_with_pipeline(
+                                    event,
+                                    &hotkey_model,
+                                    &mut injector,
+                                    &target_for_pipeline,
+                                    hotkey_history.as_ref(),
+                                    &Vocabulary::default(),
+                                );
+                            }
+                            Err(error) => {
+                                tracing::warn!(detail = %error, "hotkey target capture unavailable; refusing to start capture");
+                                let _ = runtime.stop_audio(true);
+                            }
+                        },
+                        sori_core::HotkeyEvent::Released => {
+                            let target = hotkey_target_for_callback
+                                .lock()
+                                .ok()
+                                .and_then(|mut held| held.take());
+                            if let Some(target) = target {
                                 let mut injector = RuntimeInjector::new();
                                 runtime.handle_hotkey_with_pipeline(
                                     event,
@@ -356,12 +376,27 @@ async fn main() -> Result<()> {
                                     hotkey_history.as_ref(),
                                     &Vocabulary::default(),
                                 );
-                            }
-                            Err(error) => {
-                                tracing::warn!(detail = %error, "hotkey target capture unavailable");
+                            } else {
+                                tracing::warn!(
+                                    "hotkey release had no captured foreground target; cancelling capture"
+                                );
                                 let _ = runtime.stop_audio(true);
                             }
-                        },
+                        }
+                        sori_core::HotkeyEvent::Cancelled => {
+                            let _ = hotkey_target_for_callback
+                                .lock()
+                                .map(|mut held| held.take());
+                            let target = RuntimeTarget { identity: None };
+                            runtime.handle_hotkey_with_pipeline(
+                                event,
+                                &hotkey_model,
+                                &mut RuntimeInjector::new(),
+                                &target,
+                                hotkey_history.as_ref(),
+                                &Vocabulary::default(),
+                            );
+                        }
                     }
                     if let Ok(mut slot) = hotkey_runtime.lock() {
                         *slot = Some(runtime);

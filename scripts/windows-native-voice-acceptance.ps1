@@ -124,7 +124,9 @@ public static class SoriNativeText {
     if (attached) AttachThreadInput(currentThread, targetThread, false);
     System.Threading.Thread.Sleep(100);
     uint foregroundPid = 0; GetWindowThreadProcessId(GetForegroundWindow(), out foregroundPid);
-    return true;
+    // Never report focus success from SetForegroundWindow alone: Windows may
+    // deny activation, and SendInput would otherwise target an unrelated app.
+    return foregroundPid == targetPid && (edit == IntPtr.Zero || childFocused);
   }
   public static string ReadText(IntPtr hWnd) {
     var values = new List<string>();

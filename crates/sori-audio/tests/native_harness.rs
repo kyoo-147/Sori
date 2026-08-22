@@ -144,7 +144,8 @@ fn playback_if_requested() -> Option<std::thread::JoinHandle<()>> {
     }
     eprintln!(
         "PLAYBACK_STARTED_PENDING: local SAPI WAV={} powershell={} route=unknown; no loopback claim",
-        path.display(), String::from_utf8_lossy(&probe.stdout).trim()
+        path.display(),
+        String::from_utf8_lossy(&probe.stdout).trim()
     );
     Some(std::thread::spawn(move || {
         let result = std::process::Command::new("powershell.exe")

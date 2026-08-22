@@ -189,16 +189,8 @@ impl CpalAudioEngine {
         };
         let supported = device
             .default_input_config()
-            .map_err(|error| AudioError::DeviceUnavailable(error.to_string()))?;
-        if !matches!(
-            supported.sample_format(),
-            CpalSampleFormat::F32 | CpalSampleFormat::I16 | CpalSampleFormat::U16
-        ) {
-            return Err(AudioError::BackendUnavailable(format!(
-                "unsupported sample format {:?}",
-                supported.sample_format()
-            )));
-        }
+            .map_err(classify_stream_error)?;
+        validate_supported_config(&supported)?;
         // Keep native metadata for DSP; public chunks are converted to the
         // configured target format after callback collection.
         self.native_format = AudioFormat {
@@ -537,14 +529,26 @@ impl AudioCaptureEngine for CpalAudioController {
                 "capture worker stopped"
             );
         });
-        let (device, format) = match ready_rx.recv() {
+        // Bound native startup so a stale Windows endpoint cannot wedge the daemon.
+        let (device, format) = match ready_rx.recv_timeout(std::time::Duration::from_secs(5)) {
             Ok(Ok(value)) => value,
             Ok(Err(error)) => {
                 self.state = CaptureState::Idle;
                 let _ = worker.join();
                 return Err(error);
             }
-            Err(_) => {
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Do not join here: a backend call that is stuck in native code
+                // would otherwise transfer the very wedge this deadline avoids
+                // into the daemon's caller. The worker observes this command as
+                // soon as CPAL returns and tears its stream down.
+                let _ = command_tx.send(());
+                self.state = CaptureState::Idle;
+                return Err(AudioError::BackendUnavailable(
+                    "audio device did not become ready within 5 seconds".into(),
+                ));
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
                 self.state = CaptureState::Idle;
                 let _ = worker.join();
                 return Err(AudioError::DeviceUnavailable(
@@ -590,11 +594,29 @@ impl AudioCaptureEngine for CpalAudioController {
             Some(id) => provider.device_by_id(id)?,
             None => provider.default_input()?,
         };
-        device
+        let supported = device
             .default_input_config()
-            .map(|_| ())
-            .map_err(|error| AudioError::DeviceUnavailable(error.to_string()))
+            .map_err(classify_stream_error)?;
+        validate_supported_config(&supported)
     }
+}
+
+fn validate_supported_config(config: &cpal::SupportedStreamConfig) -> Result<(), AudioError> {
+    if !matches!(
+        config.sample_format(),
+        CpalSampleFormat::F32 | CpalSampleFormat::I16 | CpalSampleFormat::U16
+    ) {
+        return Err(AudioError::BackendUnavailable(format!(
+            "unsupported sample format {:?}",
+            config.sample_format()
+        )));
+    }
+    if config.channels() == 0 || config.sample_rate().0 == 0 {
+        return Err(AudioError::DeviceUnavailable(
+            "input device reported an invalid stream format".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn classify_stream_error(error: impl ToString) -> AudioError {

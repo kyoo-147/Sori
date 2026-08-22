@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { RuntimeClient, type IpcTransport } from './runtime-client';
+import { HttpIpcTransport, RuntimeClient, type IpcTransport } from './runtime-client';
+
+describe('HttpIpcTransport browser binding', () => {
+  it('invokes the default fetch with globalThis as its receiver', async () => {
+    const originalFetch = globalThis.fetch;
+    let receiver: unknown;
+    globalThis.fetch = function (this: unknown) {
+      receiver = this;
+      return Promise.resolve(new Response(JSON.stringify({ Status: { running: true } }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    } as typeof fetch;
+    try {
+      await new HttpIpcTransport('http://127.0.0.1:17373/ipc').request('status');
+      expect(receiver).toBe(globalThis);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
 
 const transport = (response: unknown): IpcTransport => ({
   source: 'backend',

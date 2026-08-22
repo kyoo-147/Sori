@@ -28,7 +28,9 @@ describe('Windows hotkey focused-target contract', () => {
   });
 
   it('requires actual foreground ownership in native focus acceptance', () => {
-    expect(acceptance).toContain('return foregroundPid == targetPid && (edit == IntPtr.Zero || childFocused);');
+    expect(acceptance).toContain('foreach (uint thread in new uint[] { targetThread, foregroundThread })');
+    expect(acceptance).toContain('return foregroundPid == targetPid && GetFocus() == edit;');
+    expect(acceptance).toContain('finally { foreach (uint thread in attached) AttachThreadInput');
   });
 
   it('keeps automated insertion readback scoped to owned EDIT HWND/PID pairs', () => {

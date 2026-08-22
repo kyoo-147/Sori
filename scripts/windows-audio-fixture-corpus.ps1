@@ -40,7 +40,8 @@ foreach ($sentence in $sentences) {
     $voice.Rate = $variant.rate; $voice.Volume = $variant.volume
     $voice.SetOutputToWaveFile($file, [System.Speech.AudioFormat.SpeechAudioFormatInfo]::new(16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, 1))
     if ($variant.ssml) {
-      $ssml = "<speak version='1.0' xml:lang='$($sentence.language)'><break time='450ms'/>$($sentence.text)<break time='450ms'/></speak>"
+      $escapedText = [System.Security.SecurityElement]::Escape($sentence.text)
+      $ssml = "<speak version='1.0' xml:lang='$($sentence.language)'><break time='450ms'/>$escapedText<break time='450ms'/></speak>"
       $voice.SpeakSsml($ssml)
     } else { $voice.Speak($sentence.text) }
     $voice.SetOutputToNull()
@@ -51,4 +52,5 @@ foreach ($sentence in $sentences) {
 $manifest = [ordered]@{ schema = 'sori.audio-corpus.v1'; generated_by = 'scripts/windows-audio-fixture-corpus.ps1'; voice = $voiceInfo; files = $records }
 $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 (Join-Path $OutputDirectory 'manifest.json')
 $voice.Dispose()
+& (Join-Path $PSScriptRoot 'windows-audio-fixture-corpus-verify.ps1') -CorpusDirectory $OutputDirectory
 Write-Output "Generated $($records.Count) local WAV fixtures in $OutputDirectory using $($selected.Name) ($($selected.Culture.Name))."

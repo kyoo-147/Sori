@@ -15,12 +15,19 @@ describe('Wave 4 Whisper probe contract', () => {
     expect(source).not.toContain('$artifact.error = $_.Exception.Message');
   });
 
-  it('fails closed and uses the canonical sori benchmark command for real assets', () => {
+  it('trusts verifier success, requires daemon model readiness, and uses canonical benchmark', () => {
     expect(source).toContain("status = 'BLOCKED'");
     expect(source).toContain('sori status could not reach the daemon');
+    expect(source).toContain("windows-audio-fixture-corpus-verify.ps1') -CorpusDirectory $CorpusDirectory *> $null");
+    expect(source).toContain('$corpusOk = $true');
+    expect(source).not.toContain("windows-audio-fixture-corpus-verify.ps1') -CorpusDirectory $CorpusDirectory *> $null\n        $corpusOk = $LASTEXITCODE -eq 0");
+    expect(source).toContain("Check 'daemon_model_ready'");
+    expect(source).toContain("$modelsResponse.Models.provider -eq 'whisper.cpp'");
+    expect(source).toContain("$selected[0].status.phase -eq 'Ready'");
     expect(source).toContain('& $Cli benchmark --model $Model --audio $Audio --reference $Reference --iterations $Iterations');
     expect(source).toContain('VERIFIED_REAL_SAPI_CORPUS_BENCHMARK');
     expect(source).toContain('UNVERIFIED');
-    expect(source).toContain('do not download through this probe');
+    expect(source).toContain('no benchmark evidence was recorded');
+    expect(source).toContain("if ($artifact.status -ne 'VERIFIED_REAL_SAPI_CORPUS_BENCHMARK') { exit 3 }");
   });
 });

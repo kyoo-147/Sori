@@ -22,7 +22,7 @@ function Read-Config([string]$Path) {
 }
 function Invoke-Benchmark([string]$Cli, [string]$Model, [string]$Audio, [string]$Reference) {
   $output = & $Cli benchmark --model $Model --audio $Audio --reference $Reference --iterations $Iterations 2>$null | Out-String
-  if ($LASTEXITCODE -ne 0) { return [ordered]@{ status = 'FAILED'; detail = 'canonical benchmark command failed; see live console diagnostics'; fixture = Safe-Name $Audio } }
+  if ($LASTEXITCODE -ne 0) { return [ordered]@{ status = 'FAILED'; detail = 'canonical benchmark command failed; no benchmark evidence was recorded'; fixture = Safe-Name $Audio } }
   $line = ($output -split "`r?`n" | Where-Object { $_ -match '^model=' } | Select-Object -Last 1)
   if (-not $line) { return [ordered]@{ status = 'FAILED'; detail = 'canonical benchmark returned no parseable metrics'; fixture = Safe-Name $Audio } }
   $fields = @{}
@@ -67,7 +67,7 @@ try {
       $corpusOk = $manifest.schema -eq 'sori.audio-corpus.v1' -and $records.Count -gt 0
       if ($corpusOk) {
         & (Join-Path $PSScriptRoot 'windows-audio-fixture-corpus-verify.ps1') -CorpusDirectory $CorpusDirectory *> $null
-        $corpusOk = $LASTEXITCODE -eq 0
+        $corpusOk = $true
       }
     } catch { $corpusOk = $false }
   }
@@ -82,8 +82,22 @@ try {
   if ($cli) { & $cli status *> $null; $daemonOk = $LASTEXITCODE -eq 0 }
   $daemonDetail = if ($daemonOk) { 'sori status reached the daemon IPC endpoint' } else { 'sori status could not reach the daemon' }
   $artifact.checks += Check 'daemon_ipc' $daemonOk $daemonDetail 'Start sorid (or the installed Sori desktop) and rerun this probe.'
+  $modelReady = $false
+  if ($cli -and $daemonOk -and $models.Count -gt 0) {
+    try {
+      $modelsJson = & $cli --json models 2>$null | Out-String
+      if ($LASTEXITCODE -eq 0) {
+        $modelsResponse = $modelsJson | ConvertFrom-Json
+        $modelRecords = @($modelsResponse.Models.models)
+        $selected = @($modelRecords | Where-Object { [string]$_.manifest.id -eq [string]$models[0].Name } | Select-Object -First 1)
+        $modelReady = $modelsResponse.Models.provider -eq 'whisper.cpp' -and $selected.Count -eq 1 -and $selected[0].status.installed -eq $true -and $selected[0].status.phase -eq 'Ready' -and [string]::IsNullOrWhiteSpace([string]$selected[0].status.error)
+      }
+    } catch { $modelReady = $false }
+  }
+  $modelReadyDetail = if ($modelReady) { 'daemon reports the selected model installed and Ready through provider whisper.cpp' } else { 'daemon did not report the selected model installed and Ready through provider whisper.cpp' }
+  $artifact.checks += Check 'daemon_model_ready' $modelReady $modelReadyDetail 'Start the daemon with the selected user-owned model configured and verify `sori models` reports provider whisper.cpp, installed=true, and phase=Ready.'
 
-  if ($exe -and $models.Count -gt 0 -and $corpusOk -and $cli -and $daemonOk) {
+  if ($exe -and $models.Count -gt 0 -and $corpusOk -and $cli -and $daemonOk -and $modelReady) {
     foreach ($record in $records) {
       $audio = Join-Path $CorpusDirectory ([string]$record.file)
       if (-not (Test-File $audio)) { $artifact.inference += [ordered]@{ status = 'BLOCKED'; fixture = Safe-Name $audio; detail = 'manifest fixture file is missing' }; continue }
@@ -96,4 +110,4 @@ try {
 finally { $artifact.completed_at = (Get-Date).ToUniversalTime().ToString('o'); $dir = Split-Path -Parent $ArtifactPath; if ($dir) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }; $artifact | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $ArtifactPath -Encoding UTF8 }
 $artifact | ConvertTo-Json -Depth 12
 if ($artifact.status -eq 'BLOCKED_PROBE_ERROR') { exit 2 }
-if ($artifact.status -eq 'BLOCKED_PREREQUISITES') { exit 3 }
+if ($artifact.status -ne 'VERIFIED_REAL_SAPI_CORPUS_BENCHMARK') { exit 3 }

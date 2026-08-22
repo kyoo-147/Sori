@@ -227,6 +227,7 @@ async function runProductGate(): Promise<void> {
   const evidenceDir = resolve('.tmp', 'e2e-product-gate', String(process.pid));
   mkdirSync(evidenceDir, { recursive: true });
   const db = join(evidenceDir, 'sori.db');
+  const owner = join(evidenceDir, 'daemon-owner.json');
   const vitePort = Number(process.env.SORI_E2E_WEB_PORT ?? 4173);
   const proxyPort = Number(process.env.SORI_E2E_PROXY_PORT ?? vitePort + 1);
   const webUrl = `http://127.0.0.1:${proxyPort}/`;
@@ -246,6 +247,7 @@ async function runProductGate(): Promise<void> {
       SORI_IPC_ADDR: `${endpoint.hostname}:${endpoint.port || '80'}`,
       SORI_DATABASE_PATH: db,
       SORI_DB_PATH: db,
+      SORI_DAEMON_OWNER_PATH: owner,
       SORI_E2E: '1',
     });
     if (!(await waitForEndpoint(endpoint))) throw new Error('real sorid IPC did not become ready');

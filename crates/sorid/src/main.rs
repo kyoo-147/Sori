@@ -52,6 +52,10 @@ fn provider_model_id(provider: &str, model: &str) -> ModelId {
 
 struct RuntimeTarget {
     identity: Option<String>,
+    #[cfg(windows)]
+    hwnd: usize,
+    #[cfg(windows)]
+    pid: u32,
 }
 impl RuntimeTarget {
     #[allow(clippy::needless_return)]
@@ -59,11 +63,11 @@ impl RuntimeTarget {
         #[cfg(windows)]
         {
             use windows_sys::Win32::UI::WindowsAndMessaging::{
-                GetForegroundWindow, GetWindowThreadProcessId,
+                GetForegroundWindow, GetWindowThreadProcessId, IsWindow,
             };
             let hwnd = unsafe { GetForegroundWindow() };
-            if hwnd.is_null() {
-                return Err("no foreground window is available for text insertion".into());
+            if hwnd.is_null() || unsafe { IsWindow(hwnd) } == 0 {
+                return Err("no usable foreground window is available for text insertion".into());
             }
             let mut pid = 0;
             unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
@@ -72,12 +76,41 @@ impl RuntimeTarget {
             }
             Ok(Self {
                 identity: Some(format!("pid:{pid};hwnd:{:x}", hwnd as usize)),
+                hwnd: hwnd as usize,
+                pid,
             })
         }
         #[cfg(not(windows))]
         {
             Ok(Self { identity: None })
         }
+    }
+
+    /// Revalidate the held target before provider work or input. HWND values
+    /// can become stale, and Windows may reuse a handle for another process.
+    #[cfg(windows)]
+    fn validate_alive(&self) -> Result<(), String> {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsWindow};
+        if unsafe { IsWindow(self.hwnd as _) } == 0 {
+            return Err(format!(
+                "held target HWND 0x{:x} no longer exists",
+                self.hwnd
+            ));
+        }
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(self.hwnd as _, &mut pid) };
+        if pid == 0 || pid != self.pid {
+            return Err(format!(
+                "held target ownership changed (hwnd=0x{:x} expected_pid={} actual_pid={})",
+                self.hwnd, self.pid, pid
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    fn validate_alive(&self) -> Result<(), String> {
+        Ok(())
     }
 }
 impl sori_core::TextTarget for RuntimeTarget {
@@ -342,6 +375,10 @@ async fn main() -> Result<()> {
                             Ok(target) => {
                                 let target_for_pipeline = RuntimeTarget {
                                     identity: target.identity.clone(),
+                                    #[cfg(windows)]
+                                    hwnd: target.hwnd,
+                                    #[cfg(windows)]
+                                    pid: target.pid,
                                 };
                                 if let Ok(mut held) = hotkey_target_for_callback.lock() {
                                     *held = Some(target);
@@ -367,6 +404,17 @@ async fn main() -> Result<()> {
                                 .ok()
                                 .and_then(|mut held| held.take());
                             if let Some(target) = target {
+                                if let Err(error) = target.validate_alive() {
+                                    tracing::warn!(detail = %error, "held hotkey target is stale; refusing insertion");
+                                    let _ = runtime.stop_audio(true);
+                                    if let Ok(mut slot) = hotkey_target_for_callback.lock() {
+                                        slot.take();
+                                    }
+                                    if let Ok(mut slot) = hotkey_runtime.lock() {
+                                        *slot = Some(runtime);
+                                    }
+                                    return;
+                                }
                                 let mut injector = RuntimeInjector::new();
                                 runtime.handle_hotkey_with_pipeline(
                                     event,
@@ -387,7 +435,13 @@ async fn main() -> Result<()> {
                             let _ = hotkey_target_for_callback
                                 .lock()
                                 .map(|mut held| held.take());
-                            let target = RuntimeTarget { identity: None };
+                            let target = RuntimeTarget {
+                                identity: None,
+                                #[cfg(windows)]
+                                hwnd: 0,
+                                #[cfg(windows)]
+                                pid: 0,
+                            };
                             runtime.handle_hotkey_with_pipeline(
                                 event,
                                 &hotkey_model,

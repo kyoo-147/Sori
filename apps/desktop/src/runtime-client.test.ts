@@ -171,3 +171,42 @@ describe('RuntimeClient fail-closed control responses', () => {
     expect(result.error).toContain('daemon returned no transcript');
   });
 });
+
+describe('RuntimeClient response-shape validation', () => {
+  it('fails closed when readiness returns an unrelated successful response', async () => {
+    const client = new RuntimeClient(transport({ Control: { accepted: true, detail: 'accepted' } }));
+    const result = await client.audioReadiness();
+    expect(result.data.state).toBe('Unavailable');
+    expect(result.error).toContain('no audio readiness response');
+    expect(result.source).toBe('unavailable');
+  });
+
+  it('does not treat a missing benchmark payload as a completed run', async () => {
+    const client = new RuntimeClient(transport({ Control: { accepted: true, detail: 'accepted' } }));
+    const result = await client.runBenchmark('local-whisper', [], null);
+    expect(result.data).toBeNull();
+    expect(result.error).toContain('no benchmark response');
+  });
+});
+
+describe('RuntimeClient strict IPC payload guards', () => {
+  it('rejects an unrelated nonempty Control root as config summary', async () => {
+    const client = new RuntimeClient(transport({ Control: { accepted: true, detail: 'accepted' } }));
+    const result = await client.configSummary();
+    expect(result.data).toBeNull();
+    expect(result.error).toContain('invalid config summary');
+  });
+
+  it('rejects malformed payloads inside expected response variants', async () => {
+    const audio = await new RuntimeClient(transport({ AudioReadiness: 'ok' })).audioReadiness();
+    const setting = await new RuntimeClient(transport({ Setting: {} })).setting('hotkey.binding');
+    const voice = await new RuntimeClient(transport({ VoiceEdit: { accepted: true, transformed_text: 42, diff: null, detail: 'ok' } })).voiceEdit({ target_identity: 'browser', text: 'x' }, 'format');
+    const benchmark = await new RuntimeClient(transport({ Benchmark: { run_id: 'only-id' } })).runBenchmark('model', [], null);
+    const transcript = await new RuntimeClient(transport({ Transcript: { text: 42 } })).dictationStop();
+    expect(audio.error).toContain('invalid audio readiness');
+    expect(setting.error).toContain('invalid setting');
+    expect(voice.error).toContain('invalid voice edit');
+    expect(benchmark.error).toContain('invalid benchmark');
+    expect(transcript.error).toContain('invalid transcript');
+  });
+});

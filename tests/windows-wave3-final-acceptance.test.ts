@@ -18,6 +18,8 @@ describe('Wave 3 Windows acceptance safety contract', () => {
   it('validates runtime configuration instead of merely recording it', () => {
     expect(source).toContain('$status.Status.hotkey -ne $Hotkey');
     expect(source).toContain('permissions resource is empty');
+    expect(source).toContain('permissions resource is empty');
+    expect(source).toContain('-not $_.state');
     expect(source).toContain('selected audio device is not ready');
     expect(source).toContain('ModelStatus');
     expect(source).toContain("status.phase -ne 'Ready'");

@@ -140,7 +140,7 @@ try {
   if (-not $permissionResponse -or $permissionResponse.resource -ne 'permissions' -or $null -eq $permissionResponse.value -or $permissionResponse.value -eq $null) { Fail 'permissions resource did not return a concrete state' }
   $permissionItems = @($permissionResponse.value)
   if ($permissionItems.Count -eq 0) { Fail 'permissions resource is empty; refusing to treat unknown permission state as granted' }
-  $badPermission = @($permissionItems | Where-Object { $_.state -and @('granted','allowed','ready') -notcontains ([string]$_.state).ToLowerInvariant() })
+  $badPermission = @($permissionItems | Where-Object { -not $_.state -or @('granted','allowed','ready') -notcontains ([string]$_.state).ToLowerInvariant() })
   if ($badPermission.Count -gt 0) { Fail 'permissions resource contains a non-granted state' }
   $audio = $artifact.preflight.audio_readiness.AudioReadiness
   if ($audio.state -ne 'Ready' -or -not $audio.configured -or $audio.detail -notmatch 'configured input device') { Fail "selected audio device is not ready: $($audio.detail)" }

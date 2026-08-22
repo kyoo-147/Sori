@@ -36,8 +36,14 @@ fn native_device_capture_reports_signal_and_can_reach_whisper() {
         "VERIFIED: CPAL stream started for {}; collect signal for {duration_ms} ms now",
         device.name
     );
+    let playback = playback_if_requested();
     std::thread::sleep(Duration::from_millis(duration_ms));
     controller.stop_capture();
+    if let Some(handle) = playback {
+        handle
+            .join()
+            .expect("local WAV playback worker must not panic");
+    }
 
     let mut chunks = Vec::new();
     while let Some(chunk) = controller
@@ -71,11 +77,9 @@ fn native_device_capture_reports_signal_and_can_reach_whisper() {
         format.map_or(0, |value| value.sample_rate_hz),
         format.map_or(0, |value| value.channels),
     );
-    assert!(
-        chunks
-            .iter()
-            .all(|chunk| chunk.format.sample_rate_hz == 16_000)
-    );
+    assert!(chunks
+        .iter()
+        .all(|chunk| chunk.format.sample_rate_hz == 16_000));
     assert!(chunks.iter().all(|chunk| chunk.format.channels == 1));
     assert!(!chunks.is_empty(), "native stream produced no audio chunks");
 
@@ -101,6 +105,61 @@ fn native_device_capture_reports_signal_and_can_reach_whisper() {
         "capture must recover after drain"
     );
     controller.stop_capture();
+}
+
+/// Play an already-generated local SAPI WAV while CPAL is capturing.
+/// Playback is never identified as loopback evidence: CPAL may still read a
+/// microphone or another independently selected input device.
+fn playback_if_requested() -> Option<std::thread::JoinHandle<()>> {
+    let path = match std::env::var("SORI_NATIVE_AUDIO_PLAYBACK_WAV") {
+        Ok(path) if !path.trim().is_empty() => path,
+        _ => return None,
+    };
+    if !cfg!(windows) {
+        eprintln!("SKIP: SORI_NATIVE_AUDIO_PLAYBACK_WAV requires Windows");
+        return None;
+    }
+    let path = std::path::PathBuf::from(path);
+    if !path.is_file() {
+        panic!("playback WAV does not exist: {}", path.display());
+    }
+    let bytes = std::fs::read(&path).expect("playback WAV must be readable");
+    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        panic!("playback file is not a RIFF/WAVE file: {}", path.display());
+    }
+    let probe = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$PSVersionTable.PSVersion.ToString()",
+        ])
+        .output()
+        .expect("Windows PowerShell is required for local WAV playback");
+    if !probe.status.success() {
+        panic!(
+            "PowerShell capability probe failed: {}",
+            String::from_utf8_lossy(&probe.stderr)
+        );
+    }
+    eprintln!(
+        "PLAYBACK_STARTED_PENDING: local SAPI WAV={} powershell={} route=unknown; no loopback claim",
+        path.display(),
+        String::from_utf8_lossy(&probe.stdout).trim()
+    );
+    Some(std::thread::spawn(move || {
+        let result = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", "$player = New-Object System.Media.SoundPlayer $env:SORI_NATIVE_AUDIO_PLAYBACK_WAV; $player.PlaySync(); $player.Dispose()"])
+            .status();
+        match result {
+            Ok(status) if status.success() => eprintln!(
+                "PLAYBACK_COMPLETED: local SAPI WAV={} route=unknown; no loopback claim",
+                path.display()
+            ),
+            Ok(status) => panic!("PowerShell WAV playback failed with {status}"),
+            Err(error) => panic!("PowerShell WAV playback could not start: {error}"),
+        }
+    }))
 }
 
 fn transcribe_with_user_owned_runtime(chunks: &[sori_core::AudioChunk]) {

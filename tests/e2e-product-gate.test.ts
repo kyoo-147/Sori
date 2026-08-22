@@ -50,3 +50,11 @@ describe('native bridge acceptance harness contract', () => {
     expect(source).toContain('SQLite state was not restored after reconnect');
   });
 });
+
+describe('product gate daemon ownership isolation', () => {
+  it('isolates the daemon ownership lease with the product gate database', () => {
+    const source = readFileSync(resolve('scripts/e2e-product-gate.ts'), 'utf8');
+    expect(source).toContain("const owner = join(evidenceDir, 'daemon-owner.json');");
+    expect(source).toContain('SORI_DAEMON_OWNER_PATH: owner');
+  });
+});

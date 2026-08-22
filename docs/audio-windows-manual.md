@@ -31,3 +31,23 @@ explicitly expected) text. It also records and requires
 No user action, missing hardware/provider, empty target readback, missing
 history, or incomplete event chain remains a voice success: the artifact is
 `UNVERIFIED` (while setup/IPC/ownership failures are `BLOCKED`).
+
+## Wave 3 one-shot physical acceptance
+
+Use `scripts/windows-wave3-final-acceptance.ps1` on the installed Windows
+build. Supply the installed desktop executable and an already-installed model:
+
+```powershell
+npm run e2e:windows-wave3-acceptance -- -InstalledAppExecutable 'C:\Program Files\Sori\sori.exe' -Model 'ggml-base.en.bin' -Hotkey 'Alt+Space' -ExpectedText 'known sentence'
+```
+
+The script preflights the installed app/daemon ownership lease, Doctor,
+persisted permissions, `AudioReadiness`, and the real model catalog. It creates
+one harness-owned Win32 EDIT target, records its HWND/PID, and stops for the
+captain to focus that target, press the configured hotkey, speak one known
+sentence, and release. It never synthesizes focus, keys, audio, or clipboard
+input. The JSON artifact requires a new SQLite history row, matching transcript
+and inserted text, route-level HWND/PID evidence, visible EDIT readback, and
+daemon restart persistence. Missing physical evidence is `BLOCKED` or
+`PARTIAL`, never a synthetic success; the Tauri webview refresh is recorded as
+unverified when it cannot be observed safely.

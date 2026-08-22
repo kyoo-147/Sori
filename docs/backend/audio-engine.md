@@ -20,6 +20,16 @@ microphone, or claims physical-device evidence. `-IncludeVietnamese` adds a
 Vietnamese sentence only when the selected installed SAPI voice has a `vi-*`
 culture; otherwise it explicitly skips that case.
 
+Generation invokes the strict verifier before returning. To re-check an
+existing corpus without regenerating audio, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-audio-fixture-corpus-verify.ps1 -CorpusDirectory .\data\audio-corpus
+```
+
+Verification checks installed-voice provenance, expected transcript metadata,
+SHA-256 bytes, mono PCM16/16 kHz WAV structure, and rejects unlisted files.
+
 ## Current scope
 
 - `AudioDeviceInfo` and `AudioDeviceProvider` describe input-device listing.

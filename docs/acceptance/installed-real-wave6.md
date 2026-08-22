@@ -1,28 +1,32 @@
 # Wave 6 installed real-Whisper vertical
 
-`scripts/windows-wave6-installed-real-e2e.ps1` is the strongest fully automatable
-installed Windows path. It consumes only an existing installed desktop, bundled
-`sorid.exe`, installed `sori.exe`, user-owned `whisper-cli.exe`,
-`ggml-base.en.bin`, and a corpus verified by
-`scripts/windows-audio-fixture-corpus-verify.ps1`.
+`scripts/windows-wave6-installed-real-e2e.ps1` is a fail-closed installed
+Windows acceptance path. It uses an installed desktop and bundled daemon, plus
+existing user-owned `whisper-cli.exe`, `ggml-base.en.bin`, and a verified SAPI
+WAV corpus.
 
-It uses a unique loopback port and SQLite root, verifies the SAPI manifest and
-fixture SHA-256, sends the fixture through canonical `DictationAudio` and the
-real whisper.cpp provider, targets only a harness-owned Win32 EDIT HWND/PID,
-checks visible readback and persisted history, then relaunches the installed
-product and reads history through the installed CLI. The report records model
-and fixture hashes and is written to the configured Firstmate report path.
+Packaging does not install `sori.exe`; restart persistence is read through
+canonical loopback IPC. The separately labeled latest built CLI is used only to
+run the canonical benchmark against the manifest reference. The report keeps
+the manifest reference, actual provider transcript, WER/CER, latency, and raw
+benchmark line. No quality pass threshold is invented.
 
-Example (PowerShell):
+The harness requires an absolute daemon executable, sets a unique absolute
+`SORI_DAEMON_OWNER_PATH` under `DataRoot`, and verifies endpoint, exact daemon
+path, PID, process creation time, and lease generation. It requires a nonblank
+real transcript, then requires owned EDIT readback, SQLite history, and restart
+history to preserve that actual transcript exactly. The manifest reference is
+not used as an exact ASR-equality gate.
 
 ```powershell
 npm run e2e:windows-wave6-real -- `
-  -InstalledDesktopExecutable "$env:LOCALAPPDATA\Programs\Sori\Sori.exe" `
-  -CliExecutable "$env:LOCALAPPDATA\Programs\Sori\sori.exe" `
-  -DaemonExecutable "$env:LOCALAPPDATA\Programs\Sori\resources\sorid.exe" `
-  -CorpusDirectory .\.tmp\audio-corpus
+  -InstalledDesktopExecutable "$env:LOCALAPPDATA\Programs\Sori-Acceptance\sori-desktop.exe" `
+  -DaemonExecutable "$env:LOCALAPPDATA\Programs\Sori-Acceptance\sorid.exe" `
+  -CorpusDirectory .\.tmp\audio-corpus `
+  -BenchmarkCli .\target\release\sori.exe
 ```
 
-This is synthetic SAPI input, not physical microphone evidence. Physical
-microphone, physical hotkey, and frontend visual refresh remain unverified or
-not claimed by this automation.
+A successful run writes the configured report. If the latest build/install or
+assets are unavailable, the run remains BLOCKED and makes no VERIFIED claim.
+SAPI playback is synthetic/local fixture input, not physical microphone or
+physical hotkey proof; frontend visual refresh is not claimed.

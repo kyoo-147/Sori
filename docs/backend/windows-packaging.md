@@ -26,7 +26,9 @@ as a flat `sorid.exe` resource (staged into the ignored Tauri resource path by
 installed desktop resolves the daemon from its Tauri resource directory and
 emits NSIS and MSI targets. Do not package Whisper executables or model files:
 they are user-managed prerequisites and must be installed with their own license
-and checksum evidence. **Automatic desktop updates are not shipped in the MVP.**
+and checksum evidence. Staging is atomic and verifies the release/staged byte
+size before replacing the ignored staging file, so a failed build cannot leave
+a partial daemon resource. **Automatic desktop updates are not shipped in the MVP.**
 The Tauri updater plugin, update endpoint, and release-signing public key are
 intentionally absent. Installers are manually distributed for this release
 scope; do not describe an NSIS/MSI build as update-capable. Configure Whisper

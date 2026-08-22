@@ -1017,11 +1017,91 @@ async fn main() -> Result<()> {
             }
             Request::SettingDelete { key } => {
                 validate_setting_key(&key).map_err(sori_ipc::IpcError::Transport)?;
-                let deleted = handler_store.delete_setting(&key).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
-                if deleted {
-                    Response::Setting(sori_ipc::SettingResponse { key, value: None })
+                // Deleting a setting is a live reset, not just a row delete.
+                // The daemon owns the active config and the settings resource
+                // is a compatibility mirror, so leaving either stale would
+                // make Status disagree with the next restart.
+                let exists = handler_store
+                    .setting(&key)
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .is_some();
+                if !exists {
+                    Response::Error(sori_ipc::IpcErrorResponse {
+                        code: "not_found".into(),
+                        detail: format!("setting {key} not found"),
+                    })
                 } else {
-                    Response::Error(sori_ipc::IpcErrorResponse { code: "not_found".into(), detail: format!("setting {key} not found") })
+                    match key.as_str() {
+                        "hotkey.binding" => {
+                            let binding = DaemonConfig::default().hotkey.binding;
+                            let parsed = sorid::parse_hotkey_binding(&binding)
+                                .map_err(sori_ipc::IpcError::Transport)?;
+                            let service = handler_hotkey_service
+                                .lock()
+                                .map_err(|_| sori_ipc::IpcError::Transport("hotkey service lock poisoned".into()))?;
+                            if let Some(service) = service.as_ref() {
+                                service.rebind(parsed).map_err(|error| sori_ipc::IpcError::Transport(
+                                    format!("cannot restore default hotkey `{binding}`: {error}"),
+                                ))?;
+                            }
+                            handler_config
+                                .lock()
+                                .map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?
+                                .hotkey
+                                .binding = binding;
+                            let mut settings = handler_store
+                                .resource("settings")
+                                .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                                .unwrap_or_else(|| serde_json::json!({}));
+                            if let Some(object) = settings.as_object_mut() {
+                                object.remove("hotkey");
+                            }
+                            handler_store
+                                .set_resource("settings", &settings)
+                                .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                        }
+                        "audio.device_id" => {
+                            handler_config
+                                .lock()
+                                .map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?
+                                .audio
+                                .device_id = None;
+                        }
+                        "privacy.mode" => {
+                            *handler_privacy
+                                .lock()
+                                .map_err(|_| sori_ipc::IpcError::Transport("privacy lock poisoned".into()))? = PrivacyMode::LocalOnly;
+                        }
+                        "route.policy" => {
+                            let policy = sori_core::RoutePreset::LocalFirst.policy();
+                            handler_config
+                                .lock()
+                                .map_err(|_| sori_ipc::IpcError::Transport("config lock poisoned".into()))?
+                                .route = policy;
+                            let mut route = handler_store
+                                .resource("route")
+                                .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                                .unwrap_or_else(|| default_resource("route"));
+                            if let Some(object) = route.as_object_mut() {
+                                object.insert("policy".into(), serde_json::json!("LocalFirst"));
+                            }
+                            handler_store
+                                .set_resource("route", &route)
+                                .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                            handler_store
+                                .set_setting("resource.route", &route)
+                                .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                        }
+                        // History settings are read for every operation; their
+                        // absence intentionally selects the documented default.
+                        "history.enabled" | "history.retention_limit" => {}
+                        _ => unreachable!("validated setting key"),
+                    }
+                    handler_store
+                        .delete_setting(&key)
+                        .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
+                    publish_persisted_event(&handler_store, EventKind::SettingChanged, format!("deleted:{key}"));
+                    Response::Setting(sori_ipc::SettingResponse { key, value: None })
                 }
             }
             Request::SetConfig { key, value } => {

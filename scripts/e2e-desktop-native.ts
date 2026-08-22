@@ -1,8 +1,9 @@
 import { parseEndpoint, requireEndpointFree } from './e2e-desktop-backend.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, relative, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const MIN_WIDTH = 720;
@@ -41,6 +42,11 @@ export function desktopBinaryPath(): string {
   const configured = process.env.SORI_DESKTOP_EXECUTABLE;
   if (configured) return resolve(configured);
   return resolve('apps', 'desktop', 'src-tauri', 'target', 'debug', process.platform === 'win32' ? 'sori-desktop.exe' : 'sori-desktop');
+}
+
+export function nativeAcceptancePaths(root: string): { root: string; database: string; owner: string } {
+  const absoluteRoot = resolve(root);
+  return { root: absoluteRoot, database: join(absoluteRoot, 'sori.db'), owner: join(absoluteRoot, 'daemon-owner.json') };
 }
 
 function run(command: string, args: string[], env?: NodeJS.ProcessEnv, print = true): Promise<{ code: number; output: string }> {
@@ -355,7 +361,18 @@ async function main(): Promise<void> {
   mkdirSync(ARTIFACT_DIR, { recursive: true });
   const daemonPath = installedExecutable ? resolve(dirname(app), 'sorid.exe') : resolve('target', 'debug', 'sorid.exe');
   if (!existsSync(daemonPath)) throw new Error(`bundled daemon not found at ${daemonPath}`);
-  const daemon = spawn(daemonPath, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host } });
+  const runRoot = mkdtempSync(join(tmpdir(), 'sori-e2e-native-'));
+  const isolatedPaths = nativeAcceptancePaths(runRoot);
+  const isolatedEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    SORI_IPC_URL: endpoint.toString(),
+    SORI_IPC_ADDR: endpoint.host,
+    SORI_DATABASE_PATH: isolatedPaths.database,
+    SORI_DB_PATH: isolatedPaths.database,
+    SORI_DAEMON_OWNER_PATH: isolatedPaths.owner,
+    ...(installedExecutable ? {} : { SORI_DAEMON_PATH: daemonPath }),
+  };
+  const daemon = spawn(daemonPath, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: isolatedEnv });
   daemon.stdout?.on('data', (chunk) => process.stdout.write(`[sorid] ${chunk}`));
   daemon.stderr?.on('data', (chunk) => process.stderr.write(`[sorid] ${chunk}`));
   let appProcess: ChildProcess | null = null;
@@ -364,7 +381,7 @@ async function main(): Promise<void> {
 
   try {
     await waitForIpc(endpoint);
-    appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host, ...(installedExecutable ? {} : { SORI_DAEMON_PATH: daemonPath }) } });
+    appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: isolatedEnv });
     appProcess.stdout?.on('data', (chunk) => process.stdout.write(`[desktop] ${chunk}`));
     appProcess.stderr?.on('data', (chunk) => process.stderr.write(`[desktop] ${chunk}`));
     if (!appProcess.pid) throw new Error('desktop process did not expose a PID');
@@ -496,6 +513,7 @@ async function main(): Promise<void> {
   } finally {
     if (appProcess) await stop(appProcess);
     await stop(daemon);
+    rmSync(runRoot, { recursive: true, force: true });
   }
 }
 

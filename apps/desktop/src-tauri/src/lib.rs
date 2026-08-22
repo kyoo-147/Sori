@@ -26,11 +26,38 @@ impl Default for DaemonSupervisor {
 }
 
 impl DaemonSupervisor {
-    fn owner_path() -> PathBuf {
-        if let Some(root) = std::env::var_os("LOCALAPPDATA") {
-            return PathBuf::from(root).join("Sori").join("daemon-owner.json");
+    fn validate_owner_override(path: PathBuf) -> Result<PathBuf, String> {
+        if !path.is_absolute() || path.file_name().is_none() || (path.exists() && path.is_dir()) {
+            return Err("SORI_DAEMON_OWNER_PATH must be an absolute file path, not a directory".into());
         }
-        PathBuf::from("sori-daemon-owner.json")
+        if let Some(parent) = path.parent() {
+            if parent.exists() && !parent.is_dir() {
+                return Err("SORI_DAEMON_OWNER_PATH parent must be a directory".into());
+            }
+        }
+        Ok(path)
+    }
+
+    fn owner_path_from_override(path: Option<std::ffi::OsString>) -> Result<PathBuf, String> {
+        if let Some(path) = path {
+            return Self::validate_owner_override(PathBuf::from(path));
+        }
+        if let Some(root) = std::env::var_os("LOCALAPPDATA") {
+            return Ok(PathBuf::from(root).join("Sori").join("daemon-owner.json"));
+        }
+        Ok(PathBuf::from("sori-daemon-owner.json"))
+    }
+
+    fn owner_path() -> Result<PathBuf, String> {
+        Self::owner_path_from_override(std::env::var_os("SORI_DAEMON_OWNER_PATH"))
+    }
+
+    fn read_owner(path: &std::path::Path) -> Result<Option<DaemonOwner>, String> {
+        match std::fs::read_to_string(path) {
+            Ok(value) => serde_json::from_str::<DaemonOwner>(&value).map(Some).map_err(|error| format!("invalid daemon owner lease: {error}")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(format!("cannot read daemon owner lease: {error}")),
+        }
     }
 
     fn process_start_time(pid: u32) -> Option<u64> {
@@ -52,14 +79,13 @@ impl DaemonSupervisor {
         { let _ = pid; Some(0) }
     }
 
-    fn owned_endpoint(endpoint: std::net::SocketAddr, daemon: &std::path::Path) -> bool {
-        let Ok(value) = std::fs::read_to_string(Self::owner_path()) else { return false; };
-        let Ok(owner) = serde_json::from_str::<DaemonOwner>(&value) else { return false; };
-        owner.endpoint == endpoint.to_string()
+    fn owned_endpoint(endpoint: std::net::SocketAddr, daemon: &std::path::Path) -> Result<bool, String> {
+        let owner = Self::read_owner(&Self::owner_path()?)?;
+        Ok(owner.is_some_and(|owner| owner.endpoint == endpoint.to_string()
             && owner.pid != 0
             && owner.lease_id.len() >= 16
             && Self::process_start_time(owner.pid) == Some(owner.process_start_time)
-            && std::fs::canonicalize(owner.executable).ok() == std::fs::canonicalize(daemon).ok()
+            && std::fs::canonicalize(owner.executable).ok() == std::fs::canonicalize(daemon).ok()))
     }
 
     fn whisper_runtime_diagnostic(configured: bool) -> Option<&'static str> {
@@ -108,6 +134,7 @@ impl DaemonSupervisor {
     }
 
     fn start(&self, resource_dir: Option<&std::path::Path>) -> Result<(), String> {
+        Self::owner_path()?;
         if let Some(resource_dir) = resource_dir {
             *self.resource_dir.lock().map_err(|_| "daemon resource lock poisoned".to_string())? = Some(resource_dir.to_path_buf());
         }
@@ -121,7 +148,7 @@ impl DaemonSupervisor {
         }
         if Self::endpoint_occupied(endpoint) {
             let expected = Self::daemon_path(resource_dir);
-            if Self::owned_endpoint(endpoint, &expected) {
+            if Self::owned_endpoint(endpoint, &expected)? {
                 eprintln!("[sori] an owned sorid already serves this desktop; reusing the loopback connection");
                 return Ok(());
             }
@@ -154,38 +181,34 @@ impl DaemonSupervisor {
         self.start(resource_dir.as_deref())?;
         Ok(endpoint)
     }
-    fn owner_for_child(child_pid: u32, daemon: &std::path::Path) -> Option<DaemonOwner> {
-        let value = std::fs::read_to_string(Self::owner_path()).ok()?;
-        let owner = serde_json::from_str::<DaemonOwner>(&value).ok()?;
-        (owner.pid == child_pid
+    fn owner_for_child(child_pid: u32, daemon: &std::path::Path) -> Result<Option<DaemonOwner>, String> {
+        let Some(owner) = Self::read_owner(&Self::owner_path()?)? else { return Ok(None); };
+        Ok((owner.pid == child_pid
             && owner.process_start_time == Self::process_start_time(child_pid).unwrap_or(u64::MAX)
             && std::fs::canonicalize(&owner.executable).ok() == std::fs::canonicalize(daemon).ok())
-        .then_some(owner)
+        .then_some(owner))
     }
 
     fn owner_snapshot_is_current(snapshot: &DaemonOwner, current: Option<&DaemonOwner>) -> bool {
         current == Some(snapshot)
     }
 
-    fn remove_owner_if_current(path: &std::path::Path, snapshot: &DaemonOwner) {
-        let current = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|value| serde_json::from_str::<DaemonOwner>(&value).ok());
+    fn remove_owner_if_current(path: &std::path::Path, snapshot: &DaemonOwner) -> Result<(), String> {
+        let current = Self::read_owner(path)?;
         if Self::owner_snapshot_is_current(snapshot, current.as_ref()) {
-            let _ = std::fs::remove_file(path);
+            std::fs::remove_file(path).map_err(|error| format!("failed to remove owned daemon lease: {error}"))?;
         }
+        Ok(())
     }
 
-    fn stop(&self) {
-        let Ok(mut child) = self.child.lock() else {
-            return;
-        };
+    fn stop(&self) -> Result<(), String> {
+        let mut child = self.child.lock().map_err(|_| "daemon supervisor lock poisoned".to_string())?;
         let Some(mut child) = child.take() else {
-            return;
+            return Ok(());
         };
         let child_pid = child.id();
         let daemon = Self::daemon_path(self.resource_dir.lock().ok().and_then(|dir| dir.as_deref().map(PathBuf::from)).as_deref());
-        let owner_snapshot = Self::owner_for_child(child_pid, &daemon);
+        let owner_snapshot = Self::owner_for_child(child_pid, &daemon)?;
         if child.try_wait().ok().flatten().is_none() {
             let _ = child.kill();
             let _ = child.wait();
@@ -193,8 +216,9 @@ impl DaemonSupervisor {
         // sorid owns lease cleanup; the shell must not delete another
         // generation's lease or touch an unknown process.
         if let Some(snapshot) = owner_snapshot {
-            Self::remove_owner_if_current(&Self::owner_path(), &snapshot);
+            Self::remove_owner_if_current(&Self::owner_path()?, &snapshot)?;
         }
+        Ok(())
     }
 }
 #[cfg(windows)]
@@ -439,7 +463,9 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                window.app_handle().state::<DaemonSupervisor>().stop();
+                if let Err(error) = window.app_handle().state::<DaemonSupervisor>().stop() {
+                    eprintln!("[sori] daemon cleanup skipped: {error}");
+                }
             }
         })
         .run(tauri::generate_context!())
@@ -477,9 +503,30 @@ mod supervisor_tests {
         assert!(super::DaemonSupervisor::owner_snapshot_is_current(&old, Some(&old)));
         let path = std::env::temp_dir().join(format!("sori-owner-newer-{}.json", std::process::id()));
         std::fs::write(&path, serde_json::to_vec(&newer).unwrap()).unwrap();
-        super::DaemonSupervisor::remove_owner_if_current(&path, &old);
+        super::DaemonSupervisor::remove_owner_if_current(&path, &old).unwrap();
         assert!(path.exists());
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn owner_override_accepts_absolute_serialized_env_path() {
+        let root = std::env::temp_dir().join(format!("sori-owner-valid-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("daemon-owner.json");
+        let serialized = path.to_string_lossy().to_string();
+        assert_eq!(super::DaemonSupervisor::owner_path_from_override(Some(serialized.into())).unwrap(), path);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn owner_override_rejects_relative_and_directory_serialized_env_paths() {
+        let relative = super::DaemonSupervisor::owner_path_from_override(Some("relative-owner.json".into())).unwrap_err();
+        assert!(relative.contains("absolute"));
+        let directory = std::env::temp_dir().join(format!("sori-owner-directory-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let error = super::DaemonSupervisor::owner_path_from_override(Some(directory.clone().into_os_string())).unwrap_err();
+        assert!(error.contains("absolute file path"));
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
 

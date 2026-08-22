@@ -92,20 +92,31 @@ owns the loopback endpoint:
 .\scripts\windows-packaging-acceptance.ps1 -BundleRoot .\apps\desktop\src-tauri\target\release\bundle
 ```
 
-After separately installing the MSI or NSIS artifact, pass the **installed
-root** (the directory containing the installed `Sori.exe` and `sorid.exe`
-resource) to verify the product. The bundle root is still required because the
-script always checks the artifact boundary. Use the valid `-Phase launch`
-parameter for a manual Windows run:
+The same harness can perform a safe per-user silent install when given an
+explicit product-owned root. NSIS uses `/S` and MSI uses `msiexec /qn`; it
+never searches for or terminates an unrelated process. The bundle root is
+still required because the script always checks the artifact boundary:
+
+```powershell
+.\scripts\windows-packaging-acceptance.ps1 -BundleRoot .\apps\desktop\src-tauri\target\release\bundle -Phase install -InstallerPath .\apps\desktop\src-tauri\target\release\bundle\nsis\Sori_0.1.0_x64-setup.exe -InstallerType nsis -InstalledRoot "$env:LOCALAPPDATA\Sori"
+```
+
+After installation, pass the **installed
+root** (the directory containing the
+installed `Sori.exe` and `sorid.exe` resource) to verify the product. The bundle
+root is still required because the script always checks the artifact boundary.
+Use the valid `-Phase launch` parameter for a manual Windows run:
 
 ```powershell
 .\scripts\windows-packaging-acceptance.ps1 -BundleRoot .\apps\desktop\src-tauri\target\release\bundle -InstalledRoot "$env:LOCALAPPDATA\Sori" -Phase launch
 ```
 
-After uninstalling and reinstalling manually, run the acceptance script with
-`-Phase reinstall -InstalledRoot <path> -DataRoot <user-data-path>` to verify
-the user-owned SQLite file remains. The script does not claim installer
-execution, signing, elevation, automatic crash recovery, microphone capture, Whisper
-inference, or focused application injection. Those require real Windows
-evidence and remain `UNVERIFIED`/`SKIP`; it never kills an unknown endpoint
-owner or deletes user data.
+After a launch has created SQLite data, the harness can safely uninstall and
+reinstall with `-Phase reinstall -InstallerPath <installer> -InstallerType
+<nsis|msi> -ProductCode <msi-product-code> -InstalledRoot <path> -DataRoot
+<user-data-path>`. It refuses an absent existing install, missing MSI product
+code, missing user database, occupied endpoint, or leftover files under the
+install root. It verifies the database remains outside the replaceable install
+root and never deletes user data. The script does not claim signing, physical
+voice verification, or focused application injection; those require real
+Windows evidence and remain `UNVERIFIED`/`SKIP`.

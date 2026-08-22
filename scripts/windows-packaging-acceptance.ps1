@@ -1,8 +1,12 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)] [string]$BundleRoot,
-  [ValidateSet('bundle', 'installed', 'launch', 'restart', 'reinstall')]
+  [ValidateSet('bundle', 'install', 'installed', 'launch', 'restart', 'reinstall')]
   [string]$Phase = 'bundle',
+  [string]$InstallerPath,
+  [ValidateSet('nsis', 'msi')]
+  [string]$InstallerType = 'nsis',
+  [string]$ProductCode,
   [string]$InstalledRoot,
   [string]$DataRoot,
   [int]$IpcPort = 17373
@@ -15,6 +19,28 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'This a
 function Fail([string]$Message) { throw "Windows product acceptance failed: $Message" }
 function Pass([string]$Message) { Write-Host "PASS: $Message" }
 function Skip([string]$Message) { Write-Host "SKIP: $Message" }
+function Invoke-Installer([string]$Path, [string]$Type, [string]$Root) {
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Fail "installer was not found: $Path" }
+  $resolvedRoot = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+  New-Item -ItemType Directory -Force -Path $resolvedRoot | Out-Null
+  $arguments = if ($Type -eq 'nsis') { @('/S', "/D=$resolvedRoot") } else { @('/i', $Path, '/qn', '/norestart', "INSTALLDIR=$resolvedRoot") }
+  $file = if ($Type -eq 'nsis') { $Path } else { 'msiexec.exe' }
+  $process = Start-Process -FilePath $file -ArgumentList $arguments -Wait -PassThru
+  if ($process.ExitCode -ne 0) { Fail "$Type silent install failed with exit code $($process.ExitCode)" }
+  Pass "$Type silent install completed into product-owned root $resolvedRoot"
+}
+function Invoke-Uninstaller([string]$Root, [string]$Type, [string]$Code) {
+  if ($Type -eq 'msi') {
+    if (-not $Code) { Fail '-ProductCode is required for safe MSI uninstall/reinstall' }
+    $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/x', $Code, '/qn', '/norestart') -Wait -PassThru
+  } else {
+    $uninstaller = Get-ChildItem -LiteralPath $Root -File -Filter 'uninstall*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $uninstaller) { Fail "refusing NSIS uninstall: no product-owned uninstaller under $Root" }
+    $process = Start-Process -FilePath $uninstaller.FullName -ArgumentList @('/S') -Wait -PassThru
+  }
+  if ($process.ExitCode -ne 0) { Fail "$Type silent uninstall failed with exit code $($process.ExitCode)" }
+  Pass "$Type silent uninstall completed; user data was not targeted"
+}
 function Assert-ExternalRuntimeBoundary([string]$Root) {
   $forbidden = @(Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.Name -match 'whisper|ggml|\.bin$' })
   if ($forbidden) { Fail "bundle contains user-owned Whisper/model files: $($forbidden.FullName -join ', ')" }
@@ -51,7 +77,7 @@ function Assert-EndpointFree {
 function Assert-UserDataOutsideInstall([string]$Install, [string]$Data) {
   if (-not $Data) { Skip 'user-data location not supplied; set -DataRoot for persistence evidence'; return }
   if (-not (Test-Path -LiteralPath $Data)) { New-Item -ItemType Directory -Force -Path $Data | Out-Null }
-  $installPath = (Resolve-Path $Install).Path.TrimEnd('\')
+  $installPath = [IO.Path]::GetFullPath($Install).TrimEnd('\')
   $dataPath = [IO.Path]::GetFullPath((Resolve-Path $Data).Path).TrimEnd('\')
   if ($dataPath.StartsWith($installPath, [StringComparison]::OrdinalIgnoreCase)) {
     Fail "user data must not live under the replaceable install root: $dataPath"
@@ -66,8 +92,27 @@ if (-not ($artifacts | Where-Object { $_.Name -match 'nsis|setup' -or $_.Extensi
 Pass 'NSIS and MSI installer artifacts exist'
 Assert-ExternalRuntimeBoundary $bundle
 if ($Phase -eq 'bundle') {
-  Skip 'install, launch, restart, and uninstall/reinstall phases require a real Windows installation; rerun with an installed phase'
+  Skip 'install, launch, restart, and uninstall/reinstall phases require a real Windows installation; provide an explicit installer and product-owned root for install/reinstall'
   exit 0
+}
+if ($Phase -in @('install', 'reinstall')) {
+  if (-not $InstallerPath) { Fail "-InstallerPath is required for -Phase $Phase" }
+  if (-not $InstalledRoot) { Fail "-InstalledRoot is required for -Phase $Phase" }
+  Assert-UserDataOutsideInstall $InstalledRoot $DataRoot
+  if ($Phase -eq 'reinstall') {
+    if (-not (Test-Path -LiteralPath $InstalledRoot)) { Fail "refusing reinstall: existing product root is absent: $InstalledRoot" }
+    if (-not $DataRoot) { Fail '-DataRoot is required for reinstall acceptance' }
+    $database = Get-ChildItem -LiteralPath $DataRoot -Recurse -File -Filter '*.db' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $database) { Fail "refusing reinstall: no SQLite database found under user-owned data root $DataRoot" }
+    Assert-EndpointFree
+    Invoke-Uninstaller $InstalledRoot $InstallerType $ProductCode
+    Start-Sleep -Seconds 2
+    if (Test-Path -LiteralPath $InstalledRoot) {
+      $remaining = @(Get-ChildItem -LiteralPath $InstalledRoot -Force -ErrorAction SilentlyContinue)
+      if ($remaining) { Fail "reinstall safety check found files remaining under install root: $InstalledRoot" }
+    }
+  }
+  Invoke-Installer $InstallerPath $InstallerType $InstalledRoot
 }
 if (-not $InstalledRoot) { Fail "-InstalledRoot is required for -Phase $Phase" }
 $install = (Resolve-Path $InstalledRoot).Path
@@ -81,12 +126,9 @@ if ($Phase -eq 'installed') {
   exit 0
 }
 if ($Phase -eq 'reinstall') {
-  if (-not $DataRoot) { Fail '-DataRoot is required for reinstall acceptance' }
   $database = Get-ChildItem -LiteralPath $DataRoot -Recurse -File -Filter '*.db' -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $database) { Fail "no SQLite database found under user-owned data root $DataRoot after uninstall/reinstall" }
-  Pass "user-owned SQLite data survived reinstall: $($database.FullName)"
-  Skip 'installer uninstall/reinstall execution is manual and must be recorded with the installer product code'
-  exit 0
+  if (-not $database) { Fail "user-owned SQLite data did not survive reinstall: $DataRoot" }
+  Pass "user-owned SQLite data survived silent uninstall/reinstall: $($database.FullName)"
 }
 
 Assert-EndpointFree
@@ -146,4 +188,4 @@ if ($Phase -eq 'restart' -and $DataRoot) {
   if ($database) { Pass "SQLite database remains available after restart: $($database.FullName)" }
   else { Skip 'no SQLite database found under supplied DataRoot; persistence content is not claimed' }
 }
-Skip 'automatic crash recovery is not supported; use -Phase restart to relaunch the desktop on request. Installer uninstall/reinstall remains manual; this harness never kills an unknown endpoint owner'
+Skip 'automatic crash recovery is not supported; use -Phase restart to relaunch the desktop on request. This harness never kills an unknown endpoint owner'

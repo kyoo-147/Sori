@@ -145,7 +145,7 @@ fn execute(client: &impl IpcClient, command: Command, json: bool) -> Result<()> 
             }
         }
         Command::Run => run(client),
-        Command::Models => resource(client, "models", json),
+        Command::Models => models(client, json),
         Command::Benchmark {
             model: None,
             audio: None,
@@ -191,6 +191,13 @@ fn resource(client: &impl IpcClient, name: &str, json: bool) -> Result<()> {
     })? {
         response @ Response::Resource(_) => print_response(response, json),
         response => unexpected(response, "Resource"),
+    }
+}
+
+fn models(client: &impl IpcClient, json: bool) -> Result<()> {
+    match client.request(Request::Models)? {
+        response @ Response::Models(_) => print_response(response, json),
+        response => unexpected(response, "Models"),
     }
 }
 
@@ -300,7 +307,20 @@ fn smoke_dictation() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sori_ipc::MockIpcServer;
+    use sori_ipc::{IpcClient, MockIpcServer, ModelsResponse};
+    use std::sync::Mutex;
+
+    struct RecordingClient {
+        requests: Mutex<Vec<Request>>,
+        response: Response,
+    }
+
+    impl IpcClient for RecordingClient {
+        fn request(&self, request: Request) -> Result<Response, sori_ipc::IpcError> {
+            self.requests.lock().unwrap().push(request);
+            Ok(self.response.clone())
+        }
+    }
 
     #[test]
     fn parses_all_runtime_commands() {
@@ -323,8 +343,39 @@ mod tests {
     #[test]
     fn resource_commands_use_the_ipc_transport() {
         let server = MockIpcServer::default();
-        execute(&server.client(), Command::Models, true).unwrap();
         execute(&server.client(), Command::Extensions, true).unwrap();
+    }
+
+    #[test]
+    fn models_command_uses_models_request_and_serializes_models_response() {
+        let client = RecordingClient {
+            requests: Mutex::new(Vec::new()),
+            response: Response::Models(ModelsResponse {
+                provider: Some("whisper.cpp".into()),
+                available: true,
+                models: Vec::new(),
+                error: None,
+            }),
+        };
+        execute(&client, Command::Models, true).unwrap();
+        assert!(matches!(
+            client.requests.lock().unwrap().as_slice(),
+            [Request::Models]
+        ));
+
+        let encoded = serde_json::to_value(&client.response).unwrap();
+        let models = encoded
+            .get("Models")
+            .expect("externally tagged Models response");
+        assert_eq!(
+            models.get("provider").and_then(serde_json::Value::as_str),
+            Some("whisper.cpp")
+        );
+        assert_eq!(
+            models.get("available").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert!(models.get("models").is_some());
     }
 
     #[test]

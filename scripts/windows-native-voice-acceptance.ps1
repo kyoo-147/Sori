@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)] [string]$SoriExecutable,
+  [string]$DaemonExecutable = '',
   [Parameter(Mandatory = $true)] [string]$TargetExecutable,
   [ValidateSet('notepad', 'win32-edit')] [string]$TargetKind = 'notepad',
   [Parameter(Mandatory = $true)] [string]$WavPath,
@@ -180,7 +181,7 @@ try {
   Start-Sleep -Seconds 4
   if ($desktop.HasExited) { Fail "Sori desktop exited with code $($desktop.ExitCode)" }
   $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
-  $daemonPath = Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $SoriExecutable).Path) 'sorid.exe'
+  $daemonPath = if ($DaemonExecutable) { $DaemonExecutable } else { Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $SoriExecutable).Path) 'sorid.exe' }
   if (-not $listener) { Fail 'installed desktop did not start sorid' }
   $ownedDaemonPid = Get-PositiveOwnedDaemonPid -DaemonPath $daemonPath -Listener $listener
   $artifact.steps.Add("positively correlated installed daemon PID $ownedDaemonPid")

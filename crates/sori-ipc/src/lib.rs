@@ -25,6 +25,10 @@ pub const DEFAULT_ENDPOINT: &str = "127.0.0.1:17373";
 /// Socket bounds keep native UI calls from waiting on a stalled daemon.
 pub const IPC_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
 pub const IPC_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(750);
+/// Provider-backed dictation and benchmark responses may include real local
+/// Whisper inference, which is intentionally bounded separately from fast
+/// control/status requests.
+pub const IPC_LONG_OPERATION_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
@@ -422,9 +426,14 @@ impl Transport for LocalIpcClient {
                     IpcError::Unavailable
                 }
             })?;
+        let io_timeout = if request.is_long_running() {
+            IPC_LONG_OPERATION_IO_TIMEOUT
+        } else {
+            IPC_IO_TIMEOUT
+        };
         stream
-            .set_read_timeout(Some(IPC_IO_TIMEOUT))
-            .and_then(|_| stream.set_write_timeout(Some(IPC_IO_TIMEOUT)))
+            .set_read_timeout(Some(io_timeout))
+            .and_then(|_| stream.set_write_timeout(Some(io_timeout)))
             .map_err(|error| IpcError::Transport(error.to_string()))?;
         let header = format!(
             "POST /ipc HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -963,6 +972,15 @@ mod tests {
                 .unwrap();
         assert!(matches!(response, Response::Status(status) if status.running));
         task.abort();
+    }
+
+    #[test]
+    fn long_operations_have_a_realistic_but_bounded_socket_deadline() {
+        assert!(IPC_LONG_OPERATION_IO_TIMEOUT > IPC_IO_TIMEOUT);
+        assert_eq!(
+            IPC_LONG_OPERATION_IO_TIMEOUT,
+            std::time::Duration::from_secs(300)
+        );
     }
 
     #[tokio::test]

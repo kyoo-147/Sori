@@ -732,7 +732,7 @@ pub mod windows {
         }
         fn snapshot_clipboard(&mut self) -> Result<(), String> {
             use windows_sys::Win32::System::DataExchange::{
-                CloseClipboard, GetClipboardData, GetClipboardSequenceNumber,
+                CloseClipboard, EnumClipboardFormats, GetClipboardData, GetClipboardSequenceNumber,
                 IsClipboardFormatAvailable, OpenClipboard,
             };
             const CF_UNICODETEXT: u32 = 13;
@@ -740,6 +740,24 @@ pub mod windows {
             unsafe {
                 if OpenClipboard(std::ptr::null_mut()) == 0 {
                     return Err("OpenClipboard failed".into());
+                }
+                // The adapter currently snapshots only CF_UNICODETEXT. EmptyClipboard
+                // would otherwise destroy unrelated formats (images, files, custom app
+                // data) and restore would falsely claim that the user's clipboard was
+                // preserved. Refuse the transaction until every advertised format has a
+                // lossless snapshot/restore implementation.
+                let mut format = 0u32;
+                loop {
+                    format = EnumClipboardFormats(format);
+                    if format == 0 {
+                        break;
+                    }
+                    if format != CF_UNICODETEXT {
+                        CloseClipboard();
+                        return Err(format!(
+                            "clipboard_restore_unsupported: format {format} cannot be preserved safely"
+                        ));
+                    }
                 }
                 let result: Result<Option<Vec<u16>>, String> =
                     if IsClipboardFormatAvailable(CF_UNICODETEXT) == 0 {

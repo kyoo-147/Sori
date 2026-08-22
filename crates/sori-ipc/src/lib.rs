@@ -27,8 +27,10 @@ pub const IPC_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_m
 pub const IPC_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(750);
 pub const IPC_AUDIO_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 pub const IPC_PROVIDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(35);
-pub const IPC_BENCHMARK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-pub const IPC_BENCHMARK_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+pub const IPC_BENCHMARK_SERVER_DEFAULT: std::time::Duration = std::time::Duration::from_secs(90);
+pub const IPC_BENCHMARK_SERVER_MAX: std::time::Duration = std::time::Duration::from_secs(110);
+pub const IPC_BENCHMARK_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+pub const IPC_BENCHMARK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(115);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
@@ -174,14 +176,19 @@ fn io_timeout_for_request(request: &Request) -> std::time::Duration {
         Request::DictationAudio { .. } | Request::Dictation { .. } | Request::DictationStop => {
             IPC_PROVIDER_TIMEOUT
         }
-        Request::RunBenchmark { timeout_ms, .. } => timeout_ms
-            .map(std::time::Duration::from_millis)
-            .map(|timeout| timeout.saturating_add(IPC_BENCHMARK_GRACE))
-            .map_or(IPC_BENCHMARK_TIMEOUT, |timeout| {
-                timeout.min(IPC_BENCHMARK_TIMEOUT)
-            }),
+        Request::RunBenchmark { timeout_ms, .. } => effective_benchmark_timeout(*timeout_ms)
+            .saturating_add(IPC_BENCHMARK_GRACE)
+            .min(IPC_BENCHMARK_TIMEOUT),
         _ => IPC_IO_TIMEOUT,
     }
+}
+
+pub fn effective_benchmark_timeout(timeout_ms: Option<u64>) -> std::time::Duration {
+    timeout_ms
+        .map(std::time::Duration::from_millis)
+        .map_or(IPC_BENCHMARK_SERVER_DEFAULT, |timeout| {
+            timeout.min(IPC_BENCHMARK_SERVER_MAX)
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1036,7 +1043,7 @@ mod tests {
                 session_id: None,
                 timeout_ms: Some(1_000),
             }),
-            std::time::Duration::from_secs(3)
+            std::time::Duration::from_secs(6)
         );
         assert_eq!(
             io_timeout_for_request(&Request::RunBenchmark {
@@ -1049,6 +1056,15 @@ mod tests {
             }),
             IPC_BENCHMARK_TIMEOUT
         );
+        assert_eq!(
+            effective_benchmark_timeout(None),
+            IPC_BENCHMARK_SERVER_DEFAULT
+        );
+        assert_eq!(
+            effective_benchmark_timeout(Some(u64::MAX)),
+            IPC_BENCHMARK_SERVER_MAX
+        );
+        assert!(IPC_BENCHMARK_TIMEOUT > IPC_BENCHMARK_SERVER_MAX);
     }
 
     #[tokio::test]

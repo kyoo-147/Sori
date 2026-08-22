@@ -206,7 +206,7 @@ use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
     ExtensionManifest, ExtensionRecord, ExtensionsResponse, IpcEvent, LocalIpcServer,
     PROTOCOL_VERSION, RecentEventsResponse, RecentHistoryResponse, Request, Response, RouteSummary,
-    RuntimeActivity, StatusResponse,
+    RuntimeActivity, StatusResponse, effective_benchmark_timeout,
 };
 use sori_persistence::SqliteStore;
 use sori_provider_whisper::{WhisperCppConfig, WhisperCppProvider};
@@ -1293,17 +1293,16 @@ async fn main() -> Result<()> {
                 let session_id = session_id.unwrap_or_else(uuid::Uuid::new_v4);
                 let cancellation = CancellationToken::new();
                 handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.insert(session_id, cancellation.clone());
+                let effective_timeout = effective_benchmark_timeout(timeout_ms);
                 let timeout_triggered = Arc::new(AtomicBool::new(false));
-                if let Some(timeout_ms) = timeout_ms {
-                    let timer = cancellation.clone();
-                    let timed_out = Arc::clone(&timeout_triggered);
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(timeout_ms));
-                        timed_out.store(true, Ordering::Release);
-                        timer.cancel();
-                    });
-                }
-                let result = run_benchmark_with_options(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }, &BenchmarkOptions { cancellation: cancellation.clone(), timeout: timeout_ms.map(std::time::Duration::from_millis) });
+                let timer = cancellation.clone();
+                let timed_out = Arc::clone(&timeout_triggered);
+                std::thread::spawn(move || {
+                    std::thread::sleep(effective_timeout);
+                    timed_out.store(true, Ordering::Release);
+                    timer.cancel();
+                });
+                let result = run_benchmark_with_options(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }, &BenchmarkOptions { cancellation: cancellation.clone(), timeout: Some(effective_timeout) });
                 handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.remove(&session_id);
                 let result = match result {
                     Ok(result) => result,

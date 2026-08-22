@@ -854,7 +854,6 @@ async fn daemon_setting_delete_resets_live_state_and_survives_restart() {
     let _ = std::fs::remove_file(database);
 }
 
-
 #[test]
 fn real_daemon_rejects_blank_deterministic_provider_text() {
     let database = std::env::temp_dir().join(format!(

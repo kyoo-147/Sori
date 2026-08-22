@@ -8,6 +8,7 @@ param(
   [string]$ModelPath = (Join-Path $env:LOCALAPPDATA 'Sori\whisper\models\ggml-base.en.bin'),
   [string]$WhisperExecutable = (Join-Path $env:LOCALAPPDATA 'Sori\whisper\whisper-cli.exe'),
   [string]$BenchmarkCli = (Join-Path (Get-Location) 'target\release\sori.exe'),
+  [string]$FreshPackagedDaemon = (Join-Path (Get-Location) 'target\debug\sorid.exe'),
   [string]$DataRoot = (Join-Path (Get-Location) '.tmp\wave6r-installed-real-e2e'),
   [int]$IpcPort = 18476,
   [string]$ArtifactPath = 'D:\work\Sori\.firstmate\data\wave6r-installed-real-e2e-1787399001\report.md'
@@ -21,6 +22,10 @@ function Fail([string]$Message) { throw "Wave 6 failed: $Message" }
 function Require-AbsoluteFile([string]$Path, [string]$Name) {
   if (-not (Test-AbsoluteWindowsPath $Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { Fail "$Name must be an existing absolute file: $Path" }
   return (Resolve-Path -LiteralPath $Path).Path
+}
+function Get-FileEvidence([string]$Path) {
+  $item = Get-Item -LiteralPath $Path
+  return [ordered]@{ path = $item.FullName; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToUpperInvariant(); length = [int64]$item.Length; last_write_utc = $item.LastWriteTimeUtc.ToString('o'); file_version = [string]$item.VersionInfo.FileVersion }
 }
 function Invoke-Ipc([string]$Url, [object]$Body, [int]$Timeout = 10) {
   return Invoke-RestMethod -Uri $Url -Method Post -ContentType 'application/json' -Body ($Body | ConvertTo-Json -Depth 20 -Compress) -TimeoutSec $Timeout
@@ -65,16 +70,20 @@ function Stop-TrackedProcess([object]$Track) {
 }
 function Write-Report([hashtable]$Evidence, [string]$Path) {
   $dir = Split-Path -Parent $Path; if ($dir) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-  $lines = @('# Wave 6 installed real Whisper synthetic vertical', '', "- status: **$($Evidence.status)**", "- reason: $($Evidence.reason)", "- endpoint: ``127.0.0.1:$($Evidence.port)``", "- isolated_data_root: ``$($Evidence.data)``", "- isolated_owner_path: ``$($Evidence.owner)``", "- desktop: ``$($Evidence.desktop)``", "- daemon: ``$($Evidence.daemon)``", "- whisper_cpp: ``$($Evidence.whisper)``", "- model: ``$($Evidence.model)``", "- model_sha256: ``$($Evidence.model_hash)``", "- fixture: ``$($Evidence.fixture)``", "- fixture_sha256: ``$($Evidence.fixture_hash)``", "- expected_reference: ``$($Evidence.expected_reference)``", "- actual_transcript: ``$($Evidence.transcript)``", '', '## Truth boundary', '', '- Real Whisper is VERIFIED only when the actual transcript is nonblank, the canonical benchmark records measured WER/CER, and owned readback/history/restart preserve that actual transcript exactly.', '- SAPI provenance is local installed-voice output (`network=false`, `microphone=false`). It is not physical microphone proof.', '- No ASR quality pass threshold is asserted without an authoritative threshold.', '- Physical microphone and physical hotkey remain USER_ONLY/UNVERIFIED.', '- Frontend visual refresh is NOT CLAIMED; this acceptance observes canonical IPC only.', '', '```json', ($Evidence | ConvertTo-Json -Depth 12), '```')
+  $lines = @('# Wave 6 installed real Whisper synthetic vertical', '', "- status: **$($Evidence.status)**", "- reason: $($Evidence.reason)", "- source_commit: ``$($Evidence.source_commit)``", "- endpoint: ``127.0.0.1:$($Evidence.port)``", "- isolated_data_root: ``$($Evidence.data)``", "- isolated_owner_path: ``$($Evidence.owner)``", "- desktop: ``$($Evidence.desktop)``", "- daemon: ``$($Evidence.daemon)``", "- installed_daemon_sha256: ``$($Evidence.daemon_installed.sha256)``", "- packaged_daemon_sha256: ``$($Evidence.daemon_packaged.sha256)``", "- whisper_cpp: ``$($Evidence.whisper)``", "- model: ``$($Evidence.model)``", "- model_sha256: ``$($Evidence.model_hash)``", "- fixture: ``$($Evidence.fixture)``", "- fixture_sha256: ``$($Evidence.fixture_hash)``", "- expected_reference: ``$($Evidence.expected_reference)``", "- actual_transcript: ``$($Evidence.transcript)``", '', '## Truth boundary', '', '- Real Whisper is VERIFIED only when the actual transcript is nonblank, the canonical benchmark records measured WER/CER, and owned readback/history/restart preserve that actual transcript exactly.', '- SAPI provenance is local installed-voice output (`network=false`, `microphone=false`). It is not physical microphone proof.', '- No ASR quality pass threshold is asserted without an authoritative threshold.', '- Physical microphone and physical hotkey remain USER_ONLY/UNVERIFIED.', '- Frontend visual refresh is NOT CLAIMED; this acceptance observes canonical IPC only.', '', '```json', ($Evidence | ConvertTo-Json -Depth 12), '```')
   Set-Content -LiteralPath $Path -Value ($lines -join "`r`n") -Encoding UTF8
 }
 
-$evidence = @{ status = 'BLOCKED'; reason = 'not run'; started_utc = [DateTime]::UtcNow.ToString('o'); port = $IpcPort; data = $DataRoot; owner = $null; desktop = $null; daemon = $null; whisper = $null; benchmark_cli = $null; model = $null; model_hash = $null; fixture = $null; fixture_hash = $null; expected_reference = $null; transcript = $null; readback = $null; history = $null; benchmark = $null; restart_history = $null }
+$evidence = @{ status = 'BLOCKED'; reason = 'not run'; started_utc = [DateTime]::UtcNow.ToString('o'); source_commit = $null; port = $IpcPort; data = $DataRoot; owner = $null; desktop = $null; daemon = $null; daemon_installed = @{ sha256 = 'UNAVAILABLE' }; daemon_packaged = @{ sha256 = 'UNAVAILABLE' }; whisper = $null; benchmark_cli = $null; model = $null; model_hash = $null; fixture = $null; fixture_hash = $null; expected_reference = $null; transcript = $null; readback = $null; history = $null; benchmark = $null; restart_history = $null }
 $desktop = $null; $restartDesktop = $null; $restartDesktopTrack = $null; $restartTrack = $null
 $old = @{}; foreach ($name in @('SORI_IPC_ADDR','SORI_IPC_URL','SORI_DATABASE_PATH','SORI_DB_PATH','SORI_DAEMON_PATH','SORI_DAEMON_OWNER_PATH','SORI_WHISPER_CPP_BIN','SORI_WHISPER_MODEL_DIR','SORI_WHISPER_MODEL','SORI_TEST_PROVIDER','SORI_TEST_PROVIDER_TEXT','SORI_TEST_NO_OS_INJECTION')) { $old[$name] = [Environment]::GetEnvironmentVariable($name) }
 try {
+  $evidence.source_commit = (& git rev-parse HEAD 2>$null | Out-String).Trim()
   $desktopPath = Require-AbsoluteFile $InstalledDesktopExecutable 'installed desktop'
+  $packagedDaemonPath = Require-AbsoluteFile $FreshPackagedDaemon 'fresh packaged daemon payload'
   $daemonPath = if ($DaemonExecutable) { Require-AbsoluteFile $DaemonExecutable 'bundled daemon' } else { Require-AbsoluteFile (Join-Path (Split-Path -Parent $desktopPath) 'sorid.exe') 'bundled daemon' }
+  $installedDaemonEvidence = Get-FileEvidence $daemonPath; $packagedDaemonEvidence = Get-FileEvidence $packagedDaemonPath; $evidence.daemon = $daemonPath; $evidence.daemon_installed = $installedDaemonEvidence; $evidence.daemon_packaged = $packagedDaemonEvidence
+  if ($installedDaemonEvidence.sha256 -ne $packagedDaemonEvidence.sha256 -or $installedDaemonEvidence.length -ne $packagedDaemonEvidence.length) { Fail "installed daemon is stale/wrong bundle: installed=$($installedDaemonEvidence.sha256)/$($installedDaemonEvidence.length); packaged=$($packagedDaemonEvidence.sha256)/$($packagedDaemonEvidence.length)" }
   if ([IO.Path]::GetExtension($daemonPath) -ne '.exe') { Fail 'bundled daemon override must be a Windows executable' }
   $whisperPath = Require-AbsoluteFile $WhisperExecutable 'user-owned whisper.cpp executable'
   $benchmarkCliPath = Require-AbsoluteFile $BenchmarkCli 'latest built benchmark CLI'
@@ -92,7 +101,7 @@ try {
   $modelHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $modelPath).Hash.ToLowerInvariant()
   New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null; $dataPath = (Resolve-Path -LiteralPath $DataRoot).Path
   $ownerPath = Join-Path $dataPath 'daemon-owner.json'
-  $evidence.desktop = $desktopPath; $evidence.daemon = $daemonPath; $evidence.whisper = $whisperPath; $evidence.benchmark_cli = $benchmarkCliPath; $evidence.model = $modelPath; $evidence.model_hash = $modelHash; $evidence.fixture = $fixturePath; $evidence.fixture_hash = $fixtureHash; $evidence.expected_reference = $expectedText; $evidence.data = $dataPath; $evidence.owner = $ownerPath
+  $evidence.desktop = $desktopPath; $evidence.daemon = $daemonPath; $evidence.daemon_installed = $installedDaemonEvidence; $evidence.daemon_packaged = $packagedDaemonEvidence; $evidence.whisper = $whisperPath; $evidence.benchmark_cli = $benchmarkCliPath; $evidence.model = $modelPath; $evidence.model_hash = $modelHash; $evidence.fixture = $fixturePath; $evidence.fixture_hash = $fixtureHash; $evidence.expected_reference = $expectedText; $evidence.data = $dataPath; $evidence.owner = $ownerPath
   if (@(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)) { Fail "endpoint is already occupied: 127.0.0.1:$IpcPort" }
   $env:SORI_IPC_ADDR = "127.0.0.1:$IpcPort"; $env:SORI_IPC_URL = "http://127.0.0.1:$IpcPort/ipc"; $env:SORI_DATABASE_PATH = Join-Path $dataPath 'sori.db'; $env:SORI_DB_PATH = $env:SORI_DATABASE_PATH; $env:SORI_DAEMON_PATH = $daemonPath; $env:SORI_DAEMON_OWNER_PATH = $ownerPath; $env:SORI_WHISPER_CPP_BIN = $whisperPath; $env:SORI_WHISPER_MODEL_DIR = Split-Path -Parent $modelPath; $env:SORI_WHISPER_MODEL = [IO.Path]::GetFileName($modelPath)
   Remove-Item Env:SORI_TEST_PROVIDER,Env:SORI_TEST_PROVIDER_TEXT,Env:SORI_TEST_NO_OS_INJECTION -ErrorAction SilentlyContinue
@@ -103,7 +112,7 @@ try {
   $restartStarted = [DateTime]::UtcNow; $restartDesktop = Start-Process -FilePath $desktopPath -WorkingDirectory (Split-Path -Parent $desktopPath) -PassThru; $restartDesktopTrack = [ordered]@{ pid = $restartDesktop.Id; executable = $desktopPath; start_time = (Get-Process -Id $restartDesktop.Id).StartTime.ToUniversalTime() }; Wait-Endpoint $IpcPort; $restartTrack = Read-Track $ownerPath $daemonPath $IpcPort $restartStarted
   $restart = Invoke-Ipc $env:SORI_IPC_URL @{ RecentHistory = @{ limit = 20 } } 10; $entry = @($restart.RecentHistory.entries | Where-Object { $_.transcript.text -eq $evidence.transcript -and $_.inserted_text -eq $evidence.transcript } | Select-Object -First 1); if ($entry.Count -ne 1) { Fail 'restart IPC history did not contain exact actual transcript/insertion' }; $evidence.restart_history = $entry[0]
   $benchmarkOutput = (& $benchmarkCliPath benchmark --model ggml-base.en.bin --audio $fixturePath --reference $expectedText --iterations 3 2>&1 | Out-String); if ($LASTEXITCODE -ne 0) { Fail "canonical benchmark CLI failed: $benchmarkOutput" }; $benchmarkLine = ($benchmarkOutput -split "`r?`n" | Where-Object { $_ -match '^model=' } | Select-Object -Last 1); if (-not $benchmarkLine) { Fail 'canonical benchmark emitted no parseable metrics' }; $fields = @{}; foreach ($pair in ($benchmarkLine -split ' ')) { if ($pair -match '^([^=]+)=(.*)$') { $fields[$Matches[1]] = $Matches[2] } }; $evidence.benchmark = [ordered]@{ status = 'MEASURED_REAL_QUALITY'; reference = $expectedText; actual = $evidence.transcript; wer = $fields['wer']; cer = $fields['cer']; provider = $fields['provider']; p50_ms = $fields['p50_ms']; p95_ms = $fields['p95_ms']; raw = $benchmarkLine }
-  $evidence.status = 'VERIFIED'; $evidence.reason = 'full installed real Whisper run passed exact transcript, owned readback, history, and restart checks'
+  $evidence.status = 'VERIFIED'; $evidence.reason = 'fresh packaged daemon matched installed payload; real Whisper measured quality, actual transcript readback, history, and restart checks passed'
 } catch { $evidence.reason = $_.Exception.Message; throw } finally {
   Stop-TrackedProcess $restartDesktopTrack; Stop-Tracked $restartTrack
   foreach ($name in $old.Keys) { [Environment]::SetEnvironmentVariable($name, $old[$name]) }

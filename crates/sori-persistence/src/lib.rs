@@ -153,10 +153,27 @@ impl SqliteStore {
     }
 
     pub fn delete_setting(&self, key: &str) -> Result<bool> {
-        Ok(self
-            .connection()?
-            .execute("DELETE FROM settings WHERE key = ?1", [key])?
-            == 1)
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction()?;
+        let deleted = transaction.execute("DELETE FROM settings WHERE key = ?1", [key])? == 1;
+        if key == "hotkey.binding" {
+            if let Some(json) = transaction
+                .query_row(
+                    "SELECT value_json FROM user_data WHERE resource = 'settings'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+            {
+                let mut settings: serde_json::Value = serde_json::from_str(&json)?;
+                if let Some(object) = settings.as_object_mut() {
+                    object.remove("hotkey");
+                    transaction.execute("UPDATE user_data SET value_json = ?1, updated_at = ?2 WHERE resource = 'settings'", params![serde_json::to_string(&settings)?, unix_timestamp()])?;
+                }
+            }
+        }
+        transaction.commit()?;
+        Ok(deleted)
     }
 
     pub fn setting(&self, key: &str) -> Result<Option<serde_json::Value>> {
@@ -756,6 +773,34 @@ mod tests {
         store
             .set_resource("settings", &serde_json::json!({"hotkey":"Ctrl+Space"}))
             .unwrap();
+    }
+
+    #[test]
+    fn deleting_hotkey_setting_removes_restart_compatibility_mirror() {
+        let database = NamedTempFile::new().unwrap();
+        let store = SqliteStore::open(database.path()).unwrap();
+        store
+            .set_setting("hotkey.binding", &serde_json::json!("Ctrl+Space"))
+            .unwrap();
+        store
+            .set_resource(
+                "settings",
+                &serde_json::json!({"hotkey":"Ctrl+Space","sidebarCollapsed":false}),
+            )
+            .unwrap();
+        assert!(store.delete_setting("hotkey.binding").unwrap());
+        assert_eq!(store.setting("hotkey.binding").unwrap(), None);
+        assert_eq!(
+            store.resource("settings").unwrap(),
+            Some(serde_json::json!({"sidebarCollapsed":false}))
+        );
+        drop(store);
+        let reopened = SqliteStore::open(database.path()).unwrap();
+        assert_eq!(reopened.setting("hotkey.binding").unwrap(), None);
+        assert_eq!(
+            reopened.resource("settings").unwrap(),
+            Some(serde_json::json!({"sidebarCollapsed":false}))
+        );
     }
 
     #[test]

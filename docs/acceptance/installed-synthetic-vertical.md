@@ -11,7 +11,9 @@ $env:SORI_TEST_PROVIDER = 'deterministic-sapi'
 $env:SORI_TEST_PROVIDER_TEXT = 'Installed deterministic transcript'
 ```
 
-`SORI_TEST_PROVIDER_TEXT` must contain non-whitespace text. The provider accepts only model `sapi-wav-test`, rejects empty decoded audio, and returns the exact configured text. The canonical `DictationAudio` path still performs audio canonicalization, focused-target capture, native injection, and SQLite history persistence.
+`SORI_TEST_PROVIDER_TEXT` must contain non-whitespace text, and both test variables must be present together. The provider accepts only model `sapi-wav-test`, rejects empty decoded audio, and returns the exact configured text. The canonical `DictationAudio` path still performs audio canonicalization and SQLite history persistence.
+
+The automated daemon test also sets `SORI_TEST_NO_OS_INJECTION=1`. This mode is accepted only with the deterministic provider, performs no OS input, and labels its synthetic `inserted_text` history result with `TEST-ONLY no-OS-injection seam`. It must never be used as native injection evidence.
 
 ## Windows installed acceptance
 
@@ -29,4 +31,4 @@ pwsh -File scripts/windows-native-voice-acceptance.ps1 `
 
 ## Automated daemon IPC acceptance
 
-`cargo test -p sorid --test backend_ipc_e2e -- deterministic_audio_persists_exact_transcript_across_restart` launches the real `sorid` binary with the explicit provider, sends non-empty canonical audio over loopback IPC, asserts exact transcript and inserted history, opens SQLite directly, restarts the daemon, and asserts the transcript remains present. The positive test runs on Windows because it exercises the owned Windows injection adapter; the blank-text startup rejection runs on every host.
+`cargo test -p sorid --test backend_ipc_e2e -- deterministic_audio_persists_exact_transcript_across_restart` launches the real `sorid` binary with the explicit provider and no-OS-injection seam, sends non-empty canonical audio over loopback IPC, asserts exact transcript and labeled synthetic history, opens SQLite directly, restarts the daemon, and asserts the transcript remains present. Native injection is proved only by the separate interactive harness.

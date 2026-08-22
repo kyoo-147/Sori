@@ -222,6 +222,7 @@ struct RuntimeInjector {
     #[cfg(not(windows))]
     inner: sori_core::AdapterTextInjector<UnavailableInjectionAdapter>,
     strategy: Option<sori_core::InjectionStrategy>,
+    test_only_no_os_injection: bool,
 }
 impl RuntimeInjector {
     fn new() -> Self {
@@ -242,6 +243,8 @@ impl RuntimeInjector {
                 },
             ),
             strategy,
+            test_only_no_os_injection: std::env::var("SORI_TEST_NO_OS_INJECTION").as_deref()
+                == Ok("1"),
         }
     }
 }
@@ -257,6 +260,14 @@ impl sori_core::TextInjector for RuntimeInjector {
         target: &dyn sori_core::TextTarget,
         request: &sori_core::TextInjectionRequest,
     ) -> Result<sori_core::TextInjectionResult, sori_core::TextInjectionError> {
+        if self.test_only_no_os_injection {
+            return Ok(sori_core::TextInjectionResult {
+                plan: self.inner.plan(target),
+                dry_run_output: Some("TEST-ONLY no OS injection performed".into()),
+                outcome: sori_core::InjectionOutcome::Inserted,
+                diagnostics: vec!["TEST-ONLY no-OS-injection seam".into()],
+            });
+        }
         if self.strategy == Some(sori_core::InjectionStrategy::ClipboardPaste) {
             #[cfg(windows)]
             {
@@ -298,12 +309,25 @@ async fn main() -> Result<()> {
     config.validate().map_err(anyhow::Error::msg)?;
     let whisper_model =
         std::env::var("SORI_WHISPER_MODEL").unwrap_or_else(|_| "ggml-base.en.bin".into());
-    if let Ok(text) = std::env::var("SORI_TEST_PROVIDER_TEXT") {
+    let test_provider_mode = std::env::var("SORI_TEST_PROVIDER").ok();
+    let test_provider_text = std::env::var("SORI_TEST_PROVIDER_TEXT").ok();
+    if test_provider_mode.is_some() != test_provider_text.is_some() {
+        return Err(anyhow::anyhow!(
+            "SORI_TEST_PROVIDER and SORI_TEST_PROVIDER_TEXT must be provided together"
+        ));
+    }
+    if let Some(text) = test_provider_text.as_deref() {
         if text.trim().is_empty() {
             return Err(anyhow::anyhow!(
                 "SORI_TEST_PROVIDER_TEXT must contain non-whitespace text"
             ));
         }
+    }
+    let no_os_injection = std::env::var("SORI_TEST_NO_OS_INJECTION").as_deref() == Ok("1");
+    if no_os_injection && test_provider_mode.as_deref() != Some("deterministic-sapi") {
+        return Err(anyhow::anyhow!(
+            "SORI_TEST_NO_OS_INJECTION requires SORI_TEST_PROVIDER=deterministic-sapi"
+        ));
     }
     let (whisper_provider, whisper_detail): (Option<Arc<dyn sori_core::ModelProvider>>, String) =
         if let (Ok(mode), Ok(text)) = (
@@ -889,7 +913,12 @@ async fn main() -> Result<()> {
                 }
                 let target = RuntimeTarget::capture().map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
                 let mut injector = RuntimeInjector::with_strategy(injection_strategy);
-                let route = ModelRoute { provider: provider.provider_name().into(), model: model.clone(), reason: format!("canonical audio acceptance; target={}", target.identity.as_deref().unwrap_or("unknown")), fallback: Vec::new() };
+                let reason = if no_os_injection {
+                    "TEST-ONLY no-OS-injection seam".to_owned()
+                } else {
+                    format!("canonical audio acceptance; target={}", target.identity.as_deref().unwrap_or("unknown"))
+                };
+                let route = ModelRoute { provider: provider.provider_name().into(), model: model.clone(), reason, fallback: Vec::new() };
                 // Fixture/decoded audio uses the daemon-owned durable event journal too.
                 let history_enabled = handler_store
                     .setting("history.enabled")

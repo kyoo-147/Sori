@@ -911,6 +911,7 @@ fn real_daemon_deterministic_audio_persists_exact_transcript_across_restart() {
             .env("SORI_IPC_ADDR", &endpoint)
             .env("SORI_TEST_PROVIDER", "deterministic-sapi")
             .env("SORI_TEST_PROVIDER_TEXT", expected)
+            .env("SORI_TEST_NO_OS_INJECTION", "1")
             .env("SORI_HOTKEY_OVERRIDE", "Alt+Space")
             .spawn()
             .unwrap()
@@ -940,7 +941,7 @@ fn real_daemon_deterministic_audio_persists_exact_transcript_across_restart() {
     let response = request(Request::DictationAudio {
         model: ModelId::from("sapi-wav-test"),
         audio,
-        injection_strategy: Some(sori_core::InjectionStrategy::DirectInput),
+        injection_strategy: None,
     });
     assert!(
         matches!(&response, Response::Transcript(transcript) if transcript.text == expected),
@@ -948,7 +949,7 @@ fn real_daemon_deterministic_audio_persists_exact_transcript_across_restart() {
     );
     let history = request(Request::RecentHistory { limit: 20 });
     assert!(
-        matches!(&history, Response::RecentHistory(entries) if entries.entries.iter().any(|entry| entry.transcript.text == expected && entry.inserted_text.as_deref() == Some(expected))),
+        matches!(&history, Response::RecentHistory(entries) if entries.entries.iter().any(|entry| entry.transcript.text == expected && entry.inserted_text.as_deref() == Some(expected) && entry.route.as_ref().is_some_and(|route| route.reason == "TEST-ONLY no-OS-injection seam"))),
         "deterministic history response: {history:?}"
     );
     let row_count = SqliteStore::open(&database)
@@ -987,4 +988,46 @@ fn real_daemon_deterministic_audio_persists_exact_transcript_across_restart() {
     let _ = restarted.0.as_mut().unwrap().wait();
     restarted.0 = None;
     let _ = std::fs::remove_file(database);
+}
+
+#[test]
+fn real_daemon_rejects_partial_deterministic_provider_config() {
+    for (name, present) in [
+        ("provider-only", "SORI_TEST_PROVIDER"),
+        ("text-only", "SORI_TEST_PROVIDER_TEXT"),
+    ] {
+        let database = std::env::temp_dir().join(format!(
+            "sori-partial-provider-{name}-{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        let endpoint = format!(
+            "127.0.0.1:{}",
+            TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port()
+        );
+        let mut command = Command::new(env!("CARGO_BIN_EXE_sorid"));
+        command
+            .env("SORI_DATABASE_PATH", &database)
+            .env("SORI_IPC_ADDR", &endpoint);
+        if present == "SORI_TEST_PROVIDER" {
+            command.env("SORI_TEST_PROVIDER", "deterministic-sapi");
+        } else {
+            command.env("SORI_TEST_PROVIDER_TEXT", "configured text");
+        }
+        let mut child = command.spawn().unwrap();
+        for _ in 0..100 {
+            if child.try_wait().unwrap().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            child.try_wait().unwrap().is_some(),
+            "sorid accepted partial config: {name}"
+        );
+        let _ = std::fs::remove_file(database);
+    }
 }

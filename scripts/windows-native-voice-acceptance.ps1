@@ -166,12 +166,13 @@ function Read-TargetText([IntPtr]$Handle) {
 
 $artifact = [ordered]@{ status = 'FAILED'; steps = [Collections.Generic.List[string]]::new(); transcript = $null; history = $null; target_text = $null }
 $desktop = $null; $target = $null; $ownedDaemonPid = $null
-$oldIpcAddr = $env:SORI_IPC_ADDR; $oldIpcUrl = $env:SORI_IPC_URL; $oldDb = $env:SORI_DATABASE_PATH; $oldDbAlias = $env:SORI_DB_PATH; $oldEditTitle = $env:SORI_EDIT_TARGET_TITLE; $oldTestProvider = $env:SORI_TEST_PROVIDER; $oldTestText = $env:SORI_TEST_PROVIDER_TEXT
+$oldIpcAddr = $env:SORI_IPC_ADDR; $oldIpcUrl = $env:SORI_IPC_URL; $oldDb = $env:SORI_DATABASE_PATH; $oldDbAlias = $env:SORI_DB_PATH; $oldEditTitle = $env:SORI_EDIT_TARGET_TITLE; $oldTestProvider = $env:SORI_TEST_PROVIDER; $oldTestText = $env:SORI_TEST_PROVIDER_TEXT; $oldNoOsInjection = $env:SORI_TEST_NO_OS_INJECTION
 try {
   Assert-EndpointFree
   $dataPath = (Resolve-Path -LiteralPath $DataRoot -ErrorAction SilentlyContinue)
   if (-not $dataPath) { New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null; $dataPath = Resolve-Path -LiteralPath $DataRoot }
   $env:SORI_IPC_ADDR = "127.0.0.1:$IpcPort"; $env:SORI_IPC_URL = "http://127.0.0.1:$IpcPort/ipc"
+  Remove-Item Env:SORI_TEST_NO_OS_INJECTION -ErrorAction SilentlyContinue
   if ($DeterministicProviderText) { $env:SORI_TEST_PROVIDER = 'deterministic-sapi'; $env:SORI_TEST_PROVIDER_TEXT = $DeterministicProviderText } else { Remove-Item Env:SORI_TEST_PROVIDER -ErrorAction SilentlyContinue; Remove-Item Env:SORI_TEST_PROVIDER_TEXT -ErrorAction SilentlyContinue }
   $env:SORI_DATABASE_PATH = [IO.Path]::Combine($dataPath.Path, 'sori.db'); $env:SORI_DB_PATH = $env:SORI_DATABASE_PATH
   $desktop = Start-Process -FilePath (Resolve-Path -LiteralPath $SoriExecutable).Path -WorkingDirectory (Split-Path -Parent (Resolve-Path -LiteralPath $SoriExecutable).Path) -PassThru
@@ -270,5 +271,5 @@ try {
   if ($desktop -and -not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue }
   if ($ownedDaemonPid) { Stop-Process -Id $ownedDaemonPid -Force -ErrorAction SilentlyContinue }
   if ($target -and -not $target.HasExited) { Stop-Process -Id $target.Id -Force -ErrorAction SilentlyContinue }
-  $env:SORI_IPC_ADDR = $oldIpcAddr; $env:SORI_IPC_URL = $oldIpcUrl; $env:SORI_DATABASE_PATH = $oldDb; $env:SORI_DB_PATH = $oldDbAlias; $env:SORI_EDIT_TARGET_TITLE = $oldEditTitle; $env:SORI_TEST_PROVIDER = $oldTestProvider; $env:SORI_TEST_PROVIDER_TEXT = $oldTestText
+  $env:SORI_IPC_ADDR = $oldIpcAddr; $env:SORI_IPC_URL = $oldIpcUrl; $env:SORI_DATABASE_PATH = $oldDb; $env:SORI_DB_PATH = $oldDbAlias; $env:SORI_EDIT_TARGET_TITLE = $oldEditTitle; $env:SORI_TEST_PROVIDER = $oldTestProvider; $env:SORI_TEST_PROVIDER_TEXT = $oldTestText; $env:SORI_TEST_NO_OS_INJECTION = $oldNoOsInjection
 }

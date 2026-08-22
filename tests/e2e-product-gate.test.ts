@@ -1,7 +1,9 @@
+import { Agent, createServer, request } from 'node:http';
 import { readFileSync } from 'node:fs';
+import { once } from 'node:events';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PRODUCT_NAVIGATION, UNVERIFIED_HARDWARE_CAPABILITIES } from '../scripts/e2e-product-gate.js';
+import { PRODUCT_NAVIGATION, stopServer, UNVERIFIED_HARDWARE_CAPABILITIES } from '../scripts/e2e-product-gate.js';
 
 describe('sequential product E2E gate contract', () => {
   it('keeps every primary desktop route in the semantic navigation sequence', () => {
@@ -56,5 +58,30 @@ describe('product gate daemon ownership isolation', () => {
     const source = readFileSync(resolve('scripts/e2e-product-gate.ts'), 'utf8');
     expect(source).toContain("const owner = join(evidenceDir, 'daemon-owner.json');");
     expect(source).toContain('SORI_DAEMON_OWNER_PATH: owner');
+  });
+  it('closes a keep-alive connection and resolves shutdown within the bound', async () => {
+    const server = createServer((_request, response) => response.end('ok'));
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('test server did not expose a TCP address');
+    const agent = new Agent({ keepAlive: true });
+    try {
+      await new Promise<void>((resolveRequest, rejectRequest) => {
+        const clientRequest = request({ host: '127.0.0.1', port: address.port, agent }, (response) => {
+          response.resume();
+          response.once('end', resolveRequest);
+        });
+        clientRequest.once('error', rejectRequest);
+        clientRequest.end();
+      });
+      const started = Date.now();
+      await stopServer(server);
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(server.listening).toBe(false);
+    } finally {
+      agent.destroy();
+      if (server.listening) await stopServer(server);
+    }
   });
 });

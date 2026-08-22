@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)] [string]$SoriExecutable,
+  [string]$DaemonExecutable = '',
   [Parameter(Mandatory = $true)] [string]$TargetExecutable,
   [ValidateSet('notepad', 'win32-edit')] [string]$TargetKind = 'notepad',
   [Parameter(Mandatory = $true)] [string]$WavPath,
@@ -8,6 +9,7 @@ param(
   [Parameter(Mandatory = $true)] [string]$DataRoot,
   [int]$IpcPort = 18470,
   [string]$ArtifactPath = '.tmp/windows-native-voice-acceptance.json',
+  [string]$ExpectedReference = '',
   [string]$DeterministicProviderText = ''
 )
 Set-StrictMode -Version Latest
@@ -20,12 +22,14 @@ function Assert-EndpointFree {
   $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
   if ($listener) { Fail "refusing to touch endpoint owned by PID $($listener[0].OwningProcess)" }
 }
-function Get-PositiveOwnedDaemonPid([string]$DaemonPath, $Listener) {
+function Get-PositiveOwnedDaemonTrack([string]$DaemonPath, $Listener, [DateTime]$NotBefore) {
   if (-not $Listener) { Fail 'refusing daemon cleanup: no listener was observed' }
-  $leasePath = Join-Path $env:LOCALAPPDATA 'Sori\daemon-owner.json'
+  $leasePath = $env:SORI_DAEMON_OWNER_PATH
+  if (-not $leasePath -or $leasePath -notmatch '^[A-Za-z]:[\\/]') { Fail 'refusing daemon cleanup: SORI_DAEMON_OWNER_PATH must be an absolute Windows path' }
   if (-not (Test-Path -LiteralPath $leasePath)) { Fail "refusing daemon cleanup: ownership lease is absent ($leasePath)" }
   $lease = Get-Content -LiteralPath $leasePath -Raw | ConvertFrom-Json
-  if ($lease.endpoint -ne "127.0.0.1:$IpcPort") { Fail "refusing daemon cleanup: lease endpoint mismatch" }
+  if ($lease.endpoint -ne "127.0.0.1:$IpcPort") { Fail 'refusing daemon cleanup: lease endpoint mismatch' }
+  if ([string]::IsNullOrWhiteSpace([string]$lease.lease_id) -or $lease.lease_id.Length -lt 16) { Fail 'refusing daemon cleanup: lease generation is absent or weak' }
   $expectedPath = (Resolve-Path -LiteralPath $DaemonPath).Path
   $leasedPath = (Resolve-Path -LiteralPath $lease.executable).Path
   if (-not [String]::Equals($expectedPath, $leasedPath, [StringComparison]::OrdinalIgnoreCase)) { Fail 'refusing daemon cleanup: lease executable mismatch' }
@@ -34,7 +38,31 @@ function Get-PositiveOwnedDaemonPid([string]$DaemonPath, $Listener) {
   $process = Get-Process -Id $daemonPid -ErrorAction SilentlyContinue
   if (-not $process) { Fail 'refusing daemon cleanup: leased daemon is not running' }
   if (-not [String]::Equals((Resolve-Path -LiteralPath $process.Path).Path, $expectedPath, [StringComparison]::OrdinalIgnoreCase)) { Fail 'refusing daemon cleanup: live executable mismatch' }
-  return $daemonPid
+  try { $startTime = $process.StartTime.ToUniversalTime() } catch { Fail 'refusing daemon cleanup: creation time unavailable' }
+  if ($startTime -lt $NotBefore -or [uint64]$lease.process_start_time -ne [uint64]$startTime.ToFileTimeUtc()) { Fail 'refusing daemon cleanup: creation time does not match lease' }
+  return [ordered]@{ process = $process; pid = $daemonPid; start_time = $startTime; lease_id = [string]$lease.lease_id; lease_path = $leasePath; executable = $expectedPath }
+}
+function Stop-TrackedDaemon($Track) {
+  if (-not $Track) { return }
+  $current = Get-Content -LiteralPath $Track.lease_path -Raw -ErrorAction SilentlyContinue
+  if (-not $current) { return }
+  $lease = $current | ConvertFrom-Json
+  if ([string]$lease.lease_id -ne $Track.lease_id) { Fail 'refusing cleanup: lease generation changed' }
+  $process = Get-Process -Id $Track.pid -ErrorAction SilentlyContinue
+  if (-not $process) { return }
+  if (-not [String]::Equals((Resolve-Path -LiteralPath $process.Path).Path, $Track.executable, [StringComparison]::OrdinalIgnoreCase)) { Fail 'refusing cleanup: executable changed' }
+  try { if ($process.StartTime.ToUniversalTime() -ne $Track.start_time) { Fail 'refusing cleanup: creation time changed' } } catch { Fail 'refusing cleanup: creation time unavailable' }
+  $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
+  if ($listener.Count -ne 1 -or [int]$listener[0].OwningProcess -ne $Track.pid) { Fail 'refusing cleanup: daemon no longer owns the tracked endpoint' }
+  Stop-Process -Id $process.Id -Force
+}
+function Stop-TrackedProcess($Track) {
+  if (-not $Track) { return }
+  $process = Get-Process -Id $Track.pid -ErrorAction SilentlyContinue
+  if (-not $process) { return }
+  if (-not [String]::Equals((Resolve-Path -LiteralPath $process.Path).Path, $Track.executable, [StringComparison]::OrdinalIgnoreCase)) { Fail 'refusing cleanup: process executable changed' }
+  try { if ($process.StartTime.ToUniversalTime() -ne $Track.start_time) { Fail 'refusing cleanup: process creation time changed' } } catch { Fail 'refusing cleanup: process creation time unavailable' }
+  Stop-Process -Id $process.Id -Force
 }
 function Read-Ascii([byte[]]$Bytes, [int]$Offset, [int]$Length) {
   return [Text.Encoding]::ASCII.GetString($Bytes, $Offset, $Length)
@@ -112,22 +140,21 @@ public static class SoriNativeText {
   delegate bool EnumWindowProc(IntPtr hWnd, IntPtr data);
   public static bool Focus(IntPtr hWnd) {
     if (!IsWindow(hWnd)) return false;
-    ShowWindow(hWnd, 9); SwitchToThisWindow(hWnd, true); BringWindowToTop(hWnd);
     uint targetPid = 0; uint targetThread = GetWindowThreadProcessId(hWnd, out targetPid);
     IntPtr foreground = GetForegroundWindow(); uint priorPid = 0; uint foregroundThread = foreground == IntPtr.Zero ? 0 : GetWindowThreadProcessId(foreground, out priorPid);
-    uint currentThread = GetCurrentThreadId();
-    bool focused = SetForegroundWindow(hWnd); SetActiveWindow(hWnd); BringWindowToTop(hWnd);
-    bool attached = currentThread != targetThread && AttachThreadInput(currentThread, targetThread, true);
-    IntPtr edit = IntPtr.Zero;
-    EnumChildWindows(hWnd, (child, data) => { var name = new StringBuilder(128); GetClassName(child, name, name.Capacity); if (name.ToString().Contains("EDIT")) { edit = child; return false; } return true; }, IntPtr.Zero);
-    SetFocus(edit == IntPtr.Zero ? hWnd : edit);
-    bool childFocused = edit != IntPtr.Zero && GetFocus() == edit;
-    if (attached) AttachThreadInput(currentThread, targetThread, false);
-    System.Threading.Thread.Sleep(100);
-    uint foregroundPid = 0; GetWindowThreadProcessId(GetForegroundWindow(), out foregroundPid);
-    // Never report focus success from SetForegroundWindow alone: Windows may
-    // deny activation, and SendInput would otherwise target an unrelated app.
-    return foregroundPid == targetPid && (edit == IntPtr.Zero || childFocused);
+    uint currentThread = GetCurrentThreadId(); var attached = new List<uint>();
+    try {
+      foreach (uint thread in new uint[] { targetThread, foregroundThread }) {
+        if (thread != 0 && thread != currentThread && !attached.Contains(thread) && AttachThreadInput(currentThread, thread, true)) attached.Add(thread);
+      }
+      ShowWindow(hWnd, 9); BringWindowToTop(hWnd); SetForegroundWindow(hWnd); SetActiveWindow(hWnd);
+      IntPtr edit = IntPtr.Zero;
+      EnumChildWindows(hWnd, (child, data) => { var name = new StringBuilder(128); GetClassName(child, name, name.Capacity); if (name.ToString().Contains("EDIT")) { edit = child; return false; } return true; }, IntPtr.Zero);
+      if (edit == IntPtr.Zero) return false;
+      SetFocus(edit); System.Threading.Thread.Sleep(100);
+      uint foregroundPid = 0; GetWindowThreadProcessId(GetForegroundWindow(), out foregroundPid);
+      return foregroundPid == targetPid && GetFocus() == edit;
+    } finally { foreach (uint thread in attached) AttachThreadInput(currentThread, thread, false); }
   }
   public static string ReadText(IntPtr hWnd) {
     var values = new List<string>();
@@ -164,9 +191,9 @@ function Read-TargetText([IntPtr]$Handle) {
   return ($values -join "`n")
 }
 
-$artifact = [ordered]@{ status = 'FAILED'; steps = [Collections.Generic.List[string]]::new(); transcript = $null; history = $null; target_text = $null }
-$desktop = $null; $target = $null; $ownedDaemonPid = $null
-$oldIpcAddr = $env:SORI_IPC_ADDR; $oldIpcUrl = $env:SORI_IPC_URL; $oldDb = $env:SORI_DATABASE_PATH; $oldDbAlias = $env:SORI_DB_PATH; $oldEditTitle = $env:SORI_EDIT_TARGET_TITLE; $oldTestProvider = $env:SORI_TEST_PROVIDER; $oldTestText = $env:SORI_TEST_PROVIDER_TEXT; $oldNoOsInjection = $env:SORI_TEST_NO_OS_INJECTION
+$artifact = [ordered]@{ status = 'FAILED'; primary_error = $null; cleanup_errors = @(); steps = [Collections.Generic.List[string]]::new(); expected_reference = $ExpectedReference; transcript = $null; history = $null; target_text = $null }
+$desktop = $null; $target = $null; $desktopTrack = $null; $targetTrack = $null; $ownedDaemonTrack = $null; $cleanupErrors = [Collections.Generic.List[string]]::new(); $launchStarted = [DateTime]::UtcNow
+$oldIpcAddr = $env:SORI_IPC_ADDR; $oldIpcUrl = $env:SORI_IPC_URL; $oldDb = $env:SORI_DATABASE_PATH; $oldDbAlias = $env:SORI_DB_PATH; $oldEditTitle = $env:SORI_EDIT_TARGET_TITLE; $oldTestProvider = $env:SORI_TEST_PROVIDER; $oldTestText = $env:SORI_TEST_PROVIDER_TEXT; $oldNoOsInjection = $env:SORI_TEST_NO_OS_INJECTION; $oldOwnerPath = $env:SORI_DAEMON_OWNER_PATH
 try {
   Assert-EndpointFree
   $dataPath = (Resolve-Path -LiteralPath $DataRoot -ErrorAction SilentlyContinue)
@@ -175,32 +202,37 @@ try {
   Remove-Item Env:SORI_TEST_NO_OS_INJECTION -ErrorAction SilentlyContinue
   if ($DeterministicProviderText) { $env:SORI_TEST_PROVIDER = 'deterministic-sapi'; $env:SORI_TEST_PROVIDER_TEXT = $DeterministicProviderText } else { Remove-Item Env:SORI_TEST_PROVIDER -ErrorAction SilentlyContinue; Remove-Item Env:SORI_TEST_PROVIDER_TEXT -ErrorAction SilentlyContinue }
   $env:SORI_DATABASE_PATH = [IO.Path]::Combine($dataPath.Path, 'sori.db'); $env:SORI_DB_PATH = $env:SORI_DATABASE_PATH
-  $desktop = Start-Process -FilePath (Resolve-Path -LiteralPath $SoriExecutable).Path -WorkingDirectory (Split-Path -Parent (Resolve-Path -LiteralPath $SoriExecutable).Path) -PassThru
+  $desktopPath = (Resolve-Path -LiteralPath $SoriExecutable).Path
+  $desktop = Start-Process -FilePath $desktopPath -WorkingDirectory (Split-Path -Parent $desktopPath) -PassThru
+  $desktopTrack = [ordered]@{ pid = $desktop.Id; executable = $desktopPath; start_time = (Get-Process -Id $desktop.Id).StartTime.ToUniversalTime() }
   $artifact.steps.Add("started owned Sori desktop PID $($desktop.Id)")
   Start-Sleep -Seconds 4
   if ($desktop.HasExited) { Fail "Sori desktop exited with code $($desktop.ExitCode)" }
   $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
-  $daemonPath = Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $SoriExecutable).Path) 'sorid.exe'
+  $daemonPath = if ($DaemonExecutable) { $DaemonExecutable } else { Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $SoriExecutable).Path) 'sorid.exe' }
   if (-not $listener) { Fail 'installed desktop did not start sorid' }
-  $ownedDaemonPid = Get-PositiveOwnedDaemonPid -DaemonPath $daemonPath -Listener $listener
-  $artifact.steps.Add("positively correlated installed daemon PID $ownedDaemonPid")
+  $ownedDaemonTrack = Get-PositiveOwnedDaemonTrack -DaemonPath $daemonPath -Listener $listener -NotBefore $launchStarted
+  $artifact.steps.Add("positively correlated installed daemon PID $($ownedDaemonTrack.pid), creation time, executable, and lease generation")
   $models = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body (ConvertTo-Json 'Models') -TimeoutSec 5
   if (-not $models.Models.available -or -not ($models.Models.models.manifest.id -contains $Model)) { Fail "real model was not available through canonical Models IPC: $($models | ConvertTo-Json -Compress)" }
   Pass "canonical provider discovered real model $Model"
   $artifact.steps.Add('canonical Models response reported whisper.cpp and the real installed model')
   $targetFileName = "sori-native-target-$([Guid]::NewGuid().ToString('N')).txt"
-  $targetFile = Join-Path (Resolve-Path '.tmp').Path $targetFileName
+  $dataPath = (Resolve-Path -LiteralPath $DataRoot).Path
+  $targetFile = Join-Path $dataPath $targetFileName
   Set-Content -LiteralPath $targetFile -Value '' -Encoding Unicode
   if ($TargetKind -eq 'win32-edit') {
     $targetTitle = "Sori Native Edit Target-$([Guid]::NewGuid().ToString('N'))"
-    $editExecutable = Ensure-Win32EditTarget (Join-Path (Resolve-Path '.tmp').Path 'sori-native-edit-target-v3.exe')
+    $editExecutable = Ensure-Win32EditTarget (Join-Path $dataPath "sori-native-edit-target-$([Guid]::NewGuid().ToString('N')).exe")
     $env:SORI_EDIT_TARGET_TITLE = $targetTitle
     if (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq $targetTitle })) { Fail 'unique Win32 EDIT target title was already present before launch' }
     $targetLaunch = Start-Process -FilePath $editExecutable -PassThru
+    $targetTrack = [ordered]@{ pid = $targetLaunch.Id; executable = $editExecutable; start_time = (Get-Process -Id $targetLaunch.Id).StartTime.ToUniversalTime() }
   } else {
     $targetTitle = $targetFileName
     if (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "$targetFileName*" })) { Fail 'unique harness target title was already present before launch' }
     $targetLaunch = Start-Process -FilePath $TargetExecutable -ArgumentList "`"$targetFile`"" -PassThru
+    $targetTrack = [ordered]@{ pid = $targetLaunch.Id; executable = (Resolve-Path -LiteralPath $TargetExecutable).Path; start_time = (Get-Process -Id $targetLaunch.Id).StartTime.ToUniversalTime() }
   }
   for ($i=0; $i -lt 40; $i++) {
     $target = if ($TargetKind -eq 'win32-edit') { Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq $targetTitle } | Select-Object -First 1 } else { Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "$targetFileName*" } | Select-Object -First 1 }
@@ -264,12 +296,18 @@ try {
   $artifact.steps.Add('canonical RecentHistory returned persisted SQLite evidence after target readback')
   $artifact.status = 'VERIFIED'
 } catch {
-  $artifact.steps.Add("ERROR: $($_.Exception.Message)")
-  throw
+  $artifact.primary_error = $_.Exception.Message
+  $artifact.steps.Add("ERROR: $($artifact.primary_error)")
 } finally {
+  foreach ($cleanup in @(
+    @{ name = 'desktop'; track = $desktopTrack; action = { Stop-TrackedProcess $desktopTrack } },
+    @{ name = 'daemon'; track = $ownedDaemonTrack; action = { Stop-TrackedDaemon $ownedDaemonTrack } },
+    @{ name = 'target'; track = $targetTrack; action = { Stop-TrackedProcess $targetTrack } }
+  )) { if ($cleanup.track) { try { & $cleanup.action } catch { [void]$cleanupErrors.Add("$($cleanup.name): $($_.Exception.Message)") } } }
+  foreach ($pair in @(@('SORI_IPC_ADDR',$oldIpcAddr),@('SORI_IPC_URL',$oldIpcUrl),@('SORI_DATABASE_PATH',$oldDb),@('SORI_DB_PATH',$oldDbAlias),@('SORI_EDIT_TARGET_TITLE',$oldEditTitle),@('SORI_TEST_PROVIDER',$oldTestProvider),@('SORI_TEST_PROVIDER_TEXT',$oldTestText),@('SORI_TEST_NO_OS_INJECTION',$oldNoOsInjection),@('SORI_DAEMON_OWNER_PATH',$oldOwnerPath))) { try { [Environment]::SetEnvironmentVariable($pair[0], $pair[1]) } catch { [void]$cleanupErrors.Add("restore $($pair[0]): $($_.Exception.Message)") } }
+  if ($cleanupErrors.Count -gt 0) { $artifact.status = 'FAILED_CLEANUP'; $artifact.steps.Add("cleanup failures: $($cleanupErrors -join '; ')") }
+  $artifact.cleanup_errors = @($cleanupErrors)
+  $artifactDir = Split-Path -Parent $ArtifactPath; if ($artifactDir) { New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null }
   $artifact | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $ArtifactPath -Encoding UTF8
-  if ($desktop -and -not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue }
-  if ($ownedDaemonPid) { Stop-Process -Id $ownedDaemonPid -Force -ErrorAction SilentlyContinue }
-  if ($target -and -not $target.HasExited) { Stop-Process -Id $target.Id -Force -ErrorAction SilentlyContinue }
-  $env:SORI_IPC_ADDR = $oldIpcAddr; $env:SORI_IPC_URL = $oldIpcUrl; $env:SORI_DATABASE_PATH = $oldDb; $env:SORI_DB_PATH = $oldDbAlias; $env:SORI_EDIT_TARGET_TITLE = $oldEditTitle; $env:SORI_TEST_PROVIDER = $oldTestProvider; $env:SORI_TEST_PROVIDER_TEXT = $oldTestText; $env:SORI_TEST_NO_OS_INJECTION = $oldNoOsInjection
 }
+if ($artifact.primary_error -or $cleanupErrors.Count -gt 0) { exit 1 }

@@ -884,6 +884,22 @@ fn output_with_extension(path: &Path, extension: &str) -> PathBuf {
     }
 }
 
+fn whisper_creation_flags() -> u32 {
+    if cfg!(windows) { 0x0800_0000 } else { 0 }
+}
+
+fn configure_whisper_command(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(whisper_creation_flags());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
+    }
+}
+
 fn find_on_path(name: &str) -> Option<PathBuf> {
     std::env::var_os("PATH")?
         .to_string_lossy()
@@ -973,6 +989,7 @@ impl ProcessRunner for CommandProcessRunner {
             ));
         }
         let mut command = Command::new(&spec.executable);
+        configure_whisper_command(&mut command);
         command
             .args(&spec.arguments)
             .envs(spec.environment.iter())
@@ -1516,6 +1533,14 @@ mod tests {
     use super::*;
     use sori_core::{AudioFormat, ModelLicense, ProfileMode};
     use std::sync::Mutex;
+
+    #[test]
+    fn whisper_process_creation_flags_are_platform_safe() {
+        assert_eq!(
+            whisper_creation_flags(),
+            if cfg!(windows) { 0x0800_0000 } else { 0 }
+        );
+    }
 
     fn manifest(id: &str) -> ModelManifest {
         ModelManifest {

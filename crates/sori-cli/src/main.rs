@@ -4,6 +4,7 @@ use serde::Serialize;
 use sori_core::{AudioChunk, AudioFormat, ModelId, SampleFormat};
 use sori_ipc::{IpcClient, LocalIpcClient, Request, Response};
 use std::io::{self, BufRead, Write};
+use std::net::SocketAddr;
 use time::OffsetDateTime;
 
 #[derive(Debug, Parser)]
@@ -80,9 +81,9 @@ fn main() {
         | Command::History { .. }
         | Command::Dictionary
         | Command::Permissions
-        | Command::Context) => LocalIpcClient::connect()
-            .map_err(|e| anyhow::anyhow!("daemon IPC unavailable at 127.0.0.1:17373: {e}"))
-            .and_then(|client| execute(&client, command, cli.json)),
+        | Command::Context) => {
+            connect_from_environment().and_then(|client| execute(&client, command, cli.json))
+        }
         Command::Smoke {
             command: SmokeCommand::Dictation,
         } => smoke_dictation(),
@@ -93,6 +94,27 @@ fn main() {
     }
 }
 
+fn connect_from_environment() -> Result<sori_ipc::Client<LocalIpcClient>> {
+    let endpoint = endpoint_from_env(std::env::var("SORI_IPC_ADDR").ok().as_deref())?;
+    LocalIpcClient::connect_to(endpoint)
+        .map_err(|error| anyhow::anyhow!("daemon IPC unavailable at {endpoint}: {error}"))
+}
+fn endpoint_from_env(value: Option<&str>) -> Result<SocketAddr> {
+    value
+        .map(|value| {
+            value
+                .parse::<SocketAddr>()
+                .with_context(|| format!("invalid SORI_IPC_ADDR: {value}"))
+        })
+        .transpose()
+        .map(|endpoint| {
+            endpoint.unwrap_or_else(|| {
+                sori_ipc::DEFAULT_ENDPOINT
+                    .parse()
+                    .expect("valid default endpoint")
+            })
+        })
+}
 fn execute(client: &impl IpcClient, command: Command, json: bool) -> Result<()> {
     match command {
         Command::Status => print_response(client.request(Request::Status)?, json),
@@ -311,5 +333,18 @@ mod tests {
         // MockIpcServer returns a Resource response, proving this path does not
         // read local fixtures or manufacture command output.
         assert!(resource(&server.client(), "permissions", true).is_ok());
+    }
+
+    #[test]
+    fn cli_endpoint_honors_isolated_ipc_address() {
+        assert_eq!(
+            endpoint_from_env(Some("127.0.0.1:17488")).unwrap().port(),
+            17488
+        );
+        assert!(endpoint_from_env(Some("not-an-endpoint")).is_err());
+        assert_eq!(
+            endpoint_from_env(None).unwrap().to_string(),
+            "127.0.0.1:17373"
+        );
     }
 }

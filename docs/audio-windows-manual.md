@@ -58,3 +58,26 @@ text is compared literally after only CRLF normalization and trimming.
 Missing physical evidence is `BLOCKED` or `PARTIAL`, never a synthetic
 success; the Tauri webview refresh is recorded as unverified when it cannot
 be observed safely.
+
+## Wave 4 local Whisper/SAPI probe
+
+Run `npm run probe:windows-whisper` on the Windows captain machine. The probe
+only inspects already-owned `whisper-cli.exe`/`main.exe`, a non-empty local
+`*.bin` model, and the locally generated SAPI corpus. It never downloads or
+copies assets and its committed-safe JSON artifact contains no private paths.
+
+When all prerequisites and daemon IPC are available, each corpus fixture is
+sent through the canonical `sori benchmark` command and reports provider,
+latency, RTF, WER, and CER. Otherwise it exits with
+`BLOCKED_PREREQUISITES` and lists the exact environment/configuration or
+captain action required. A blocked or partial result is not readiness evidence.
+
+Generate the corpus only when needed, then verify it before rerunning:
+
+```powershell
+./scripts/windows-audio-fixture-corpus.ps1
+./scripts/windows-audio-fixture-corpus-verify.ps1
+```
+
+The probe does not synthesize microphone, keyboard, focus, or insertion input;
+those remain covered only by the user-operated physical acceptance gate.

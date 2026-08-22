@@ -3,16 +3,16 @@ import { HistoryItem } from '../../types';
 import type { RuntimeClient } from '../../runtime-client';
 import { AlertCircle, ChevronLeft, ChevronRight, Clock3, Copy, Filter, Search, Volume2, X } from 'lucide-react';
 
-interface TranscriptsScreenProps { history: HistoryItem[]; setHistory: React.Dispatch<React.SetStateAction<HistoryItem[]>>; runtimeClient: RuntimeClient; onReinsert?: (text: string) => void; onRetry?: () => Promise<boolean>; loadState?: 'loading' | 'ready' | 'error'; }
+interface TranscriptsScreenProps { history: HistoryItem[]; setHistory: React.Dispatch<React.SetStateAction<HistoryItem[]>>; runtimeClient: RuntimeClient; onReinsert?: (text: string) => void; onRetry?: () => Promise<boolean>; onRefreshAfterMutation?: () => Promise<boolean>; loadState?: 'loading' | 'ready' | 'error'; }
 type ViewState = 'normal' | 'loading' | 'empty' | 'error';
 const bars = [35, 62, 42, 78, 54, 88, 46, 67, 32, 72, 92, 48, 64, 38, 80, 56, 28, 70, 45, 85, 58, 36, 76, 50, 66, 40, 88, 52, 32, 70];
 
-export const TranscriptsScreen: React.FC<TranscriptsScreenProps> = ({ history, setHistory, runtimeClient, onReinsert, onRetry, loadState = 'ready' }) => {
+export const TranscriptsScreen: React.FC<TranscriptsScreenProps> = ({ history, setHistory, runtimeClient, onReinsert, onRetry, onRefreshAfterMutation, loadState = 'ready' }) => {
   const [deleteState, setDeleteState] = useState<{ id: string; phase: 'loading' | 'error'; detail?: string } | null>(null); const [query, setQuery] = useState(''); const [appFilter, setAppFilter] = useState('all'); const [selectedId, setSelectedId] = useState<string | null>(history[0]?.id ?? null); const [copied, setCopied] = useState<string | null>(null); const [page, setPage] = useState(1);
   const filtered = useMemo(() => history.filter((item) => (item.processedText + item.rawTranscript + item.activeApp).toLowerCase().includes(query.toLowerCase()) && (appFilter === 'all' || item.activeApp.toLowerCase().includes(appFilter))), [history, query, appFilter]);
   const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null;
   const copyText = async (text: string, id: string) => { try { await navigator.clipboard.writeText(text); setCopied(id); window.setTimeout(() => setCopied(''), 1400); } catch { setCopied(''); } };
-  const remove = async (id: string) => { if (deleteState) return; setDeleteState({ id, phase: 'loading' }); const result = await runtimeClient.deleteHistory(id); if (result.error || !result.data.accepted) { setDeleteState({ id, phase: 'error', detail: result.error ?? result.data.detail }); return; } setHistory((items) => items.filter((item) => item.id !== id)); setSelectedId((current) => current === id ? null : current); setDeleteState(null); };
+  const remove = async (id: string) => { if (deleteState) return; setDeleteState({ id, phase: 'loading' }); const result = await runtimeClient.deleteHistory(id); if (result.error || !result.data.accepted) { setDeleteState({ id, phase: 'error', detail: result.error ?? result.data.detail }); return; } const refreshed = onRefreshAfterMutation ? await onRefreshAfterMutation() : true; if (!refreshed) { setDeleteState({ id, phase: 'error', detail: 'Transcript was deleted, but the authoritative history could not be refreshed. Retry history loading.' }); return; } setSelectedId((current) => current === id ? null : current); setDeleteState(null); };
   const deleteBusy = deleteState?.phase === 'loading';
   const displayState: ViewState = loadState === 'loading' ? 'loading' : loadState === 'error' ? 'error' : history.length === 0 ? 'empty' : 'normal';
 

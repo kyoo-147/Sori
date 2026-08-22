@@ -57,6 +57,14 @@ async function terminateKnownDaemon(child: ChildProcess, force = true): Promise<
   for (let i = 0; i < 40 && child.exitCode === null; i += 1) await delay(50);
 }
 
+async function waitForExit(child: ChildProcess, limitMs: number): Promise<number | null> {
+  if (child.exitCode !== null) return child.exitCode;
+  return Promise.race([
+    new Promise<number>((resolveExit) => child.once('close', (code) => resolveExit(code ?? 1))),
+    delay(limitMs).then(() => null),
+  ]);
+}
+
 async function stop(child: ChildProcess): Promise<void> {
   await terminateKnownDaemon(child, false);
   if (child.exitCode === null) await terminateKnownDaemon(child, true);
@@ -117,6 +125,14 @@ async function main(): Promise<void> {
   mkdirSync(artifactDir, { recursive: true });
   const db = join(resolve('.tmp'), `sori-reliability-${process.pid}.db`);
   let daemon = await launch(db);
+  const occupied = spawn(binary('sorid'), [], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host, SORI_DATABASE_PATH: db, SORI_DB_PATH: db, SORI_E2E: '1' },
+    shell: false,
+  });
+  const occupiedExit = await waitForExit(occupied, 3_000);
+  if (occupiedExit === null) await terminateKnownDaemon(occupied, true);
+  record({ name: 'occupied endpoint fails closed', status: occupiedExit !== null && occupiedExit !== 0 ? 'PASS' : 'FAIL', detail: occupiedExit === null ? 'second owned daemon did not reject the occupied endpoint before deadline' : `second owned daemon exited with code ${occupiedExit}`, evidence: { exitCode: occupiedExit } });
   try {
     const samples: number[] = [];
     for (let i = 0; i < 20; i += 1) samples.push((await request('Status')).durationMs);
@@ -127,21 +143,36 @@ async function main(): Promise<void> {
     const doctor = await request('Doctor');
     record({ name: 'doctor and failure diagnostics', status: doctor.ok ? 'PASS' : 'FAIL', detail: `real daemon response in ${doctor.durationMs}ms`, durationMs: doctor.durationMs, evidence: doctor.json });
 
+    const unavailableModel = await request(JSON.stringify({ ModelStatus: { model: '__sori_missing_model__' } }));
+    record({ name: 'unavailable model fails closed', status: !unavailableModel.ok || (typeof unavailableModel.json === 'object' && unavailableModel.json !== null && Object.prototype.hasOwnProperty.call(unavailableModel.json, 'Error')) ? 'PASS' : 'FAIL', detail: `missing-model probe returned ${unavailableModel.ok ? 'a response' : 'an error'} in ${unavailableModel.durationMs}ms`, evidence: unavailableModel.json });
+
     const memoryBefore = workingSetKb(daemon.pid);
+    const memorySamples: Array<number | undefined> = [memoryBefore];
     const cycles: unknown[] = [];
-    for (let i = 0; i < 5; i += 1) {
+    const requestedCycles = Number(process.env.SORI_E2E_CYCLES ?? 20);
+    const cycleCount = Number.isFinite(requestedCycles) ? Math.min(50, Math.max(10, Math.floor(requestedCycles))) : 20;
+    for (let i = 0; i < cycleCount; i += 1) {
       const start = await request('DictationStart');
       const cancel = start.ok ? await request('DictationCancel') : undefined;
       cycles.push({ start, cancel });
+      memorySamples.push(workingSetKb(daemon.pid));
     }
     const successfulCycles = cycles.filter((cycle) => {
       const value = cycle as { start: { ok: boolean; json: unknown }; cancel?: { ok: boolean; json: unknown } };
       return accepted(value.start) && accepted(value.cancel);
     }).length;
     const captureBlocker = cycles.find((cycle) => !accepted((cycle as { cancel?: { ok: boolean; json: unknown } }).cancel));
-    record({ name: 'repeated dictation cancellation', status: successfulCycles === 5 ? 'PASS' : 'UNVERIFIED', detail: `${successfulCycles}/5 real sorid start/cancel requests completed; native capture blocker=${captureBlocker ? JSON.stringify(captureBlocker) : 'none'}`, evidence: cycles });
+    record({ name: 'repeated dictation cancellation', status: successfulCycles === cycleCount ? 'PASS' : 'UNVERIFIED', detail: `${successfulCycles}/${cycleCount} real sorid start/cancel requests completed; native capture blocker=${captureBlocker ? JSON.stringify(captureBlocker) : 'none'}`, evidence: { cycleCount, cycles } });
+
+    const rapidStarts = await Promise.all([request('DictationStart'), request('DictationStart')]);
+    const rapidAccepted = rapidStarts.filter(accepted).length;
+    if (rapidAccepted > 0) await request('DictationCancel');
+    record({ name: 'rapid concurrent start serialization', status: rapidAccepted <= 1 ? 'PASS' : 'FAIL', detail: `${rapidAccepted}/2 concurrent starts accepted; at most one session may own capture`, evidence: rapidStarts });
     const memoryAfter = workingSetKb(daemon.pid);
-    record({ name: 'memory growth observation', status: memoryBefore !== undefined && memoryAfter !== undefined ? 'PASS' : 'UNVERIFIED', detail: memoryBefore !== undefined && memoryAfter !== undefined ? `working set ${memoryBefore}KB -> ${memoryAfter}KB after five cycles` : 'Windows working-set sampling unavailable on this host', evidence: { memoryBefore, memoryAfter } });
+    const memoryDelta = memoryBefore !== undefined && memoryAfter !== undefined ? memoryAfter - memoryBefore : undefined;
+    const memoryBudget = memoryBefore !== undefined ? Math.max(8_192, Math.round(memoryBefore * 0.25)) : undefined;
+    const memoryStatus = memoryDelta === undefined || memoryBudget === undefined ? 'UNVERIFIED' : memoryDelta <= memoryBudget ? 'PASS' : 'FAIL';
+    record({ name: 'memory growth observation', status: memoryStatus, detail: memoryDelta !== undefined && memoryBudget !== undefined ? `working set ${memoryBefore}KB -> ${memoryAfter}KB after ${cycleCount} cycles (delta=${memoryDelta}KB, budget=${memoryBudget}KB)` : 'Windows working-set sampling unavailable on this host', evidence: { memoryBefore, memoryAfter, memoryDelta, memoryBudget, memorySamples, cycleCount } });
 
     const start = await request('DictationStart');
     const captureWaitMs = Number(process.env.SORI_E2E_CAPTURE_MS ?? 100);

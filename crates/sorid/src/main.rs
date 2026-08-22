@@ -630,13 +630,26 @@ async fn main() -> Result<()> {
                 Response::Status(slot.as_ref().map(|runtime| status_response(runtime, &config_snapshot, privacy)).unwrap_or_else(|| busy_status_response(&config_snapshot, privacy)))
             }
             Request::DictationStart => {
+                // Reserve the cancellation slot only after confirming that no
+                // dictation owns the runtime. A rejected rapid second start
+                // must never replace the token used by the active session;
+                // otherwise DictationCancel can acknowledge cancellation
+                // while the real provider keeps running.
+                {
+                    let active = handler_dictation_cancellation
+                        .lock()
+                        .map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))?;
+                    if active.is_some() {
+                        return Err(sori_ipc::IpcError::Transport("dictation session is already active; cancel or stop it before starting again".into()));
+                    }
+                }
                 let cancellation = CancellationToken::new();
-                *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = Some(cancellation.clone());
                 let mut runtime = handler_runtime
                     .try_lock()
                     .map_err(|_| sori_ipc::IpcError::Transport("runtime operation is busy; retry shortly".into()))?
                     .take()
                     .ok_or_else(|| sori_ipc::IpcError::Transport("runtime operation in progress".into()))?;
+                *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = Some(cancellation.clone());
                 if let Err(error) = runtime.start_audio() {
                     handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.replace(runtime);
                     *handler_dictation_cancellation.lock().map_err(|_| sori_ipc::IpcError::Transport("dictation cancellation lock poisoned".into()))? = None;

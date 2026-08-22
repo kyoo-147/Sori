@@ -138,7 +138,7 @@ try {
   $missingDoctorChecks = @($requiredDoctorChecks | Where-Object { $name = $_; -not (@($checks | Where-Object { $_.name -eq $name -and $_.ok }).Count) })
   if ($missingDoctorChecks.Count -gt 0) { Fail "Doctor did not provide green capability checks: $($missingDoctorChecks -join ', ')" }
   if ($status.Status.hotkey -ne $Hotkey) { Fail "runtime hotkey '$($status.Status.hotkey)' does not equal requested -Hotkey '$Hotkey'" }
-  $permissionResponse = $artifact.preflight.permissions.Resource
+  $permissionResponse = if ($artifact.preflight.permissions -and $artifact.preflight.permissions.PSObject.Properties['Resource']) { $artifact.preflight.permissions.Resource } else { $null }
   $artifact.preflight.permissions_state = if ($permissionResponse -and $permissionResponse.resource -eq 'permissions') { if (@($permissionResponse.value).Count -eq 0) { 'empty_default_not_a_capability_gate' } else { 'recorded_only' } } else { 'unavailable_not_a_capability_gate' }
   $onboardingResponse = if ($artifact.preflight.onboarding) { $artifact.preflight.onboarding.Resource } else { $null }
   if ($onboardingResponse -and $onboardingResponse.resource -eq 'onboarding' -and $null -ne $onboardingResponse.value) { $artifact.preflight.onboarding_state = $onboardingResponse.value }

@@ -15,6 +15,8 @@ describe('Wave 3 Windows acceptance safety contract', () => {
     expect(source).not.toContain('function Get-OwnedDaemon');
     expect((source.match(/function Normalize-Text/g) ?? []).length).toBe(1);
     expect((source.match(/preflight\.permissions = Invoke-Ipc/g) ?? []).length).toBe(1);
+    expect((source.match(/preflight\.permissions = Invoke-Ipc/g) ?? []).length).toBe(1);
+    expect(source).toContain("$artifact.preflight.permissions.PSObject.Properties['Resource']");
     expect(source).not.toContain('Stop-Process -Id $oldDaemonPid');
   });
 

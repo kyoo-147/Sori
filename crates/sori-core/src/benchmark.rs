@@ -250,20 +250,7 @@ pub fn run_benchmark_with_options(
     let runtime_sha256 = std::env::var("SORI_RUNTIME_SHA256")
         .ok()
         .filter(|value| !value.is_empty());
-    let mut input_digest = sha2::Sha256::new();
-    for chunk in &input.audio {
-        for sample in &chunk.samples {
-            input_digest.update(sample.to_le_bytes());
-        }
-    }
-    if let Some(reference) = &input.reference {
-        input_digest.update(reference.as_bytes());
-    }
-    if let Some(format) = &first_format {
-        input_digest.update(format.sample_rate_hz.to_le_bytes());
-        input_digest.update(format.channels.to_le_bytes());
-        input_digest.update([format.sample_format as u8]);
-    }
+    let input_fingerprint = benchmark_input_fingerprint(input);
     let mut unavailable_reasons = Vec::new();
     if model_sha256.is_none() {
         unavailable_reasons
@@ -332,11 +319,38 @@ pub fn run_benchmark_with_options(
                 .filter(|value| !value.is_empty()),
             model_sha256,
             runtime_sha256,
-            input_fingerprint: Some(format!("{:x}", input_digest.finalize())),
+            input_fingerprint: Some(input_fingerprint),
             unavailable_reasons,
         },
     })
 }
+
+/// Hash the complete benchmark input using length-delimited fields. Framing
+/// prevents ambiguity and includes every chunk's format, not only the first.
+fn benchmark_input_fingerprint(input: &BenchmarkInput) -> String {
+    let mut digest = sha2::Sha256::new();
+    digest.update(b"sori-benchmark-input-v1\0");
+    digest.update((input.audio.len() as u64).to_le_bytes());
+    for chunk in &input.audio {
+        digest.update(chunk.format.sample_rate_hz.to_le_bytes());
+        digest.update(chunk.format.channels.to_le_bytes());
+        digest.update([chunk.format.sample_format as u8]);
+        digest.update((chunk.samples.len() as u64).to_le_bytes());
+        for sample in &chunk.samples {
+            digest.update(sample.to_le_bytes());
+        }
+    }
+    match &input.reference {
+        Some(reference) => {
+            digest.update([1]);
+            digest.update((reference.len() as u64).to_le_bytes());
+            digest.update(reference.as_bytes());
+        }
+        None => digest.update([0]),
+    }
+    format!("{:x}", digest.finalize())
+}
+
 fn words(s: &str) -> Vec<String> {
     s.split_whitespace().map(|w| w.to_lowercase()).collect()
 }
@@ -511,5 +525,45 @@ mod tests {
     fn empty_reference_is_explicit_zero_or_full() {
         assert_eq!(error_rate::<char>(&[], &[]), 0.0);
         assert_eq!(error_rate::<char>(&[], &['x']), 1.0);
+    }
+
+    #[test]
+    fn input_fingerprint_frames_reference_presence() {
+        let without_reference = BenchmarkInput {
+            model: ModelId::from("x"),
+            audio: audio(),
+            reference: None,
+            iterations: 2,
+        };
+        let mut with_empty_reference = without_reference.clone();
+        with_empty_reference.reference = Some(String::new());
+        assert_ne!(
+            benchmark_input_fingerprint(&without_reference),
+            benchmark_input_fingerprint(&with_empty_reference)
+        );
+    }
+
+    #[test]
+    fn input_fingerprint_includes_every_audio_chunk_format() {
+        let mut first = audio();
+        let mut second = audio();
+        second[0].format.sample_rate_hz = 200;
+        first.extend(second);
+        let mut changed = first.clone();
+        changed[1].format.sample_rate_hz = 300;
+        assert_ne!(
+            benchmark_input_fingerprint(&BenchmarkInput {
+                model: ModelId::from("x"),
+                audio: first,
+                reference: None,
+                iterations: 2,
+            }),
+            benchmark_input_fingerprint(&BenchmarkInput {
+                model: ModelId::from("x"),
+                audio: changed,
+                reference: None,
+                iterations: 2,
+            })
+        );
     }
 }

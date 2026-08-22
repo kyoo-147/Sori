@@ -372,6 +372,10 @@ async function main(): Promise<void> {
     SORI_DAEMON_OWNER_PATH: isolatedPaths.owner,
     ...(installedExecutable ? {} : { SORI_DAEMON_PATH: daemonPath }),
   };
+  delete isolatedEnv.SORI_TEST_PROVIDER;
+  delete isolatedEnv.SORI_TEST_PROVIDER_TEXT;
+  delete isolatedEnv.SORI_TEST_NO_OS_INJECTION;
+  if (installedExecutable) delete isolatedEnv.SORI_DAEMON_PATH;
   const daemon = spawn(daemonPath, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: isolatedEnv });
   daemon.stdout?.on('data', (chunk) => process.stdout.write(`[sorid] ${chunk}`));
   daemon.stderr?.on('data', (chunk) => process.stderr.write(`[sorid] ${chunk}`));

@@ -79,13 +79,19 @@ impl DaemonSupervisor {
         { let _ = pid; Some(0) }
     }
 
+    fn canonical_executable_match(owner: &std::path::Path, daemon: &std::path::Path) -> bool {
+        let Ok(owner) = std::fs::canonicalize(owner) else { return false; };
+        let Ok(daemon) = std::fs::canonicalize(daemon) else { return false; };
+        owner == daemon
+    }
+
     fn owned_endpoint(endpoint: std::net::SocketAddr, daemon: &std::path::Path) -> Result<bool, String> {
         let owner = Self::read_owner(&Self::owner_path()?)?;
         Ok(owner.is_some_and(|owner| owner.endpoint == endpoint.to_string()
             && owner.pid != 0
             && owner.lease_id.len() >= 16
             && Self::process_start_time(owner.pid) == Some(owner.process_start_time)
-            && std::fs::canonicalize(owner.executable).ok() == std::fs::canonicalize(daemon).ok()))
+            && Self::canonical_executable_match(std::path::Path::new(&owner.executable), daemon)))
     }
 
     fn whisper_runtime_diagnostic(configured: bool) -> Option<&'static str> {
@@ -185,7 +191,7 @@ impl DaemonSupervisor {
         let Some(owner) = Self::read_owner(&Self::owner_path()?)? else { return Ok(None); };
         Ok((owner.pid == child_pid
             && owner.process_start_time == Self::process_start_time(child_pid).unwrap_or(u64::MAX)
-            && std::fs::canonicalize(&owner.executable).ok() == std::fs::canonicalize(daemon).ok())
+            && Self::canonical_executable_match(std::path::Path::new(&owner.executable), daemon))
         .then_some(owner))
     }
 
@@ -208,13 +214,14 @@ impl DaemonSupervisor {
         };
         let child_pid = child.id();
         let daemon = Self::daemon_path(self.resource_dir.lock().ok().and_then(|dir| dir.as_deref().map(PathBuf::from)).as_deref());
-        let owner_snapshot = Self::owner_for_child(child_pid, &daemon)?;
+        let owner_snapshot = Self::owner_for_child(child_pid, &daemon);
         if child.try_wait().ok().flatten().is_none() {
             let _ = child.kill();
             let _ = child.wait();
         }
         // sorid owns lease cleanup; the shell must not delete another
         // generation's lease or touch an unknown process.
+        let owner_snapshot = owner_snapshot?;
         if let Some(snapshot) = owner_snapshot {
             Self::remove_owner_if_current(&Self::owner_path()?, &snapshot)?;
         }
@@ -527,6 +534,13 @@ mod supervisor_tests {
         let error = super::DaemonSupervisor::owner_path_from_override(Some(directory.clone().into_os_string())).unwrap_err();
         assert!(error.contains("absolute file path"));
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn executable_ownership_requires_both_paths_to_canonicalize() {
+        let missing_a = std::env::temp_dir().join(format!("sori-missing-a-{}", std::process::id()));
+        let missing_b = std::env::temp_dir().join(format!("sori-missing-b-{}", std::process::id()));
+        assert!(!super::DaemonSupervisor::canonical_executable_match(&missing_a, &missing_b));
     }
 }
 

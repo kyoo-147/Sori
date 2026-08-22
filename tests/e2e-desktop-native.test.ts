@@ -17,12 +17,17 @@ describe('installed native acceptance isolation', () => {
     expect(source).toContain('process.env.SORI_DESKTOP_EXECUTABLE');
     expect(source).toContain("resolve(dirname(app), 'sorid.exe')");
     expect(source).toContain('SORI_DAEMON_OWNER_PATH: isolatedPaths.owner');
+    expect(source).toContain('delete isolatedEnv.SORI_DAEMON_PATH');
+    expect(source).toContain('delete isolatedEnv.SORI_TEST_PROVIDER');
     expect(source).toContain('SORI_DATABASE_PATH: isolatedPaths.database');
     expect(source).toContain('spawn(daemonPath, [], { stdio: [\'ignore\', \'pipe\', \'pipe\'], shell: false, env: isolatedEnv })');
     expect(source).toContain('spawn(app, [], { stdio: [\'ignore\', \'pipe\', \'pipe\'], shell: false, env: isolatedEnv })');
     expect(source).toContain('rmSync(runRoot, { recursive: true, force: true })');
     const tauriSource = readFileSync(resolve('apps/desktop/src-tauri/src/lib.rs'), 'utf8');
     expect(tauriSource).toContain('SORI_DAEMON_OWNER_PATH');
+    expect(tauriSource).toContain('canonical_executable_match');
+    expect(tauriSource).not.toContain('canonicalize(owner.executable).ok() == canonicalize(daemon).ok()');
+    expect(tauriSource.indexOf('let owner_snapshot = Self::owner_for_child')).toBeLessThan(tauriSource.indexOf('let _ = child.kill()'));
     const previous = process.env.SORI_DESKTOP_EXECUTABLE;
     process.env.SORI_DESKTOP_EXECUTABLE = '.tmp/installed/sori-desktop.exe';
     try {

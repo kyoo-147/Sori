@@ -48,6 +48,10 @@ captain to focus that target, press the configured hotkey, speak one known
 sentence, and release. It never synthesizes focus, keys, audio, or clipboard
 input. The JSON artifact requires a new SQLite history row, matching transcript
 and inserted text, route-level HWND/PID evidence, visible EDIT readback, and
-daemon restart persistence. Missing physical evidence is `BLOCKED` or
-`PARTIAL`, never a synthetic success; the Tauri webview refresh is recorded as
-unverified when it cannot be observed safely.
+daemon restart persistence. The endpoint must be free before launch; only
+processes correlated to this invocation's lease/PID/start-time are stopped.
+Restart requires a new listener, daemon PID, and lease generation. Expected
+text is compared literally after only CRLF normalization and trimming.
+Missing physical evidence is `BLOCKED` or `PARTIAL`, never a synthetic
+success; the Tauri webview refresh is recorded as unverified when it cannot
+be observed safely.

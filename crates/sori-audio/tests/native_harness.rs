@@ -77,9 +77,11 @@ fn native_device_capture_reports_signal_and_can_reach_whisper() {
         format.map_or(0, |value| value.sample_rate_hz),
         format.map_or(0, |value| value.channels),
     );
-    assert!(chunks
-        .iter()
-        .all(|chunk| chunk.format.sample_rate_hz == 16_000));
+    assert!(
+        chunks
+            .iter()
+            .all(|chunk| chunk.format.sample_rate_hz == 16_000)
+    );
     assert!(chunks.iter().all(|chunk| chunk.format.channels == 1));
     assert!(!chunks.is_empty(), "native stream produced no audio chunks");
 

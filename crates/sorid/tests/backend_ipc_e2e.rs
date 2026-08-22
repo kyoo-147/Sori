@@ -23,6 +23,10 @@ use time::OffsetDateTime;
 
 const MODEL: &str = "fake-whisper";
 
+fn owner_path(label: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("sori-{label}-owner-{}.json", uuid::Uuid::new_v4()))
+}
+
 struct KillOnDrop(Option<Child>);
 impl Drop for KillOnDrop {
     fn drop(&mut self) {
@@ -766,10 +770,12 @@ async fn daemon_setting_delete_resets_live_state_and_survives_restart() {
         .unwrap()
         .port();
     let endpoint = format!("127.0.0.1:{port}");
+    let daemon_owner = owner_path("setting-delete");
     let start = || {
         Command::new(env!("CARGO_BIN_EXE_sorid"))
             .env("SORI_DATABASE_PATH", &database)
             .env("SORI_IPC_ADDR", &endpoint)
+            .env("SORI_DAEMON_OWNER_PATH", &daemon_owner)
             .env("SORI_HOTKEY_OVERRIDE", "Alt+Space")
             .env_remove("SORI_WHISPER_CPP_BIN")
             .spawn()
@@ -868,9 +874,11 @@ fn real_daemon_rejects_blank_deterministic_provider_text() {
             .unwrap()
             .port()
     );
+    let daemon_owner = owner_path("blank-provider");
     let mut child = Command::new(env!("CARGO_BIN_EXE_sorid"))
         .env("SORI_DATABASE_PATH", &database)
         .env("SORI_IPC_ADDR", &endpoint)
+        .env("SORI_DAEMON_OWNER_PATH", &daemon_owner)
         .env("SORI_TEST_PROVIDER", "deterministic-sapi")
         .env("SORI_TEST_PROVIDER_TEXT", " \t\r\n")
         .spawn()
@@ -904,10 +912,12 @@ fn real_daemon_deterministic_audio_persists_exact_transcript_across_restart() {
             .unwrap()
             .port()
     );
+    let daemon_owner = owner_path("installed-provider");
     let start = || {
         Command::new(env!("CARGO_BIN_EXE_sorid"))
             .env("SORI_DATABASE_PATH", &database)
             .env("SORI_IPC_ADDR", &endpoint)
+            .env("SORI_DAEMON_OWNER_PATH", &daemon_owner)
             .env("SORI_TEST_PROVIDER", "deterministic-sapi")
             .env("SORI_TEST_PROVIDER_TEXT", expected)
             .env("SORI_TEST_NO_OS_INJECTION", "1")
@@ -1007,10 +1017,12 @@ fn real_daemon_rejects_partial_deterministic_provider_config() {
                 .unwrap()
                 .port()
         );
+        let daemon_owner = owner_path(name);
         let mut command = Command::new(env!("CARGO_BIN_EXE_sorid"));
         command
             .env("SORI_DATABASE_PATH", &database)
-            .env("SORI_IPC_ADDR", &endpoint);
+            .env("SORI_IPC_ADDR", &endpoint)
+            .env("SORI_DAEMON_OWNER_PATH", &daemon_owner);
         if present == "SORI_TEST_PROVIDER" {
             command.env("SORI_TEST_PROVIDER", "deterministic-sapi");
         } else {

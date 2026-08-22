@@ -2,11 +2,13 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex as StdMutex;
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct DaemonOwner {
     endpoint: String,
     pid: u32,
     executable: String,
+    process_start_time: u64,
+    lease_id: String,
 }
 
 struct DaemonSupervisor {
@@ -31,11 +33,32 @@ impl DaemonSupervisor {
         PathBuf::from("sori-daemon-owner.json")
     }
 
+    fn process_start_time(pid: u32) -> Option<u64> {
+        #[cfg(windows)]
+        {
+            use windows::Win32::Foundation::{CloseHandle, FILETIME};
+            use windows::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+            let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()? };
+            let mut creation = FILETIME::default();
+            let mut exit = FILETIME::default();
+            let mut kernel = FILETIME::default();
+            let mut user = FILETIME::default();
+            let result = unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user).ok() };
+            unsafe { let _ = CloseHandle(process); }
+            result?;
+            Some((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
+        }
+        #[cfg(not(windows))]
+        { let _ = pid; Some(0) }
+    }
+
     fn owned_endpoint(endpoint: std::net::SocketAddr, daemon: &std::path::Path) -> bool {
         let Ok(value) = std::fs::read_to_string(Self::owner_path()) else { return false; };
         let Ok(owner) = serde_json::from_str::<DaemonOwner>(&value) else { return false; };
         owner.endpoint == endpoint.to_string()
             && owner.pid != 0
+            && owner.lease_id.len() >= 16
+            && Self::process_start_time(owner.pid) == Some(owner.process_start_time)
             && std::fs::canonicalize(owner.executable).ok() == std::fs::canonicalize(daemon).ok()
     }
 
@@ -131,6 +154,28 @@ impl DaemonSupervisor {
         self.start(resource_dir.as_deref())?;
         Ok(endpoint)
     }
+    fn owner_for_child(child_pid: u32, daemon: &std::path::Path) -> Option<DaemonOwner> {
+        let value = std::fs::read_to_string(Self::owner_path()).ok()?;
+        let owner = serde_json::from_str::<DaemonOwner>(&value).ok()?;
+        (owner.pid == child_pid
+            && owner.process_start_time == Self::process_start_time(child_pid).unwrap_or(u64::MAX)
+            && std::fs::canonicalize(&owner.executable).ok() == std::fs::canonicalize(daemon).ok())
+        .then_some(owner)
+    }
+
+    fn owner_snapshot_is_current(snapshot: &DaemonOwner, current: Option<&DaemonOwner>) -> bool {
+        current == Some(snapshot)
+    }
+
+    fn remove_owner_if_current(path: &std::path::Path, snapshot: &DaemonOwner) {
+        let current = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|value| serde_json::from_str::<DaemonOwner>(&value).ok());
+        if Self::owner_snapshot_is_current(snapshot, current.as_ref()) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
     fn stop(&self) {
         let Ok(mut child) = self.child.lock() else {
             return;
@@ -138,11 +183,18 @@ impl DaemonSupervisor {
         let Some(mut child) = child.take() else {
             return;
         };
+        let child_pid = child.id();
+        let daemon = Self::daemon_path(self.resource_dir.lock().ok().and_then(|dir| dir.as_deref().map(PathBuf::from)).as_deref());
+        let owner_snapshot = Self::owner_for_child(child_pid, &daemon);
         if child.try_wait().ok().flatten().is_none() {
             let _ = child.kill();
             let _ = child.wait();
         }
-        let _ = std::fs::remove_file(Self::owner_path());
+        // sorid owns lease cleanup; the shell must not delete another
+        // generation's lease or touch an unknown process.
+        if let Some(snapshot) = owner_snapshot {
+            Self::remove_owner_if_current(&Self::owner_path(), &snapshot);
+        }
     }
 }
 #[cfg(windows)]
@@ -412,6 +464,22 @@ mod supervisor_tests {
     fn endpoint_accepts_isolated_loopback_recovery_port() {
         let endpoint = super::DaemonSupervisor::parse_endpoint(Some("127.0.0.1:17375".into())).unwrap();
         assert_eq!(endpoint.port(), 17375);
+    }
+
+    #[test]
+    fn newer_same_pid_and_executable_lease_survives_stop_cleanup() {
+        let old = super::DaemonOwner {
+            endpoint: "127.0.0.1:17373".into(), pid: 7, executable: "sorid.exe".into(),
+            process_start_time: 1, lease_id: "old-generation-1234".into(),
+        };
+        let newer = super::DaemonOwner { lease_id: "new-generation-1234".into(), ..old.clone() };
+        assert!(!super::DaemonSupervisor::owner_snapshot_is_current(&old, Some(&newer)));
+        assert!(super::DaemonSupervisor::owner_snapshot_is_current(&old, Some(&old)));
+        let path = std::env::temp_dir().join(format!("sori-owner-newer-{}.json", std::process::id()));
+        std::fs::write(&path, serde_json::to_vec(&newer).unwrap()).unwrap();
+        super::DaemonSupervisor::remove_owner_if_current(&path, &old);
+        assert!(path.exists());
+        std::fs::remove_file(path).unwrap();
     }
 }
 

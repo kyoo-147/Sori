@@ -1,22 +1,198 @@
-fn daemon_owner_path() -> std::path::PathBuf {
-    if let Some(root) = std::env::var_os("LOCALAPPDATA") {
-        return std::path::PathBuf::from(root)
-            .join("Sori")
-            .join("daemon-owner.json");
+fn validate_owner_override(path: std::path::PathBuf) -> Result<std::path::PathBuf> {
+    if !path.is_absolute() || path.file_name().is_none() || (path.exists() && path.is_dir()) {
+        anyhow::bail!("SORI_DAEMON_OWNER_PATH must be an absolute file path, not a directory")
     }
-    std::path::PathBuf::from("sori-daemon-owner.json")
+    Ok(path)
 }
 
-fn write_daemon_owner(endpoint: SocketAddr) -> Result<std::path::PathBuf> {
-    let path = daemon_owner_path();
+fn daemon_owner_path() -> Result<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("SORI_DAEMON_OWNER_PATH") {
+        return validate_owner_override(std::path::PathBuf::from(path));
+    }
+    if let Some(root) = std::env::var_os("LOCALAPPDATA") {
+        return Ok(std::path::PathBuf::from(root)
+            .join("Sori")
+            .join("daemon-owner.json"));
+    }
+    Ok(std::path::PathBuf::from("sori-daemon-owner.json"))
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+struct DaemonOwner {
+    endpoint: String,
+    pid: u32,
+    executable: String,
+    process_start_time: u64,
+    lease_id: String,
+}
+
+fn process_start_time() -> Result<u64> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+        let mut creation = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let mut exit = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let mut kernel = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let mut user = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        if unsafe {
+            GetProcessTimes(
+                GetCurrentProcess(),
+                &mut creation,
+                &mut exit,
+                &mut kernel,
+                &mut user,
+            )
+        } == 0
+        {
+            anyhow::bail!("GetProcessTimes failed")
+        }
+        return Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime));
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(0)
+    }
+}
+
+struct DaemonOwnerLease {
+    path: std::path::PathBuf,
+    owner: DaemonOwner,
+}
+
+impl Drop for DaemonOwnerLease {
+    fn drop(&mut self) {
+        let Ok(value) = std::fs::read_to_string(&self.path) else {
+            return;
+        };
+        let Ok(current) = serde_json::from_str::<DaemonOwner>(&value) else {
+            return;
+        };
+        if current == self.owner {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn can_replace_owner(
+    owner: &DaemonOwner,
+    endpoint: SocketAddr,
+    observed_start: Option<u64>,
+) -> bool {
+    owner.endpoint == endpoint.to_string()
+        || owner.pid == 0
+        || observed_start.is_some_and(|start| start != owner.process_start_time)
+}
+
+fn replace_owner_file(
+    temporary: &std::path::Path,
+    path: &std::path::Path,
+    endpoint: SocketAddr,
+) -> Result<()> {
+    let result = (|| {
+        if !path.exists() {
+            std::fs::rename(temporary, path)?;
+            return Ok(());
+        }
+        let value = std::fs::read_to_string(path).map_err(|error| {
+            anyhow::anyhow!("cannot inspect existing daemon owner lease: {error}")
+        })?;
+        let owner = serde_json::from_str::<DaemonOwner>(&value).map_err(|error| {
+            anyhow::anyhow!("refusing to replace ambiguous daemon owner lease: {error}")
+        })?;
+        let observed_start = if owner.endpoint == endpoint.to_string() || owner.pid == 0 {
+            None
+        } else {
+            process_start_time_for_pid(owner.pid)
+        };
+        if !can_replace_owner(&owner, endpoint, observed_start) {
+            anyhow::bail!(
+                "refusing to replace live or ambiguous daemon owner for endpoint {}",
+                owner.endpoint
+            );
+        }
+        std::fs::remove_file(path)?;
+        std::fs::rename(temporary, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temporary);
+    }
+    result
+}
+
+fn process_start_time_for_pid(pid: u32) -> Option<u64> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::System::Threading::{
+            GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if process.is_null() {
+            return None;
+        }
+        let mut creation = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let mut exit = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let mut kernel = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let mut user = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let result =
+            unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) };
+        unsafe {
+            let _ = windows_sys::Win32::Foundation::CloseHandle(process);
+        }
+        if result == 0 {
+            return None;
+        }
+        Some((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
+fn write_daemon_owner(endpoint: SocketAddr) -> Result<DaemonOwnerLease> {
+    let path = daemon_owner_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    let value = serde_json::json!({ "endpoint": endpoint.to_string(), "pid": std::process::id(), "executable": std::env::current_exe()?.to_string_lossy() });
-    std::fs::write(&temporary, serde_json::to_vec(&value)?)?;
-    std::fs::rename(&temporary, &path)?;
-    Ok(path)
+    let owner = DaemonOwner {
+        endpoint: endpoint.to_string(),
+        pid: std::process::id(),
+        executable: std::env::current_exe()?.to_string_lossy().into_owned(),
+        process_start_time: process_start_time()?,
+        lease_id: uuid::Uuid::new_v4().to_string(),
+    };
+    std::fs::write(&temporary, serde_json::to_vec(&owner)?)?;
+    replace_owner_file(&temporary, &path, endpoint)?;
+    Ok(DaemonOwnerLease { path, owner })
 }
 use anyhow::Result;
 use sori_audio::CpalAudioController;
@@ -478,7 +654,6 @@ async fn main() -> Result<()> {
             "Inspect the endpoint and stop only a known stale sorid process"
         )
     })?;
-    let owner_path = write_daemon_owner(endpoint)?;
 
     let hotkey = sorid::parse_hotkey_binding(&config.hotkey.binding).map_err(|error| {
         anyhow::anyhow!(
@@ -593,6 +768,9 @@ async fn main() -> Result<()> {
             (None, HotkeyServiceStatus::Unavailable(error.to_string()))
         }
     };
+    // Bind first to win launch races, but publish ownership only after startup
+    // validation and optional hotkey initialization have completed.
+    let _owner_lease = write_daemon_owner(endpoint)?;
     let hotkey_service = Arc::new(Mutex::new(hotkey_service));
     let hotkey_status = Arc::new(Mutex::new(hotkey_status));
     info!(
@@ -1398,7 +1576,6 @@ async fn main() -> Result<()> {
         info!("sorid stopped with an active operation still unwinding after cancellation deadline");
         false
     };
-    let _ = std::fs::remove_file(owner_path);
     loop_result?;
     if stopped {
         info!("sorid stopped gracefully");
@@ -1853,5 +2030,145 @@ mod benchmark_recommendation_tests {
             invalidate_route_for_model(&route, "test-provider", &ModelId::from("other"));
         assert!(!invalidated);
         assert_eq!(next, route);
+    }
+}
+
+#[cfg(test)]
+mod daemon_owner_tests {
+    use super::{DaemonOwner, DaemonOwnerLease};
+    use std::fs;
+
+    #[test]
+    fn lease_drop_does_not_remove_a_newer_generation() {
+        let path =
+            std::env::temp_dir().join(format!("sori-owner-test-{}.json", uuid::Uuid::new_v4()));
+        let first = DaemonOwner {
+            endpoint: "127.0.0.1:17373".into(),
+            pid: 10,
+            executable: "sorid.exe".into(),
+            process_start_time: 1,
+            lease_id: "first-generation-1234".into(),
+        };
+        let second = DaemonOwner {
+            lease_id: "second-generation-1234".into(),
+            ..first.clone()
+        };
+        fs::write(&path, serde_json::to_vec(&second).unwrap()).unwrap();
+        drop(DaemonOwnerLease {
+            path: path.clone(),
+            owner: first,
+        });
+        assert!(path.exists());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stale_owner_file_is_replaced_after_endpoint_claim() {
+        let root =
+            std::env::temp_dir().join(format!("sori-owner-replace-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("daemon-owner.json");
+        let temporary = root.join("daemon-owner.json.tmp");
+        let stale = DaemonOwner {
+            endpoint: "127.0.0.1:17373".into(),
+            pid: 42,
+            executable: "sorid.exe".into(),
+            process_start_time: 99,
+            lease_id: "stale-generation-1234".into(),
+        };
+        fs::write(&path, serde_json::to_vec(&stale).unwrap()).unwrap();
+        fs::write(&temporary, b"current").unwrap();
+        super::replace_owner_file(&temporary, &path, "127.0.0.1:17373".parse().unwrap()).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"current");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn different_endpoint_live_or_ambiguous_owner_is_not_replaceable() {
+        let owner = DaemonOwner {
+            endpoint: "127.0.0.1:17374".into(),
+            pid: 7,
+            executable: "sorid.exe".into(),
+            process_start_time: 99,
+            lease_id: "other-generation-1234".into(),
+        };
+        let endpoint = "127.0.0.1:17373".parse().unwrap();
+        assert!(!super::can_replace_owner(&owner, endpoint, Some(99)));
+        assert!(!super::can_replace_owner(&owner, endpoint, None));
+        assert!(super::can_replace_owner(&owner, endpoint, Some(100)));
+    }
+
+    #[test]
+    fn ambiguous_different_endpoint_refuses_and_cleans_temp() {
+        let root = std::env::temp_dir().join(format!("sori-owner-refuse-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("daemon-owner.json");
+        let temporary = root.join("daemon-owner.json.tmp");
+        let owner = DaemonOwner {
+            endpoint: "127.0.0.1:17374".into(),
+            pid: u32::MAX,
+            executable: "sorid.exe".into(),
+            process_start_time: 99,
+            lease_id: "other-generation-1234".into(),
+        };
+        fs::write(&path, serde_json::to_vec(&owner).unwrap()).unwrap();
+        fs::write(&temporary, b"new").unwrap();
+        assert!(
+            super::replace_owner_file(&temporary, &path, "127.0.0.1:17373".parse().unwrap())
+                .is_err()
+        );
+        assert!(!temporary.exists());
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            serde_json::to_vec(&owner).unwrap()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_failure_guard_removes_its_owner() {
+        let path =
+            std::env::temp_dir().join(format!("sori-owner-failure-{}.json", uuid::Uuid::new_v4()));
+        let owner = DaemonOwner {
+            endpoint: "127.0.0.1:17373".into(),
+            pid: 42,
+            executable: "sorid.exe".into(),
+            process_start_time: 99,
+            lease_id: "generation-failure-1234".into(),
+        };
+        fs::write(&path, serde_json::to_vec(&owner).unwrap()).unwrap();
+        drop(DaemonOwnerLease {
+            path: path.clone(),
+            owner,
+        });
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn invalid_relative_owner_override_fails_closed() {
+        assert!(super::validate_owner_override("relative-owner.json".into()).is_err());
+    }
+
+    #[test]
+    fn invalid_directory_owner_override_fails_closed() {
+        let directory =
+            std::env::temp_dir().join(format!("sori-owner-dir-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        assert!(super::validate_owner_override(directory.clone()).is_err());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn owner_metadata_requires_unique_generation_identity() {
+        let owner = DaemonOwner {
+            endpoint: "127.0.0.1:17373".into(),
+            pid: 42,
+            executable: "sorid.exe".into(),
+            process_start_time: 99,
+            lease_id: "generation-1234567890".into(),
+        };
+        let encoded = serde_json::to_value(&owner).unwrap();
+        assert!(encoded["process_start_time"].as_u64().is_some());
+        assert!(encoded["lease_id"].as_str().unwrap().len() >= 16);
     }
 }

@@ -307,7 +307,12 @@ export default function App() {
     const result = await runtimeClient.applyBenchmarkRecommendation();
     setRuntimeError(result.error);
     const route = result.data as { activeModelId?: unknown } | null;
-    if (!result.error && typeof route?.activeModelId === 'string') setActiveModelId(route.activeModelId);
+    if (!result.error) {
+      // The daemon owns the route. Re-read it rather than trusting the
+      // mutation response or leaving other screens with stale state.
+      await refreshRuntime();
+      if (typeof route?.activeModelId === 'string') setActiveModelId(route.activeModelId);
+    }
   };
   const runBenchmark = async (fixture: BenchmarkFixture) => {
     if (!activeModel) return 'Benchmark unavailable: no available active model is configured.';
@@ -426,7 +431,7 @@ export default function App() {
             )}
 
             {activeScreen === 'transcripts' && (
-              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} loadState={historyState} />
+              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} onRefreshAfterMutation={refreshHistory} loadState={historyState} />
             )}
 
             {activeScreen === 'onboarding' && (

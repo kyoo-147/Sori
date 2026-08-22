@@ -6,7 +6,9 @@ param(
   [string]$Hotkey = 'Alt+Space',
   [string]$ExpectedText = '',
   [int]$TimeoutSeconds = 180,
-  [string]$ArtifactPath = '.tmp/windows-wave3-final-acceptance.json'
+  [int]$IpcPort = 0,
+  [string]$DataRoot = '',
+  [string]$ArtifactPath = ''
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -26,28 +28,29 @@ public static class SoriWave3Native {
 '@
 function Fail([string]$Message) { throw "wave3 acceptance failed: $Message" }
 function Normalize-Text([string]$Text) { return (($Text -replace "`r`n", "`n" -replace "`r", "`n").Trim()) }
-function Get-LeaseGeneration([string]$Text) {
-  $sha = [Security.Cryptography.SHA256]::Create()
-  try { return [Convert]::ToBase64String($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text))) } finally { $sha.Dispose() }
+function Get-FreeIpcPort {
+  $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+  try { $listener.Start(); return ([Net.IPEndPoint]$listener.LocalEndpoint).Port } finally { $listener.Stop() }
 }
 function Assert-EndpointFree {
-  $listeners = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 17373 -State Listen -ErrorAction SilentlyContinue)
+  $listeners = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
   if ($listeners.Count -gt 0) { Fail "refusing to launch against occupied IPC endpoint; listener PID=$($listeners[0].OwningProcess)" }
 }
-function Read-DaemonLease([string]$ExpectedPath, $Listener, [DateTime]$NotBefore) {
-  $leasePath = Join-Path $env:LOCALAPPDATA 'Sori\daemon-owner.json'
+function Read-DaemonLease([string]$ExpectedPath, [string]$LeasePath, $Listener, [DateTime]$NotBefore) {
   if (-not $Listener) { Fail 'installed app did not expose a loopback daemon listener' }
-  if (-not (Test-Path -LiteralPath $leasePath)) { Fail "daemon ownership lease is absent: $leasePath" }
-  $leaseText = Get-Content -LiteralPath $leasePath -Raw
+  if ($Listener.Count -ne 1) { Fail 'installed app exposed an ambiguous isolated daemon listener set' }
+  if (-not (Test-Path -LiteralPath $LeasePath)) { Fail "daemon ownership lease is absent: $LeasePath" }
+  $leaseText = Get-Content -LiteralPath $LeasePath -Raw
   $lease = $leaseText | ConvertFrom-Json
+  if ($lease.endpoint -ne "127.0.0.1:$IpcPort" -or [string]::IsNullOrWhiteSpace([string]$lease.lease_id) -or [string]$lease.lease_id.Length -lt 16) { Fail 'daemon lease endpoint or lease_id is invalid' }
   $path = (Resolve-Path -LiteralPath $ExpectedPath).Path
   if (-not [String]::Equals((Resolve-Path -LiteralPath $lease.executable).Path, $path, [StringComparison]::OrdinalIgnoreCase)) { Fail 'daemon lease executable does not match the installed daemon' }
   if ([int]$lease.pid -ne [int]$Listener[0].OwningProcess) { Fail 'daemon lease PID does not own the listener' }
   $process = Get-Process -Id ([int]$lease.pid) -ErrorAction Stop
   if (-not [String]::Equals((Resolve-Path -LiteralPath $process.Path).Path, $path, [StringComparison]::OrdinalIgnoreCase)) { Fail 'live daemon executable does not match the installed daemon' }
   try { $processStartTime = $process.StartTime.ToUniversalTime() } catch { Fail 'live daemon start time could not be verified' }
-  if ($processStartTime -lt $NotBefore) { Fail 'daemon was running before this harness launch; refusing to claim or stop it' }
-  [ordered]@{ process = $process; pid = [int]$lease.pid; start_time = $processStartTime; lease = $lease; lease_text = $leaseText; lease_generation = Get-LeaseGeneration $leaseText; lease_path = $leasePath }
+  if ($processStartTime -lt $NotBefore -or [uint64]$lease.process_start_time -ne [uint64]$processStartTime.ToFileTimeUtc()) { Fail 'daemon process start time does not match the lease' }
+  [ordered]@{ process = $process; pid = [int]$lease.pid; start_time = $processStartTime; lease = $lease; lease_id = [string]$lease.lease_id; lease_path = $LeasePath; executable = $path; port = $IpcPort }
 }
 function Stop-TrackedProcess($Tracked, [string]$ExpectedPath) {
   if (-not $Tracked) { return }
@@ -59,6 +62,12 @@ function Stop-TrackedProcess($Tracked, [string]$ExpectedPath) {
     if ($process.StartTime.ToUniversalTime() -ne $Tracked.start_time) { Fail "refusing to stop reused PID $($Tracked.pid) with unexpected start time" }
   } catch {
     Fail "refusing to stop PID $($Tracked.pid): process start time could not be verified"
+  }
+  if ($Tracked.Contains('lease_id')) {
+    $lease = Get-Content -LiteralPath $Tracked.lease_path -Raw -ErrorAction Stop | ConvertFrom-Json
+    if ([string]$lease.lease_id -ne $Tracked.lease_id -or $lease.endpoint -ne "127.0.0.1:$($Tracked.port)" -or [int]$lease.pid -ne $Tracked.pid -or [uint64]$lease.process_start_time -ne [uint64]$Tracked.start_time.ToFileTimeUtc()) { Fail "refusing to stop daemon PID $($Tracked.pid): lease identity changed" }
+    $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Tracked.port -State Listen -ErrorAction SilentlyContinue)
+    if ($listener.Count -ne 1 -or [int]$listener[0].OwningProcess -ne $Tracked.pid) { Fail "refusing to stop daemon PID $($Tracked.pid): endpoint ownership changed" }
   }
   Stop-Process -Id $process.Id -Force
 }
@@ -101,10 +110,22 @@ $artifact = [ordered]@{
   history = $null; events = $null; frontend_refresh = 'UNVERIFIED_NOT_AUTOMATABLE'; restart = $null; error = $null
   truth_boundary = 'Only the captain physical focus, configured hotkey, and spoken sentence can prove physical voice input. This artifact never synthesizes keyboard, audio, clipboard, or focus input.'
 }
-$app = $null; $daemon = $null; $target = $null; $ipcUrl = $null; $appPath = $null; $daemonPath = $DaemonExecutable
-$appTrack = $null; $daemonTrack = $null; $launchStarted = $null
+$app = $null; $daemon = $null; $target = $null; $ipcUrl = $null; $appPath = $null; $daemonPath = $DaemonExecutable; $ownerPath = $null; $databasePath = $null
+$appTrack = $null; $daemonTrack = $null; $targetTrack = $null; $launchStarted = $null
+$cleanupErrors = [Collections.Generic.List[string]]::new(); $oldEnv = @{}
+$primaryError = $null
+foreach ($name in @('SORI_IPC_ADDR','SORI_IPC_URL','SORI_DATABASE_PATH','SORI_DB_PATH','SORI_DAEMON_OWNER_PATH','SORI_WAVE3_TARGET_TITLE')) { $oldEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
+if (-not $DataRoot) { $DataRoot = Join-Path ([IO.Path]::GetTempPath()) "sori-wave3-$([Guid]::NewGuid().ToString('N'))" }
+$DataRoot = [IO.Path]::GetFullPath($DataRoot)
+New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
+if (-not $ArtifactPath) { $ArtifactPath = Join-Path $DataRoot 'windows-wave3-final-acceptance.json' }
+$ArtifactPath = [IO.Path]::GetFullPath($ArtifactPath)
+$ownerPath = Join-Path $DataRoot 'daemon-owner.json'; $databasePath = Join-Path $DataRoot 'sori.db'
 try {
-  New-Item -ItemType Directory -Force -Path '.tmp' | Out-Null
+  if ($IpcPort -eq 0) { $IpcPort = Get-FreeIpcPort }
+  if ($IpcPort -lt 1024 -or $IpcPort -gt 65535) { Fail "IpcPort must be between 1024 and 65535: $IpcPort" }
+  $env:SORI_IPC_ADDR = "127.0.0.1:$IpcPort"; $env:SORI_IPC_URL = "http://127.0.0.1:$IpcPort/ipc"
+  $env:SORI_DAEMON_OWNER_PATH = $ownerPath; $env:SORI_DATABASE_PATH = $databasePath; $env:SORI_DB_PATH = $databasePath
   Assert-EndpointFree
   $launchStarted = [DateTime]::UtcNow
   $appPath = (Resolve-Path -LiteralPath $InstalledAppExecutable).Path
@@ -122,16 +143,16 @@ try {
   if ($app.MainWindowHandle -eq 0) { Fail 'installed app did not expose a main window' }
   $artifact.installed_app.hwnd = ('0x{0:X}' -f $app.MainWindowHandle.ToInt64())
 
-  $endpoint = 'http://127.0.0.1:17373/ipc'; $ipcUrl = $endpoint
+  $endpoint = $env:SORI_IPC_URL; $ipcUrl = $endpoint
   $status = $null; $deadline = [DateTime]::UtcNow.AddSeconds(30)
   do { try { $status = Invoke-Ipc $ipcUrl 'Status' 2; break } catch { Start-Sleep -Milliseconds 300 } } while ([DateTime]::UtcNow -lt $deadline)
-  if (-not $status) { Fail 'installed app/daemon IPC did not become ready at 127.0.0.1:17373' }
-  $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 17373 -State Listen -ErrorAction SilentlyContinue)
-  $daemonTrack = Read-DaemonLease $daemonPath $listener $launchStarted
+  if (-not $status) { Fail "installed app/daemon IPC did not become ready at 127.0.0.1:$IpcPort" }
+  $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
+  $daemonTrack = Read-DaemonLease $daemonPath $ownerPath $listener $launchStarted
   $daemon = $daemonTrack.process
   $artifact.daemon.pid = $daemonTrack.pid
   $artifact.daemon.ownership = 'harness-owned: endpoint was free before app launch and lease/process identity was correlated'
-  $artifact.daemon.lease_generation = $daemonTrack.lease_generation
+  $artifact.daemon.lease_id = $daemonTrack.lease_id
   $artifact.preflight.status = $status.Status
   $artifact.preflight.doctor = Invoke-Ipc $ipcUrl 'Doctor'
   try { $artifact.preflight.permissions = Invoke-Ipc $ipcUrl @{ ResourceGet = @{ resource = 'permissions' } } } catch { $artifact.preflight.permissions = $null }
@@ -159,7 +180,7 @@ try {
   $artifact.preflight.device_signal = 'READINESS_ONLY; NO RECORDING WAS MADE'
 
   $targetTitle = "Sori Wave 3 EDIT Target-$([Guid]::NewGuid().ToString('N'))"
-  $targetExe = Join-Path (Resolve-Path '.tmp').Path 'sori-wave3-edit-target.exe'
+  $targetExe = Join-Path $DataRoot 'sori-wave3-edit-target.exe'
   if (-not (Test-Path -LiteralPath $targetExe)) {
     Add-Type -ReferencedAssemblies @('System.Windows.Forms.dll','System.Drawing.dll') -TypeDefinition @'
 using System; using System.Drawing; using System.Windows.Forms;
@@ -168,6 +189,8 @@ public static class SoriWave3EditTarget { [STAThread] public static void Main() 
   }
   $env:SORI_WAVE3_TARGET_TITLE = $targetTitle
   $target = Start-Process -FilePath $targetExe -PassThru
+  try { $targetStartTime = (Get-Process -Id $target.Id -ErrorAction Stop).StartTime.ToUniversalTime() } catch { Fail 'EDIT target start time could not be verified' }
+  $targetTrack = [ordered]@{ pid = $target.Id; start_time = $targetStartTime; executable = (Resolve-Path $targetExe).Path }
   for ($i = 0; $i -lt 50; $i++) { $target.Refresh(); if ($target.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 200 }
   if ($target.MainWindowHandle -eq 0) { Fail 'repo-owned EDIT target did not expose a window' }
   $artifact.target = [ordered]@{ pid = $target.Id; hwnd = ('0x{0:X}' -f $target.MainWindowHandle.ToInt64()); title = $targetTitle; ownership = 'harness-owned' }
@@ -205,7 +228,7 @@ public static class SoriWave3EditTarget { [STAThread] public static void Main() 
   $oldDaemonTrack = $daemonTrack; $oldDaemonPid = $daemonTrack.pid; $restartStarted = [DateTime]::UtcNow
   Stop-TrackedProcess $appTrack $appPath
   Stop-TrackedProcess $daemonTrack $daemonPath
-  $staleListener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 17373 -State Listen -ErrorAction SilentlyContinue)
+  $staleListener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
   if ($staleListener.Count -gt 0) { Fail "old daemon listener remained after stopping harness-owned PID $oldDaemonPid" }
   Assert-EndpointFree
   $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path -Parent $appPath) -PassThru
@@ -214,21 +237,32 @@ public static class SoriWave3EditTarget { [STAThread] public static void Main() 
   $restartStatus = $null; $deadline = [DateTime]::UtcNow.AddSeconds(30)
   do { try { $restartStatus = Invoke-Ipc $ipcUrl 'Status' 2; break } catch { Start-Sleep -Milliseconds 300 } } while ([DateTime]::UtcNow -lt $deadline)
   if (-not $restartStatus -or -not $restartStatus.Status.running) { Fail 'daemon did not recover after owned restart' }
-  $newListener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 17373 -State Listen -ErrorAction SilentlyContinue)
-  $newDaemonTrack = Read-DaemonLease $daemonPath $newListener $restartStarted
+  $newListener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
+  $newDaemonTrack = Read-DaemonLease $daemonPath $ownerPath $newListener $restartStarted
   if ($newDaemonTrack.pid -eq $oldDaemonTrack.pid) { Fail 'restart reused the old daemon PID; refusing to claim persistence' }
-  if ($newDaemonTrack.lease_generation -eq $oldDaemonTrack.lease_generation) { Fail 'restart did not produce a new daemon lease generation' }
+  if ($newDaemonTrack.lease_id -eq $oldDaemonTrack.lease_id) { Fail 'restart did not produce a new daemon lease generation' }
   $daemonTrack = $newDaemonTrack; $daemon = $newDaemonTrack.process
   $restored = Invoke-Ipc $ipcUrl @{ RecentHistory = @{ limit = 100 } }
   if (-not (@($restored.RecentHistory.entries | Where-Object { $_.id -eq $entry.id }))) { Fail 'verified transcript did not survive daemon restart' }
-  $artifact.restart = [ordered]@{ status = 'VERIFIED'; old_pid = $oldDaemonTrack.pid; new_pid = $newDaemonTrack.pid; old_lease_generation = $oldDaemonTrack.lease_generation; new_lease_generation = $newDaemonTrack.lease_generation; restored_history_id = [string]$entry.id; status_response = $restartStatus }
+  $artifact.restart = [ordered]@{ status = 'VERIFIED'; old_pid = $oldDaemonTrack.pid; new_pid = $newDaemonTrack.pid; old_lease_id = $oldDaemonTrack.lease_id; new_lease_id = $newDaemonTrack.lease_id; restored_history_id = [string]$entry.id; status_response = $restartStatus }
 }
-catch { $artifact.status = if ($artifact.status -like 'VERIFIED*') { 'PARTIAL' } else { 'BLOCKED' }; $artifact.error = $_.Exception.Message; throw }
+catch { $artifact.status = if ($artifact.status -like 'VERIFIED*') { 'PARTIAL' } else { 'BLOCKED' }; $artifact.error = $_.Exception.Message; $primaryError = $_.Exception }
 finally {
-  $artifact.completed_at = (Get-Date).ToUniversalTime().ToString('o'); $dir = Split-Path -Parent $ArtifactPath; if ($dir) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+  foreach ($cleanup in @(
+    @{ name = 'target'; action = { if ($target -and -not $target.HasExited) { Stop-TrackedProcess $targetTrack $targetTrack.executable } } },
+    @{ name = 'desktop'; action = { Stop-TrackedProcess $appTrack $appPath } },
+    @{ name = 'daemon'; action = { Stop-TrackedProcess $daemonTrack $daemonPath } }
+  )) { try { & $cleanup.action } catch { [void]$cleanupErrors.Add("$($cleanup.name): $($_.Exception.Message)") } }
+  foreach ($name in $oldEnv.Keys) { try { [Environment]::SetEnvironmentVariable($name, $oldEnv[$name]) } catch { [void]$cleanupErrors.Add("restore $name`: $($_.Exception.Message)") } }
+  if ($cleanupErrors.Count -gt 0) { $artifact.status = if ($artifact.status -like 'VERIFIED*') { 'PARTIAL_CLEANUP_FAILURE' } else { $artifact.status }; $artifact.cleanup_errors = @($cleanupErrors) }
+  $artifact.completed_at = (Get-Date).ToUniversalTime().ToString('o')
+  $artifact.isolated_state = [ordered]@{ data_root = $DataRoot; artifact_path = $ArtifactPath; owner_path = if ($ownerPath) { $ownerPath } else { $null }; database_path = if ($databasePath) { $databasePath } else { $null }; endpoint = "127.0.0.1:$IpcPort" }
+  $dir = Split-Path -Parent $ArtifactPath; if ($dir) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
   $artifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $ArtifactPath -Encoding UTF8
-  if ($target -and -not $target.HasExited) { Stop-Process -Id $target.Id -Force -ErrorAction SilentlyContinue }
-  Stop-TrackedProcess $appTrack $appPath
-  Stop-TrackedProcess $daemonTrack $daemonPath
-  Remove-Item Env:SORI_WAVE3_TARGET_TITLE -ErrorAction SilentlyContinue
+  Write-Host "Wave 3 artifact: $ArtifactPath"
+}
+if ($primaryError -or $cleanupErrors.Count -gt 0) {
+  if ($primaryError) { Write-Host "Wave 3 acceptance failed: $($primaryError.Message)" }
+  if ($cleanupErrors.Count -gt 0) { Write-Host "Wave 3 cleanup failed: $($cleanupErrors -join '; ')" }
+  exit 1
 }

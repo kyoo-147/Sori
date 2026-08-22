@@ -38,8 +38,14 @@ Use `scripts/windows-wave3-final-acceptance.ps1` on the installed Windows
 build. Supply the installed desktop executable and an already-installed model:
 
 ```powershell
-npm run e2e:windows-wave3-acceptance -- -InstalledAppExecutable 'C:\Program Files\Sori\sori.exe' -Model 'ggml-base.en.bin' -Hotkey 'Alt+Space' -ExpectedText 'known sentence'
+npm run e2e:windows-wave3-acceptance -- -InstalledAppExecutable "$env:LOCALAPPDATA\Programs\Sori\sori-desktop.exe" -Model 'ggml-base.en.bin' -Hotkey 'Alt+Space' -ExpectedText 'known sentence'
 ```
+
+The harness starts the sibling `sorid.exe` next to that desktop executable unless
+`-DaemonExecutable` is supplied. It defaults to a randomized loopback port and
+isolated temporary DataRoot; pass `-IpcPort`, `-DataRoot`, and `-ArtifactPath`
+only when those paths are explicitly owned for this run. Packaging does not
+install the `sori.exe` CLI.
 
 The script preflights the installed app/daemon ownership lease and requires
 green Doctor capability checks for text injection, audio, hotkey, and Whisper.

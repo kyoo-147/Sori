@@ -126,9 +126,31 @@ function startSameOriginProxy(endpoint: URL, vitePort: number, proxyPort: number
   return server;
 }
 
-async function stopServer(server: Server | null): Promise<void> {
+export async function stopServer(server: Server | null): Promise<void> {
   if (!server) return;
-  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  await new Promise<void>((resolveClose) => {
+    let settled = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (deadline) clearTimeout(deadline);
+      resolveClose();
+    };
+    // Chrome keeps an HTTP keep-alive connection to the same-origin proxy.
+    // `server.close()` waits for that socket indefinitely, leaving the product
+    // gate alive after it has printed its terminal PASS line. Close both idle
+    // and active connections before waiting, with a bounded fallback for a
+    // misbehaving client.
+    server.closeIdleConnections?.();
+    server.closeAllConnections?.();
+    server.close(finish);
+    deadline = setTimeout(() => {
+      server.closeAllConnections?.();
+      finish();
+    }, 2_000);
+    deadline.unref();
+  });
 }
 
 function browserEnv(session: string): NodeJS.ProcessEnv {

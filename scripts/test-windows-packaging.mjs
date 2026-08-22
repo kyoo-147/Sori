@@ -32,6 +32,9 @@ const prepareSource = readFileSync(resolve(root, 'scripts/prepare-desktop-bundle
 if (!prepareSource.includes('SORI_WHISPER_CPP_BIN') || !prepareSource.includes('remains external')) {
   fail('bundle preparation does not document external Whisper handling');
 }
+for (const required of ['renameSync', 'statSync', 'staging-', 'size !== statSync(release).size']) {
+  if (!prepareSource.includes(required)) fail(`bundle preparation is missing atomic staging check: ${required}`);
+}
 const nativeSource = readFileSync(resolve(root, 'apps/desktop/src-tauri/src/lib.rs'), 'utf8');
 for (const required of ['SORI_DAEMON_PATH', 'resources', 'local runtime endpoint is already in use by an unknown process', 'daemon-owner.json']) {
   if (!nativeSource.includes(required)) fail(`native launcher is missing ${required} handling`);

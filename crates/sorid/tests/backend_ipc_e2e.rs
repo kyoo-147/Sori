@@ -674,6 +674,13 @@ async fn canonical_ipc_persistence_survives_daemon_restart_and_sqlite_reopen() {
     assert!(
         matches!(request(Request::SetConfig { key: "history.enabled".into(), value: serde_json::json!(true) }).await, Response::Control(control) if control.accepted)
     );
+    assert!(matches!(request(Request::ResourceSet {
+        resource: "settings".into(),
+        value: serde_json::json!({"revision": 1, "items": ["persisted"], "hotkey": "Ctrl+Space"})
+    }).await, Response::Resource(_)));
+    assert!(
+        matches!(request(Request::SetConfig { key: "hotkey.binding".into(), value: serde_json::json!("Ctrl+Space") }).await, Response::Control(control) if control.accepted)
+    );
     assert!(
         matches!(request(Request::SetConfig { key: "history.enabled".into(), value: serde_json::json!(true) }).await, Response::Control(control) if control.accepted)
     );
@@ -701,21 +708,28 @@ async fn canonical_ipc_persistence_survives_daemon_restart_and_sqlite_reopen() {
         .unwrap()
         .unwrap()
     };
-    for resource in ["settings", "vocabulary", "snippets", "route", "models"] {
+    for resource in ["vocabulary", "snippets", "route", "models"] {
         assert!(
             matches!(read(resource).await, Response::Resource(value) if value.value == resource_value)
         );
     }
-    for resource in ["settings", "vocabulary", "snippets", "route", "models"] {
-        assert!(
-            matches!(read(resource).await, Response::Resource(value) if value.value == resource_value)
-        );
-    }
+    assert!(
+        matches!(read("settings").await, Response::Resource(value) if value.value == serde_json::json!({"revision": 1, "items": ["persisted"], "hotkey": "Ctrl+Space"}))
+    );
+    assert!(
+        matches!(tokio::task::spawn_blocking(move || LocalIpcClient::connect_to(restarted_endpoint).unwrap().request(Request::SettingDelete { key: "hotkey.binding".into() })).await.unwrap().unwrap(), Response::Setting(setting) if setting.value.is_none())
+    );
+    assert!(
+        matches!(read("settings").await, Response::Resource(value) if value.value == serde_json::json!({"revision": 1, "items": ["persisted"]}))
+    );
     assert!(
         matches!(tokio::task::spawn_blocking(move || LocalIpcClient::connect_to(restarted_endpoint).unwrap().request(Request::SettingGet { key: "history.enabled".into() })).await.unwrap().unwrap(), Response::Setting(setting) if setting.value == Some(serde_json::json!(true)))
     );
     assert!(
         matches!(tokio::task::spawn_blocking(move || LocalIpcClient::connect_to(restarted_endpoint).unwrap().request(Request::SettingDelete { key: "history.enabled".into() })).await.unwrap().unwrap(), Response::Setting(setting) if setting.value.is_none())
+    );
+    assert!(
+        matches!(read("settings").await, Response::Resource(value) if value.value == serde_json::json!({"revision": 1, "items": ["persisted"]}))
     );
     assert!(
         matches!(tokio::task::spawn_blocking(move || LocalIpcClient::connect_to(restarted_endpoint).unwrap().request(Request::ResourceDelete { resource: "snippets".into() })).await.unwrap().unwrap(), Response::Control(control) if control.accepted)

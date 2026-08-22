@@ -689,16 +689,25 @@ async fn main() -> Result<()> {
                 let target = RuntimeTarget::capture().map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
                 let mut injector = RuntimeInjector::with_strategy(injection_strategy);
                 let route = ModelRoute { provider: provider.provider_name().into(), model: model.clone(), reason: format!("canonical audio acceptance; target={}", target.identity.as_deref().unwrap_or("unknown")), fallback: Vec::new() };
-                let events = sori_core::InMemoryEventBus::default();
+                // Fixture/decoded audio uses the daemon-owned durable event journal too.
+                let history_enabled = handler_store
+                    .setting("history.enabled")
+                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(true);
+                let no_history = NoopHistory;
+                let history: &dyn HistoryRepository = if history_enabled { handler_store.as_ref() } else { &no_history };
+                let vocabulary = persisted_vocabulary(&handler_store)
+                    .map_err(sori_ipc::IpcError::Transport)?;
                 let result = sori_core::complete_dictation_with_vocabulary_options(
                     audio,
                     provider.as_ref(),
                     &mut injector,
                     &target,
                     &route,
+                    history,
                     handler_store.as_ref(),
-                    &events,
-                    &Vocabulary::default(),
+                    &vocabulary,
                     &CancellationToken::new(),
                     Some(std::time::Duration::from_secs(120)),
                 ).map_err(|error| sori_ipc::IpcError::Transport(format!("canonical audio dictation failed: {error}")))?;
@@ -707,8 +716,10 @@ async fn main() -> Result<()> {
                     let code = if detail.starts_with("input_blocked:") { "input_blocked" } else { "injection_failed" };
                     return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: code.into(), detail }));
                 }
-                let retention = handler_store.setting("history.retention_limit").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.and_then(|v| v.as_u64()).unwrap_or(20) as usize;
-                handler_store.try_retain_history(retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?;
+                if history_enabled {
+                    let retention = handler_store.setting("history.retention_limit").map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?.and_then(|value| value.as_u64()).unwrap_or(20) as usize;
+                    handler_store.try_retain_history(retention).map_err(|e| sori_ipc::IpcError::Transport(format!("history retention failed: {e}")))?;
+                }
                 Response::Transcript(result.transcript)
             }
             Request::Dictation { model, audio } => {
@@ -762,7 +773,7 @@ async fn main() -> Result<()> {
                     Err(error) => return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "benchmark_failed".into(), detail: error.to_string() })),
                 };
                 handler_store.save_benchmark(&result).map_err(|e| sori_ipc::IpcError::Transport(format!("benchmark persistence failed: {e}")))?;
-                Response::Benchmark(result)
+                Response::Benchmark(Box::new(result))
             }
             Request::RecentBenchmarks { limit } => {
                 let runs = handler_store.recent_benchmarks(usize::from(limit)).map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
@@ -1083,6 +1094,36 @@ async fn main() -> Result<()> {
         info!("sorid stopped gracefully");
     }
     Ok(())
+}
+
+fn persisted_vocabulary(store: &SqliteStore) -> Result<Vocabulary, String> {
+    let value = store
+        .resource("vocabulary")
+        .map_err(|error| error.to_string())?
+        .or_else(|| store.setting("resource.vocabulary").ok().flatten());
+    let Some(value) = value else {
+        return Ok(Vocabulary::default());
+    };
+    let items = serde_json::from_value::<Vec<serde_json::Value>>(value)
+        .map_err(|error| format!("invalid persisted vocabulary: {error}"))?;
+    Ok(Vocabulary {
+        terms: items
+            .into_iter()
+            .filter_map(|item| {
+                Some(VocabularyTerm {
+                    term: item.get("term")?.as_str()?.to_owned(),
+                    pronunciation_hint: item
+                        .get("pronunciationHint")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_owned),
+                    correction: item
+                        .get("correction")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_owned),
+                })
+            })
+            .collect(),
+    })
 }
 
 fn validate_extension_manifest(manifest: &ExtensionManifest) -> std::result::Result<(), String> {

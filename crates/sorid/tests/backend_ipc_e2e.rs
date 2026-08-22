@@ -458,7 +458,7 @@ async fn canonical_ipc_benchmark_cancel_retry_history_reload_and_concurrent_stat
                 handler_sessions.lock().unwrap().remove(&session_id);
                 let result = result.map_err(|error| sori_ipc::IpcError::Transport(format!("benchmark failed: {error}")))?;
                 handler_store.save_benchmark(&result).map_err(|error| sori_ipc::IpcError::Transport(error.to_string()))?;
-                Ok(Response::Benchmark(result))
+                Ok(Response::Benchmark(Box::new(result)))
             }
             Request::CancelBenchmark { session_id } => match handler_sessions.lock().unwrap().get(&session_id).cloned() {
                 Some(token) => { token.cancel(); Ok(Response::Control(sori_ipc::ControlResponse { accepted: true, detail: "benchmark cancellation requested".into() })) }

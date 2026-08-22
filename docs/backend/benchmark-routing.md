@@ -10,6 +10,7 @@ model, or audio prerequisite is unavailable.
 sori benchmark --model ggml-base.en.bin --audio .\fixtures\sample.wav --reference "reference transcript" --iterations 5
 ```
 
+Every successful run also records an input fingerprint (audio, reference, and audio format), optional model/runtime SHA-256 values supplied by the provider environment, and explicit unavailable reasons for missing RAM/VRAM/fallback telemetry. Recommendations are only computed among runs with the same input fingerprint; mixed-input history is never compared.
 The runner reports cold/warm latency, p50/p95, real-time factor, failure rate, and
 optional WER/CER. Cold is the first successful invocation in invocation order; warm is
 the mean of subsequent successful invocations. Percentiles use successful samples only,

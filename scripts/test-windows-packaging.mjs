@@ -43,8 +43,11 @@ if (/whisper-runtime|whisper-cli\.exe/.test(nativeSource)) {
   fail('native launcher must not advertise a bundled Whisper runtime');
 }
 const acceptance = readFileSync(resolve(root, 'scripts/windows-packaging-acceptance.ps1'), 'utf8');
-if (!acceptance.includes("ValidateSet('bundle', 'installed', 'launch', 'restart', 'reinstall')")) {
+if (!acceptance.includes("ValidateSet('bundle', 'install', 'installed', 'launch', 'restart', 'reinstall')")) {
   fail('acceptance phases do not expose the supported launch/restart contract');
+}
+for (const required of ['Invoke-Installer', 'Invoke-Uninstaller', "'/qn'", "'/S'", 'ProductCode', 'silent uninstall']) {
+  if (!acceptance.includes(required)) fail(`acceptance automation is missing ${required}`);
 }
 if (acceptance.includes("'crash-recovery'")) fail('acceptance must not expose unsupported automatic crash recovery');
 if (!acceptance.includes('automatic crash recovery is not supported')) fail('acceptance must state truthful restart-on-request behavior');

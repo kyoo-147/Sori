@@ -7,7 +7,8 @@ param(
   [Parameter(Mandatory = $true)] [string]$Model,
   [Parameter(Mandatory = $true)] [string]$DataRoot,
   [int]$IpcPort = 18470,
-  [string]$ArtifactPath = '.tmp/windows-native-voice-acceptance.json'
+  [string]$ArtifactPath = '.tmp/windows-native-voice-acceptance.json',
+  [string]$DeterministicProviderText = ''
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -165,12 +166,14 @@ function Read-TargetText([IntPtr]$Handle) {
 
 $artifact = [ordered]@{ status = 'FAILED'; steps = [Collections.Generic.List[string]]::new(); transcript = $null; history = $null; target_text = $null }
 $desktop = $null; $target = $null; $ownedDaemonPid = $null
-$oldIpcAddr = $env:SORI_IPC_ADDR; $oldIpcUrl = $env:SORI_IPC_URL; $oldDb = $env:SORI_DATABASE_PATH; $oldDbAlias = $env:SORI_DB_PATH; $oldEditTitle = $env:SORI_EDIT_TARGET_TITLE
+$oldIpcAddr = $env:SORI_IPC_ADDR; $oldIpcUrl = $env:SORI_IPC_URL; $oldDb = $env:SORI_DATABASE_PATH; $oldDbAlias = $env:SORI_DB_PATH; $oldEditTitle = $env:SORI_EDIT_TARGET_TITLE; $oldTestProvider = $env:SORI_TEST_PROVIDER; $oldTestText = $env:SORI_TEST_PROVIDER_TEXT; $oldNoOsInjection = $env:SORI_TEST_NO_OS_INJECTION
 try {
   Assert-EndpointFree
   $dataPath = (Resolve-Path -LiteralPath $DataRoot -ErrorAction SilentlyContinue)
   if (-not $dataPath) { New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null; $dataPath = Resolve-Path -LiteralPath $DataRoot }
   $env:SORI_IPC_ADDR = "127.0.0.1:$IpcPort"; $env:SORI_IPC_URL = "http://127.0.0.1:$IpcPort/ipc"
+  Remove-Item Env:SORI_TEST_NO_OS_INJECTION -ErrorAction SilentlyContinue
+  if ($DeterministicProviderText) { $env:SORI_TEST_PROVIDER = 'deterministic-sapi'; $env:SORI_TEST_PROVIDER_TEXT = $DeterministicProviderText } else { Remove-Item Env:SORI_TEST_PROVIDER -ErrorAction SilentlyContinue; Remove-Item Env:SORI_TEST_PROVIDER_TEXT -ErrorAction SilentlyContinue }
   $env:SORI_DATABASE_PATH = [IO.Path]::Combine($dataPath.Path, 'sori.db'); $env:SORI_DB_PATH = $env:SORI_DATABASE_PATH
   $desktop = Start-Process -FilePath (Resolve-Path -LiteralPath $SoriExecutable).Path -WorkingDirectory (Split-Path -Parent (Resolve-Path -LiteralPath $SoriExecutable).Path) -PassThru
   $artifact.steps.Add("started owned Sori desktop PID $($desktop.Id)")
@@ -216,8 +219,7 @@ try {
   $response = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 180
   if (-not $response.PSObject.Properties['Transcript'] -or -not $response.Transcript.text) { Fail "canonical audio dictation produced no transcript: $($response | ConvertTo-Json -Depth 10 -Compress)" }
   $artifact.transcript = $response.Transcript.text
-  Pass "real Whisper fixture produced transcript: $($response.Transcript.text)"
-  $artifact.steps.Add('real fixture audio traversed canonical provider and actual Windows SendInput path')
+  if ($DeterministicProviderText) { if ($response.Transcript.text -cne $DeterministicProviderText) { Fail "deterministic provider transcript mismatch: expected exact text <$DeterministicProviderText>, got <$($response.Transcript.text)>" }; Pass "deterministic provider audio produced the exact configured transcript: $($response.Transcript.text)"; $artifact.steps.Add('input WAV traversed canonical audio/provider wiring and actual Windows SendInput path; ASR and SAPI corpus provenance remain UNVERIFIED') } else { Pass "real Whisper fixture produced transcript: $($response.Transcript.text)"; $artifact.steps.Add('real fixture audio traversed canonical provider and actual Windows SendInput path') }
   $status = Invoke-RestMethod -Uri $env:SORI_IPC_URL -Method Post -ContentType 'application/json' -Body (ConvertTo-Json 'Status') -TimeoutSec 5
   if (-not $status.Status.running) { Fail 'runtime status did not report running after injection' }
   Pass 'FE/runtime reconnect refresh boundary remained healthy through canonical Status/History reads'
@@ -269,5 +271,5 @@ try {
   if ($desktop -and -not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue }
   if ($ownedDaemonPid) { Stop-Process -Id $ownedDaemonPid -Force -ErrorAction SilentlyContinue }
   if ($target -and -not $target.HasExited) { Stop-Process -Id $target.Id -Force -ErrorAction SilentlyContinue }
-  $env:SORI_IPC_ADDR = $oldIpcAddr; $env:SORI_IPC_URL = $oldIpcUrl; $env:SORI_DATABASE_PATH = $oldDb; $env:SORI_DB_PATH = $oldDbAlias; $env:SORI_EDIT_TARGET_TITLE = $oldEditTitle
+  $env:SORI_IPC_ADDR = $oldIpcAddr; $env:SORI_IPC_URL = $oldIpcUrl; $env:SORI_DATABASE_PATH = $oldDb; $env:SORI_DB_PATH = $oldDbAlias; $env:SORI_EDIT_TARGET_TITLE = $oldEditTitle; $env:SORI_TEST_PROVIDER = $oldTestProvider; $env:SORI_TEST_PROVIDER_TEXT = $oldTestText; $env:SORI_TEST_NO_OS_INJECTION = $oldNoOsInjection
 }

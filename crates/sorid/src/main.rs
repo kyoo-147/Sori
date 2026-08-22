@@ -43,6 +43,69 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tracing::info;
+/// Explicitly opt-in provider for installed vertical validation when whisper.cpp
+/// and a model are absent. This is test wiring evidence, never ASR evidence.
+struct DeterministicSapiProvider {
+    text: String,
+    model: ModelId,
+}
+impl ModelProvider for DeterministicSapiProvider {
+    fn provider_name(&self) -> &'static str {
+        "deterministic-test"
+    }
+    fn manifests(&self) -> Vec<sori_core::ModelManifest> {
+        vec![sori_core::ModelManifest {
+            id: self.model.clone(),
+            display_name: "SAPI WAV wiring provider (test only)".into(),
+            language: "en".into(),
+            backend: self.provider_name().into(),
+            quantization: None,
+            disk_size_bytes: None,
+            ram_bytes: None,
+            license: sori_core::ModelLicense {
+                name: "test-only; no model".into(),
+                url: None,
+                attribution: None,
+            },
+            source: Some("installed synthetic provider; no download".into()),
+            sha256: None,
+        }]
+    }
+    fn can_transcribe(&self, model: &ModelId) -> bool {
+        model == &self.model
+    }
+    fn runtime_status(&self, model: &ModelId) -> sori_core::RuntimeStatus {
+        sori_core::RuntimeStatus {
+            model: model.clone(),
+            installed: self.can_transcribe(model),
+            loaded: self.can_transcribe(model),
+            warm: self.can_transcribe(model),
+            memory_bytes: None,
+            backend: Some(self.provider_name().into()),
+            phase: Some("TestOnlyDeterministic".into()),
+            progress_percent: None,
+            error: None,
+        }
+    }
+    fn transcribe(
+        &self,
+        model: &ModelId,
+        audio: &[sori_core::AudioChunk],
+    ) -> Result<sori_core::Transcript, sori_core::ModelError> {
+        if !self.can_transcribe(model) {
+            return Err(sori_core::ModelError::Inference(format!(
+                "unknown deterministic test model: {}",
+                model.0
+            )));
+        }
+        if audio.is_empty() || audio.iter().all(|chunk| chunk.samples.is_empty()) {
+            return Err(sori_core::ModelError::Inference(
+                "deterministic provider requires decoded WAV audio".into(),
+            ));
+        }
+        Ok(sori_core::Transcript::plain(&self.text))
+    }
+}
 /// `activeModelId` is provider-qualified at the IPC boundary, while provider
 /// APIs receive the model filename only. Keep this conversion in one place so
 /// hotkey, dictation, lifecycle, and removal cannot disagree about the route.
@@ -159,6 +222,7 @@ struct RuntimeInjector {
     #[cfg(not(windows))]
     inner: sori_core::AdapterTextInjector<UnavailableInjectionAdapter>,
     strategy: Option<sori_core::InjectionStrategy>,
+    test_only_no_os_injection: bool,
 }
 impl RuntimeInjector {
     fn new() -> Self {
@@ -179,6 +243,8 @@ impl RuntimeInjector {
                 },
             ),
             strategy,
+            test_only_no_os_injection: std::env::var("SORI_TEST_NO_OS_INJECTION").as_deref()
+                == Ok("1"),
         }
     }
 }
@@ -194,6 +260,14 @@ impl sori_core::TextInjector for RuntimeInjector {
         target: &dyn sori_core::TextTarget,
         request: &sori_core::TextInjectionRequest,
     ) -> Result<sori_core::TextInjectionResult, sori_core::TextInjectionError> {
+        if self.test_only_no_os_injection {
+            return Ok(sori_core::TextInjectionResult {
+                plan: self.inner.plan(target),
+                dry_run_output: Some("TEST-ONLY no OS injection performed".into()),
+                outcome: sori_core::InjectionOutcome::Inserted,
+                diagnostics: vec!["TEST-ONLY no-OS-injection seam".into()],
+            });
+        }
         if self.strategy == Some(sori_core::InjectionStrategy::ClipboardPaste) {
             #[cfg(windows)]
             {
@@ -235,47 +309,82 @@ async fn main() -> Result<()> {
     config.validate().map_err(anyhow::Error::msg)?;
     let whisper_model =
         std::env::var("SORI_WHISPER_MODEL").unwrap_or_else(|_| "ggml-base.en.bin".into());
+    let test_provider_mode = std::env::var("SORI_TEST_PROVIDER").ok();
+    let test_provider_text = std::env::var("SORI_TEST_PROVIDER_TEXT").ok();
+    if test_provider_mode.is_some() != test_provider_text.is_some() {
+        return Err(anyhow::anyhow!(
+            "SORI_TEST_PROVIDER and SORI_TEST_PROVIDER_TEXT must be provided together"
+        ));
+    }
+    if let Some(text) = test_provider_text.as_deref() {
+        if text.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "SORI_TEST_PROVIDER_TEXT must contain non-whitespace text"
+            ));
+        }
+    }
+    let no_os_injection = std::env::var("SORI_TEST_NO_OS_INJECTION").as_deref() == Ok("1");
+    if no_os_injection && test_provider_mode.as_deref() != Some("deterministic-sapi") {
+        return Err(anyhow::anyhow!(
+            "SORI_TEST_NO_OS_INJECTION requires SORI_TEST_PROVIDER=deterministic-sapi"
+        ));
+    }
     let (whisper_provider, whisper_detail): (Option<Arc<dyn sori_core::ModelProvider>>, String) =
-        match WhisperCppConfig::discover() {
-            Ok(config) => {
-                let provider = WhisperCppProvider::from_config(config, Vec::new());
-                match provider.discover_models() {
-                    Ok(manifests) => {
-                        let count = manifests.len();
-                        let provider = WhisperCppProvider::from_config(
-                            WhisperCppConfig::new(
-                                provider.executable().to_path_buf(),
-                                provider.model_dir().map(std::path::Path::to_path_buf),
-                            ),
-                            manifests,
-                        );
-                        let manifest_detail = provider
-                            .manifests()
-                            .iter()
-                            .map(|manifest| {
-                                format!(
-                                    "{} sha256={} license={} source={}",
-                                    manifest.id.0,
-                                    manifest.sha256.as_deref().unwrap_or("unavailable"),
-                                    manifest.license.name,
-                                    manifest.source.as_deref().unwrap_or("unavailable")
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join("; ");
-                        let detail = format!(
-                            "whisper.cpp executable={} model_dir={} discovered {count} model(s): {manifest_detail}",
-                            provider.executable().display(),
-                            provider
-                                .model_dir()
-                                .map_or("<none>".to_owned(), |path| path.display().to_string())
-                        );
-                        (Some(Arc::new(provider)), detail)
-                    }
-                    Err(error) => (None, format!("unavailable: {error}")),
-                }
+        if let (Ok(mode), Ok(text)) = (
+            std::env::var("SORI_TEST_PROVIDER"),
+            std::env::var("SORI_TEST_PROVIDER_TEXT"),
+        ) {
+            if mode != "deterministic-sapi" {
+                return Err(anyhow::anyhow!("unsupported SORI_TEST_PROVIDER `{mode}`"));
             }
-            Err(error) => (None, format!("unavailable: {error}")),
+            let model = ModelId::from("sapi-wav-test");
+            (
+                Some(Arc::new(DeterministicSapiProvider { text, model })
+                    as Arc<dyn sori_core::ModelProvider>),
+                "TEST-ONLY deterministic SAPI WAV provider; no Whisper inference".into(),
+            )
+        } else {
+            match WhisperCppConfig::discover() {
+                Ok(config) => {
+                    let provider = WhisperCppProvider::from_config(config, Vec::new());
+                    match provider.discover_models() {
+                        Ok(manifests) => {
+                            let count = manifests.len();
+                            let provider = WhisperCppProvider::from_config(
+                                WhisperCppConfig::new(
+                                    provider.executable().to_path_buf(),
+                                    provider.model_dir().map(std::path::Path::to_path_buf),
+                                ),
+                                manifests,
+                            );
+                            let manifest_detail = provider
+                                .manifests()
+                                .iter()
+                                .map(|manifest| {
+                                    format!(
+                                        "{} sha256={} license={} source={}",
+                                        manifest.id.0,
+                                        manifest.sha256.as_deref().unwrap_or("unavailable"),
+                                        manifest.license.name,
+                                        manifest.source.as_deref().unwrap_or("unavailable")
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join("; ");
+                            let detail = format!(
+                                "whisper.cpp executable={} model_dir={} discovered {count} model(s): {manifest_detail}",
+                                provider.executable().display(),
+                                provider
+                                    .model_dir()
+                                    .map_or("<none>".to_owned(), |path| path.display().to_string())
+                            );
+                            (Some(Arc::new(provider)), detail)
+                        }
+                        Err(error) => (None, format!("unavailable: {error}")),
+                    }
+                }
+                Err(error) => (None, format!("unavailable: {error}")),
+            }
         };
     let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
     // Promote FE settings into daemon keys before runtime construction so a
@@ -804,7 +913,12 @@ async fn main() -> Result<()> {
                 }
                 let target = RuntimeTarget::capture().map_err(|error| sori_ipc::IpcError::Transport(format!("focused target unavailable: {error}")))?;
                 let mut injector = RuntimeInjector::with_strategy(injection_strategy);
-                let route = ModelRoute { provider: provider.provider_name().into(), model: model.clone(), reason: format!("canonical audio acceptance; target={}", target.identity.as_deref().unwrap_or("unknown")), fallback: Vec::new() };
+                let reason = if no_os_injection {
+                    "TEST-ONLY no-OS-injection seam".to_owned()
+                } else {
+                    format!("canonical audio acceptance; target={}", target.identity.as_deref().unwrap_or("unknown"))
+                };
+                let route = ModelRoute { provider: provider.provider_name().into(), model: model.clone(), reason, fallback: Vec::new() };
                 // Fixture/decoded audio uses the daemon-owned durable event journal too.
                 let history_enabled = handler_store
                     .setting("history.enabled")

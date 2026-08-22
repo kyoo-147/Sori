@@ -206,7 +206,7 @@ use sori_ipc::{
     ConfigSummaryResponse, ControlResponse, DEFAULT_ENDPOINT, DoctorCheck, DoctorResponse,
     ExtensionManifest, ExtensionRecord, ExtensionsResponse, IpcEvent, LocalIpcServer,
     PROTOCOL_VERSION, RecentEventsResponse, RecentHistoryResponse, Request, Response, RouteSummary,
-    RuntimeActivity, StatusResponse,
+    RuntimeActivity, StatusResponse, effective_benchmark_timeout,
 };
 use sori_persistence::SqliteStore;
 use sori_provider_whisper::{WhisperCppConfig, WhisperCppProvider};
@@ -217,8 +217,83 @@ use sorid::{
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use tracing::info;
+
+struct BenchmarkTimeoutGuard {
+    complete: Sender<()>,
+    timer: Option<JoinHandle<()>>,
+}
+
+impl Drop for BenchmarkTimeoutGuard {
+    fn drop(&mut self) {
+        let _ = self.complete.send(());
+        if let Some(timer) = self.timer.take() {
+            let _ = timer.join();
+        }
+    }
+}
+
+fn benchmark_timeout_guard(
+    cancellation: CancellationToken,
+    timeout_triggered: Arc<AtomicBool>,
+    timeout: std::time::Duration,
+) -> BenchmarkTimeoutGuard {
+    let (complete, done) = mpsc::channel();
+    let timer = std::thread::spawn(move || {
+        if matches!(
+            done.recv_timeout(timeout),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ) {
+            timeout_triggered.store(true, Ordering::Release);
+            cancellation.cancel();
+        }
+    });
+    BenchmarkTimeoutGuard {
+        complete,
+        timer: Some(timer),
+    }
+}
+
+#[cfg(test)]
+mod benchmark_timeout_tests {
+    use super::*;
+
+    #[test]
+    fn completed_benchmark_timer_exits_promptly() {
+        let cancellation = CancellationToken::new();
+        let timed_out = Arc::new(AtomicBool::new(false));
+        let started = std::time::Instant::now();
+        {
+            let _guard = benchmark_timeout_guard(
+                cancellation.clone(),
+                Arc::clone(&timed_out),
+                std::time::Duration::from_secs(1),
+            );
+        }
+        assert!(started.elapsed() < std::time::Duration::from_millis(250));
+        assert!(!timed_out.load(Ordering::Acquire));
+        assert!(!cancellation.is_cancelled());
+    }
+
+    #[test]
+    fn benchmark_timer_cancels_when_deadline_expires() {
+        let cancellation = CancellationToken::new();
+        let timed_out = Arc::new(AtomicBool::new(false));
+        let guard = benchmark_timeout_guard(
+            cancellation.clone(),
+            Arc::clone(&timed_out),
+            std::time::Duration::from_millis(20),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        assert!(timed_out.load(Ordering::Acquire));
+        assert!(cancellation.is_cancelled());
+        drop(guard);
+    }
+}
+
 /// Explicitly opt-in provider for installed vertical validation when whisper.cpp
 /// and a model are absent. This is test wiring evidence, never ASR evidence.
 struct DeterministicSapiProvider {
@@ -1293,17 +1368,14 @@ async fn main() -> Result<()> {
                 let session_id = session_id.unwrap_or_else(uuid::Uuid::new_v4);
                 let cancellation = CancellationToken::new();
                 handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.insert(session_id, cancellation.clone());
+                let effective_timeout = effective_benchmark_timeout(timeout_ms);
                 let timeout_triggered = Arc::new(AtomicBool::new(false));
-                if let Some(timeout_ms) = timeout_ms {
-                    let timer = cancellation.clone();
-                    let timed_out = Arc::clone(&timeout_triggered);
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(timeout_ms));
-                        timed_out.store(true, Ordering::Release);
-                        timer.cancel();
-                    });
-                }
-                let result = run_benchmark_with_options(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }, &BenchmarkOptions { cancellation: cancellation.clone(), timeout: timeout_ms.map(std::time::Duration::from_millis) });
+                let _timeout_guard = benchmark_timeout_guard(
+                    cancellation.clone(),
+                    Arc::clone(&timeout_triggered),
+                    effective_timeout,
+                );
+                let result = run_benchmark_with_options(provider.as_ref(), &BenchmarkInput { model, audio, reference, iterations: usize::from(iterations) }, &BenchmarkOptions { cancellation: cancellation.clone(), timeout: Some(effective_timeout) });
                 handler_benchmark_sessions.lock().map_err(|_| sori_ipc::IpcError::Transport("benchmark session lock poisoned".into()))?.remove(&session_id);
                 let result = match result {
                     Ok(result) => result,

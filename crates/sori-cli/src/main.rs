@@ -220,8 +220,9 @@ fn benchmark(
     iterations: u16,
 ) -> Result<()> {
     let audio = read_wav(&audio_path)?;
-    let client =
-        LocalIpcClient::connect().map_err(|e| anyhow::anyhow!("daemon IPC unavailable: {e}"))?;
+    let endpoint = endpoint_from_env(std::env::var("SORI_IPC_ADDR").ok().as_deref())?;
+    let client = LocalIpcClient::connect_to(endpoint)
+        .map_err(|e| anyhow::anyhow!("daemon IPC unavailable at {endpoint}: {e}"))?;
     match client.request(Request::RunBenchmark {
         model: ModelId::from(model.as_str()),
         audio,

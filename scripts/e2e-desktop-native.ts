@@ -38,6 +38,8 @@ type ScreenshotArtifact = {
 class NativeEnvironmentSkip extends Error {}
 
 export function desktopBinaryPath(): string {
+  const configured = process.env.SORI_DESKTOP_EXECUTABLE;
+  if (configured) return resolve(configured);
   return resolve('apps', 'desktop', 'src-tauri', 'target', 'debug', process.platform === 'win32' ? 'sori-desktop.exe' : 'sori-desktop');
 }
 
@@ -337,16 +339,23 @@ async function main(): Promise<void> {
   if (windowConfig?.decorations !== false) throw new Error('native shell contract failed: Tauri decorations must be disabled for the custom titlebar');
   if (windowConfig?.minWidth !== MIN_WIDTH || windowConfig?.minHeight !== MIN_HEIGHT) throw new Error('native shell contract failed: minimum window size drifted');
 
-  console.log('Building backend daemon, desktop web assets, and Tauri debug app...');
-  const daemonBuild = await run('cargo', ['build', '-p', 'sorid']);
-  if (daemonBuild.code !== 0) throw new Error('sorid build failed');
-  const build = await run('cmd.exe', ['/c', 'npm', '--prefix', 'apps/desktop', 'exec', 'tauri', 'build', '--', '--debug']);
-  if (build.code !== 0) throw new Error('Tauri debug build failed');
+  const installedExecutable = Boolean(process.env.SORI_DESKTOP_EXECUTABLE);
+  if (installedExecutable) {
+    console.log('Using caller-supplied installed desktop executable; build step skipped.');
+  } else {
+    console.log('Building backend daemon, desktop web assets, and Tauri debug app...');
+    const daemonBuild = await run('cargo', ['build', '-p', 'sorid']);
+    if (daemonBuild.code !== 0) throw new Error('sorid build failed');
+    const build = await run('cmd.exe', ['/c', 'npm', '--prefix', 'apps/desktop', 'exec', 'tauri', 'build', '--', '--debug']);
+    if (build.code !== 0) throw new Error('Tauri debug build failed');
+  }
 
   const app = desktopBinaryPath();
   if (!existsSync(app)) throw new Error(`desktop binary not found at ${app}`);
   mkdirSync(ARTIFACT_DIR, { recursive: true });
-  const daemon = spawn(resolve('target', 'debug', 'sorid.exe'), [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host } });
+  const daemonPath = installedExecutable ? resolve(dirname(app), 'sorid.exe') : resolve('target', 'debug', 'sorid.exe');
+  if (!existsSync(daemonPath)) throw new Error(`bundled daemon not found at ${daemonPath}`);
+  const daemon = spawn(daemonPath, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host } });
   daemon.stdout?.on('data', (chunk) => process.stdout.write(`[sorid] ${chunk}`));
   daemon.stderr?.on('data', (chunk) => process.stderr.write(`[sorid] ${chunk}`));
   let appProcess: ChildProcess | null = null;
@@ -355,7 +364,7 @@ async function main(): Promise<void> {
 
   try {
     await waitForIpc(endpoint);
-    appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host, SORI_DAEMON_PATH: resolve('target', 'debug', 'sorid.exe') } });
+    appProcess = spawn(app, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host, ...(installedExecutable ? {} : { SORI_DAEMON_PATH: daemonPath }) } });
     appProcess.stdout?.on('data', (chunk) => process.stdout.write(`[desktop] ${chunk}`));
     appProcess.stderr?.on('data', (chunk) => process.stderr.write(`[desktop] ${chunk}`));
     if (!appProcess.pid) throw new Error('desktop process did not expose a PID');

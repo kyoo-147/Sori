@@ -353,6 +353,24 @@ async fn main() -> Result<()> {
                 .map(|id| provider_model_id("whisper.cpp", id))
         })
         .unwrap_or_else(|| ModelId::from(whisper_model.as_str()));
+    // Claim the loopback endpoint before initializing optional global input
+    // integrations. A second daemon must fail closed immediately instead of
+    // waiting on hotkey registration while the endpoint is already owned.
+    let endpoint: SocketAddr = std::env::var("SORI_IPC_ADDR")
+        .unwrap_or_else(|_| DEFAULT_ENDPOINT.to_owned())
+        .parse()
+        .map_err(|error| anyhow::anyhow!("invalid SORI_IPC_ADDR: {error}"))?;
+    if !endpoint.ip().is_loopback() {
+        return Err(anyhow::anyhow!("SORI_IPC_ADDR must be a loopback address"));
+    }
+    let server = LocalIpcServer::bind(endpoint).await.map_err(|error| {
+        anyhow::anyhow!(
+            "cannot bind local IPC endpoint {endpoint}: {error}; another process may own it. {}",
+            "Inspect the endpoint and stop only a known stale sorid process"
+        )
+    })?;
+    let owner_path = write_daemon_owner(endpoint)?;
+
     let hotkey = sorid::parse_hotkey_binding(&config.hotkey.binding).map_err(|error| {
         anyhow::anyhow!(
             "invalid configured hotkey `{}`: {error}",
@@ -468,20 +486,6 @@ async fn main() -> Result<()> {
     };
     let hotkey_service = Arc::new(Mutex::new(hotkey_service));
     let hotkey_status = Arc::new(Mutex::new(hotkey_status));
-    let endpoint: SocketAddr = std::env::var("SORI_IPC_ADDR")
-        .unwrap_or_else(|_| DEFAULT_ENDPOINT.to_owned())
-        .parse()
-        .map_err(|error| anyhow::anyhow!("invalid SORI_IPC_ADDR: {error}"))?;
-    if !endpoint.ip().is_loopback() {
-        return Err(anyhow::anyhow!("SORI_IPC_ADDR must be a loopback address"));
-    }
-    let server = LocalIpcServer::bind(endpoint).await.map_err(|error| {
-        anyhow::anyhow!(
-            "cannot bind local IPC endpoint {endpoint}: {error}; another process may own it. {}",
-            "Inspect the endpoint and stop only a known stale sorid process"
-        )
-    })?;
-    let owner_path = write_daemon_owner(endpoint)?;
     info!(
         hotkey = %config.hotkey.binding,
         persistence_path = ?config.persistence_path,

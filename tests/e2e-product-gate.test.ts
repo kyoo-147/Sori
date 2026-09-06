@@ -51,7 +51,15 @@ describe('native bridge acceptance harness contract', () => {
     expect(source).toContain('provider/model/audio failure became fake success');
     expect(source).toContain('SQLite state was not restored after reconnect');
   });
-});
+  it('uses per-run database and owner paths and cleans only owned files', () => {
+    const source = readFileSync(resolve('scripts/e2e-native-bridge.ts'), 'utf8');
+    expect(source).toContain('randomUUID()');
+    expect(source).toContain('SORI_DAEMON_OWNER_PATH: owner');
+    expect(source).toContain('cleanupOwnedRunFiles');
+    expect(source).toContain('rmSync(path, { force: true })');
+    expect(source).toContain('ambiguous legacy owners remain untouched');
+  });
+  });
 
 describe('product gate daemon ownership isolation', () => {
   it('isolates the daemon ownership lease with the product gate database', () => {

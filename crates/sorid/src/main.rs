@@ -59,7 +59,7 @@ fn process_start_time() -> Result<u64> {
         {
             anyhow::bail!("GetProcessTimes failed")
         }
-        return Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime));
+        Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
     }
     #[cfg(not(windows))]
     {
@@ -1277,9 +1277,8 @@ async fn main() -> Result<()> {
                 // acknowledged even when the audio stop must be retried by it.
                 let cancelled_chunks = match handler_runtime.try_lock() {
                     Ok(mut slot) => slot.as_mut().and_then(|runtime| {
-                        runtime.stop_audio(true).ok().map(|chunks| {
+                        runtime.stop_audio(true).ok().inspect(|_| {
                             let _ = runtime.take_captured_audio();
-                            chunks
                         })
                     }),
                     Err(_) => None,
@@ -2077,7 +2076,7 @@ fn invalidate_route_for_model(
             fallbacks.retain(|value| {
                 value
                     .as_str()
-                    .map_or(true, |id| id != model.0 && id != qualified)
+                    .is_none_or(|id| id != model.0 && id != qualified)
             });
         }
     }

@@ -70,6 +70,15 @@ describe('product gate daemon ownership isolation', () => {
     expect(source).toContain("await browser(['selectpage', String(pageId)], session);");
     expect(source).toContain('await openPage(webUrl, session);');
   });
+  it('pins the MCP peer used by axi 0.1.29 to preserve snapshot compatibility', () => {
+    const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
+      devDependencies?: Record<string, string>;
+    };
+    expect(packageJson.devDependencies?.['chrome-devtools-mcp']).toBe('1.7.0');
+    const source = readFileSync(resolve('scripts/e2e-product-gate.ts'), 'utf8');
+    expect(source).toContain('CHROME_DEVTOOLS_AXI_MCP_PATH');
+    expect(source).toContain("'chrome-devtools-mcp', 'build', 'src', 'bin', 'chrome-devtools-mcp.js'");
+  });
   it('closes a keep-alive connection and resolves shutdown within the bound', async () => {
     const server = createServer((_request, response) => response.end('ok'));
     server.listen(0, '127.0.0.1');

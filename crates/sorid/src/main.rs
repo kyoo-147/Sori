@@ -685,6 +685,23 @@ async fn main() -> Result<()> {
             "SORI_TEST_NO_OS_INJECTION requires SORI_TEST_PROVIDER=deterministic-sapi"
         ));
     }
+    let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
+    let persisted_manifests = store
+        .model_manifests()?
+        .into_iter()
+        .map(|(id, value)| {
+            let manifest: sori_core::ModelManifest =
+                serde_json::from_value(value).map_err(|error| {
+                    anyhow::anyhow!("invalid persisted model manifest {id}: {error}")
+                })?;
+            if manifest.id.0 != id {
+                return Err(anyhow::anyhow!(
+                    "persisted model manifest identity mismatch: {id}"
+                ));
+            }
+            Ok(manifest)
+        })
+        .collect::<Result<Vec<_>>>()?;
     let (whisper_provider, whisper_detail): (Option<Arc<dyn sori_core::ModelProvider>>, String) =
         if let (Ok(mode), Ok(text)) = (
             std::env::var("SORI_TEST_PROVIDER"),
@@ -703,7 +720,7 @@ async fn main() -> Result<()> {
             match WhisperCppConfig::discover() {
                 Ok(config) => {
                     let provider = WhisperCppProvider::from_config(config, Vec::new());
-                    match provider.discover_models() {
+                    match provider.discover_models_with_persisted_metadata(&persisted_manifests) {
                         Ok(manifests) => {
                             let count = manifests.len();
                             let provider = WhisperCppProvider::from_config(
@@ -742,7 +759,6 @@ async fn main() -> Result<()> {
                 Err(error) => (None, format!("unavailable: {error}")),
             }
         };
-    let store = Arc::new(SqliteStore::open(&config.persistence_path)?);
     // Promote FE settings into daemon keys before runtime construction so a
     // restart preserves the same canonical hotkey configuration.
     if let Some(settings) = store.resource("settings")? {

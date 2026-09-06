@@ -46,6 +46,15 @@ const acceptance = readFileSync(resolve(root, 'scripts/windows-packaging-accepta
 if (!acceptance.includes("ValidateSet('bundle', 'install', 'installed', 'launch', 'restart', 'reinstall')")) {
   fail('acceptance phases do not expose the supported launch/restart contract');
 }
+if (!acceptance.includes("'^Sori_[0-9]+\\.[0-9]+\\.[0-9]+_x64-setup\\.exe$'") || !acceptance.includes("'^Sori_[0-9]+\\.[0-9]+\\.[0-9]+_x64_en-US\\.msi$'")) {
+  fail('acceptance must require exact Tauri NSIS/MSI artifact names for the selected installer type');
+}
+for (const required of ['Get-ExpectedInstaller', 'InstallerPath must identify the exact', 'Get-OwnedDatabase', 'expected exactly one SQLite database', 'database identity and content survived']) {
+  if (!acceptance.includes(required)) fail(`acceptance reinstall/artifact hardening is missing ${required}`);
+}
+if (acceptance.includes("$artifacts | Where-Object { $_.Name -match 'nsis|setup' -or $_.Extension -eq '.exe' }")) {
+  fail('acceptance must not accept an arbitrary recursive executable as NSIS artifact');
+}
 for (const required of ['Invoke-Installer', 'Invoke-Uninstaller', "'/qn'", "'/S'", 'ProductCode', 'silent uninstall']) {
   if (!acceptance.includes(required)) fail(`acceptance automation is missing ${required}`);
 }

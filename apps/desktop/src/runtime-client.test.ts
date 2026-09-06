@@ -60,6 +60,13 @@ describe('RuntimeClient resource persistence', () => {
 
 
 describe('RuntimeClient profile settings', () => {
+  it('serializes rapid writes to the same config key', async () => {
+    const values: unknown[] = []; let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+    const client = new RuntimeClient({ source: 'backend', request: async (_name, params) => { values.push(params?.value); if (values.length === 1) await gate; return { Control: { accepted: true, detail: 'saved' } }; } });
+    const first = client.setConfig('history.retention_limit', 7); const second = client.setConfig('history.retention_limit', 14);
+    await new Promise((resolve) => setTimeout(resolve, 0)); expect(values).toEqual([7]); release(); await Promise.all([first, second]); expect(values).toEqual([7, 14]);
+  });
+
   it('persists tray profile changes through canonical config IPC', async () => {
     let operation = ''; let params: Record<string, unknown> | undefined;
     const client = new RuntimeClient({ source: 'backend', request: async (name, values) => { operation = name; params = values; return { Control: { accepted: true, detail: 'profile saved in SQLite' } }; } });

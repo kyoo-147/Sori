@@ -57,8 +57,10 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
               { id: 'warm-vietnamese', name: 'Warm Vietnamese Female', provider: 'Local / BYOK' },
               { id: 'eleven-studio', name: 'Studio Natural Voice', provider: 'ElevenLabs Cloud' },
             ].map((v) => (
-              <div
+              <button
                 key={v.id}
+                type="button"
+                aria-pressed={assistantVoice.voiceId === v.id}
                 onClick={() => { if (!saving) void update({ voiceId: v.id }); }}
                 className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                   assistantVoice.voiceId === v.id
@@ -70,17 +72,16 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
                   <div className="font-bold text-zinc-900">{v.name}</div>
                   <div className="text-[10px] text-zinc-500 font-mono">{v.provider}</div>
                 </div>
-                <button
-                  type="button"
-                  disabled
+                <span
+                  aria-disabled="true"
                   title="Unavailable: no TTS preview IPC contract is wired"
                   aria-label={`${v.name} preview unavailable`}
                   onClick={(e) => e.stopPropagation()}
                   className="px-3 py-1.5 rounded-xl border border-zinc-200 bg-zinc-100 text-zinc-500 text-[11px] font-bold shadow-2xs disabled:cursor-not-allowed"
                 >
                   Preview unavailable
-                </button>
-              </div>
+                </span>
+              </button>
             ))}
           </div>
 

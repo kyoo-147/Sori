@@ -54,10 +54,12 @@ export const VoiceIdentityScreen: React.FC<Props> = ({ voiceProfile, setVoicePro
     setTyped('');
     setMsg('History permanently cleared from SQLite.');
   };
-  const exportData = () => {
-    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), history }, null, 2)], { type: 'application/json' });
+  const exportData = async () => {
+    const result = await runtimeClient.history(365);
+    if (result.error) { setError(`Export unavailable: ${result.error}`); return; }
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), history: result.data }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'sori-local-data.json'; a.click(); URL.revokeObjectURL(url);
-    setMsg('Export downloaded from the current persisted history.');
+    setMsg('Export downloaded from authoritative persisted history.');
   };
   const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => <button type="button" role="switch" aria-checked={value} onClick={() => onChange(!value)} className={`h-6 w-11 rounded-full p-1 ${value ? 'bg-[#A89C8C]' : 'bg-[#D5D0C9]'}`}><span className={`block h-4 w-4 rounded-full bg-[#FFFDF9] transition-transform ${value ? 'translate-x-5' : ''}`} /></button>;
   return <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-8">

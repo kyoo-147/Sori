@@ -9,6 +9,17 @@ pub enum HotkeyServiceStatus {
     Unavailable(String),
 }
 
+fn publish_recovery_failure<B: EventBus>(events: &B, error: &HotkeyError) {
+    events.publish(sori_core::Event {
+        id: uuid::Uuid::new_v4(),
+        at: time::OffsetDateTime::now_utc(),
+        kind: sori_core::EventKind::DaemonError,
+        payload: sori_core::event::serde_json_like::Value::String(format!(
+            "hotkey listener recovery failed: {error}"
+        )),
+    });
+}
+
 #[cfg(windows)]
 pub struct HotkeyService {
     commands: std::sync::mpsc::Sender<HotkeyCommand>,
@@ -105,7 +116,13 @@ pub fn start_hotkey_service<B: EventBus + 'static>(
                             }
                         }
                         Err(_) => {
-                            let _ = backend.recover();
+                            if let Err(error) = backend.recover() {
+                                // A failed recovery means the native listener is no
+                                // longer trustworthy. Report it and stop this worker
+                                // instead of claiming a live hotkey service.
+                                publish_recovery_failure(events.as_ref(), &error);
+                                break 'outer;
+                            }
                             active_hotkey = backend.active_hotkey();
                         }
                         _ => {}
@@ -182,4 +199,27 @@ fn hotkey_is_down(hotkey: HotkeyCombination) -> bool {
                 hotkey.modifiers & modifier == 0 || unsafe { GetAsyncKeyState(*key) } < 0
             });
     key_down && modifiers_down
+}
+
+#[cfg(test)]
+mod tests {
+    use super::publish_recovery_failure;
+    use sori_core::{EventBus, HotkeyError, InMemoryEventBus};
+
+    #[test]
+    fn recovery_failure_is_reported_as_daemon_error() {
+        let events = InMemoryEventBus::default();
+
+        publish_recovery_failure(&events, &HotkeyError::Conflict);
+
+        let recent = events.recent();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].kind, sori_core::EventKind::DaemonError);
+        assert_eq!(
+            recent[0].payload,
+            sori_core::event::serde_json_like::Value::String(
+                "hotkey listener recovery failed: hotkey is already registered by another application".into()
+            )
+        );
+    }
 }

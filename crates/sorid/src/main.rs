@@ -1291,6 +1291,8 @@ async fn main() -> Result<()> {
                 Response::Control(ControlResponse { accepted: true, detail: "dictation cancellation requested; active provider work will be discarded".into() })
             }
             Request::DictationAudio { model, audio, injection_strategy } => {
+                let runtime_ready = handler_runtime.lock().map_err(|_| sori_ipc::IpcError::Transport("runtime lock poisoned".into()))?.as_ref().is_some_and(|runtime| runtime.dictation_ready());
+                if !runtime_ready { return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "runtime_unavailable".into(), detail: "dictation audio is unavailable while daemon lifecycle is not Ready".into() })); }
                 let provider = handler_model_provider.as_ref().ok_or_else(|| sori_ipc::IpcError::Transport("dictation audio unavailable: Whisper provider is not ready".into()))?;
                 if !provider.can_transcribe(&model) {
                     return Ok(Response::Error(sori_ipc::IpcErrorResponse { code: "model_unavailable".into(), detail: format!("dictation audio model is not discovered and ready: {}", model.0) }));
@@ -1313,6 +1315,9 @@ async fn main() -> Result<()> {
                 let history: &dyn HistoryRepository = if history_enabled { handler_store.as_ref() } else { &no_history };
                 let vocabulary = persisted_vocabulary(&handler_store)
                     .map_err(sori_ipc::IpcError::Transport)?;
+                let cancellation = CancellationToken::new();
+                let timeout_token = cancellation.clone();
+                std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_secs(120)); timeout_token.cancel(); });
                 let result = sori_core::complete_dictation_with_vocabulary_options(
                     audio,
                     provider.as_ref(),
@@ -1322,7 +1327,7 @@ async fn main() -> Result<()> {
                     history,
                     handler_store.as_ref(),
                     &vocabulary,
-                    &CancellationToken::new(),
+                    &cancellation,
                     Some(std::time::Duration::from_secs(120)),
                 ).map_err(|error| sori_ipc::IpcError::Transport(format!("canonical audio dictation failed: {error}")))?;
                 if result.inserted_text.is_none() {
@@ -1544,17 +1549,12 @@ async fn main() -> Result<()> {
                     validate_route_resource(&value, provider.as_ref()).map_err(sori_ipc::IpcError::Transport)?;
                 }
                 handler_store
-                    .set_resource(&resource, &value)
+                    .set_resource_with_legacy(&resource, &value)
                     .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 if resource == "route" {
                     handler_store.save_model_route("active", &value).map_err(|e| sori_ipc::IpcError::Transport(format!("route persistence failed: {e}")))?;
                 }
                 publish_persisted_event(&handler_store, EventKind::ResourceChanged, format!("set:{resource}"));
-                // Keep the legacy key readable by daemon startup code while all
-                // new writes are owned by the user_data resource table.
-                handler_store
-                    .set_setting(&format!("resource.{resource}"), &value)
-                    .map_err(|e| sori_ipc::IpcError::Transport(e.to_string()))?;
                 Response::Resource(sori_ipc::ResourceResponse { resource, value })
             }
             Request::ResourceDelete { resource } => {

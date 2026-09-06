@@ -241,11 +241,24 @@ impl<B: EventBus> DaemonRuntime<B> {
         std::mem::take(&mut self.captured_audio)
     }
 
+    fn ensure_ready_for_dictation(&self) -> Result<(), ModelError> {
+        if !matches!(self.state, RuntimeState::Ready) {
+            return Err(ModelError::Inference(format!(
+                "dictation cannot run while daemon is {:?}",
+                self.state
+            )));
+        }
+        Ok(())
+    }
+    pub fn dictation_ready(&self) -> bool {
+        matches!(self.state, RuntimeState::Ready)
+    }
     pub fn transcribe(
         &self,
         model: &ModelId,
         audio: &[AudioChunk],
     ) -> Result<Transcript, ModelError> {
+        self.ensure_ready_for_dictation()?;
         self.provider
             .as_deref()
             .ok_or_else(|| ModelError::Inference("no model provider is configured".into()))?
@@ -637,6 +650,21 @@ mod tests {
         assert!(kinds.contains(&EventKind::VadSpeechStarted));
         assert!(kinds.contains(&EventKind::VadSpeechEnded));
         assert!(kinds.contains(&EventKind::AudioStopped));
+    }
+
+    #[test]
+    fn dictation_transcribe_is_gated_by_lifecycle() {
+        let events = InMemoryEventBus::default();
+        let mut runtime = DaemonRuntime::new(events);
+        runtime.pause().unwrap();
+        let error = runtime
+            .transcribe(&ModelId::from("model"), &[])
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("cannot run while daemon is Paused")
+        );
     }
 
     #[test]

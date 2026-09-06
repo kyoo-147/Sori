@@ -30,9 +30,9 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
     setSaving(false);
   };
   return (
-    <div className="space-y-6 max-w-5xl mx-auto p-4 md:p-6 text-zinc-900 font-sans">
+    <div className="mx-auto max-w-5xl space-y-6 p-3 text-[var(--sori-text-primary)] sm:p-4 md:p-6">
       {/* Header */}
-      <div className="sori-glass p-6 rounded-2xl border border-zinc-200/80 shadow-xs space-y-2">
+      <div className="sori-pane space-y-2 p-4 sm:p-6">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-zinc-900 text-white shadow-xs">
             <Volume2 className="w-5 h-5" />
@@ -48,7 +48,7 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
 
       <div className="grid md:grid-cols-2 gap-6">
         {/* Voice Library */}
-        <div className="bg-white/80 backdrop-blur-md border border-zinc-200 rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="sori-pane space-y-4 p-4 sm:p-6">
           <div className="font-bold text-xs text-zinc-900">Spoken Voice Library</div>
 
           <div className="space-y-2.5 text-xs">
@@ -106,7 +106,7 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
         </div>
 
         {/* Reply Policies */}
-        <div className="bg-white/80 backdrop-blur-md border border-zinc-200 rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="sori-pane space-y-4 p-4 sm:p-6">
           <div className="font-bold text-xs text-zinc-900">Spoken Reply Policy</div>
 
           <div className="space-y-2.5 text-xs">

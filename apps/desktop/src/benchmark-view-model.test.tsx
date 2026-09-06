@@ -1,7 +1,8 @@
+import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { mapBenchmarkResult } from './benchmark-view-model';
-import { BenchmarkResult } from './components/screens/BenchmarkScreen';
+import { BenchmarkResult, BenchmarkScreen } from './components/screens/BenchmarkScreen';
 
 describe('benchmark evidence mapping and rendering', () => {
   it('maps every backend metric and only marks the backend-selected run', () => {
@@ -15,5 +16,11 @@ describe('benchmark evidence mapping and rendering', () => {
     expect(html).toContain('Missing evidence');
     expect((html.match(/UNVERIFIED/g) ?? []).length).toBeGreaterThanOrEqual(11);
     expect(html).not.toContain('0ms');
+  });
+  it('gives the persisted-results panel an honest empty state', () => {
+    const html = renderToStaticMarkup(<BenchmarkScreen benchmarkResults={[]} activeModelId={null} onApplyPolicy={async () => {}} onRun={async () => 'unavailable'} />);
+    expect(html).toContain('No provider benchmark results yet.');
+    expect(html).toContain('never presented as success');
+    expect(html).toContain('aria-labelledby="persisted-results-heading"');
   });
 });

@@ -86,6 +86,14 @@ export default function App() {
     setHistoryState('loading');
     const result = await runtimeClient.history(50);
     if (result.error !== null) { setHistoryState('error'); return false; }
+  const settingsCloseRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!isSettingsModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); setIsSettingsModalOpen(false); } };
+    window.addEventListener('keydown', onKeyDown);
+    settingsCloseRef.current?.focus();
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isSettingsModalOpen]);
     setHistory(result.data.map((entry) => ({
       id: entry.id,
       timestamp: entry.at,
@@ -513,8 +521,9 @@ export default function App() {
 
         {/* Studio Settings Modal overlay if invoked */}
       {isSettingsModalOpen && (
-          <div className="fixed inset-0 z-50 bg-[#1C1B1A]/20 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="w-full max-w-3xl relative animate-in fade-in zoom-in-95 duration-200">
+          <div className="fixed inset-0 z-50 bg-[#1C1B1A]/20 backdrop-blur-xs flex items-center justify-center p-4" role="presentation">
+            <div className="w-full max-w-3xl relative animate-in fade-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
+              <div id="settings-dialog-title" className="sr-only">Sori settings</div>
               <StudioSettingsScreen settings={settings} setSettings={setSettings} runtimeClient={runtimeClient} />
               <button
                 type="button"

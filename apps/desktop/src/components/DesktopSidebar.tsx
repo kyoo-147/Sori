@@ -34,10 +34,11 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   onClose,
   collapsed = false,
 }) => {
-  const navigate = (screen: ActiveScreen) => {
-    setActiveScreen(screen);
-    onClose?.();
-  };
+  const searchRef = React.useRef<HTMLInputElement>(null);
+  const [search, setSearch] = React.useState('');
+  const searchItems = [{ id: 'home' as ActiveScreen, label: 'Home' }, { id: 'transcripts' as ActiveScreen, label: 'Transcripts' }, { id: 'vocabulary' as ActiveScreen, label: 'Vocabulary' }, { id: 'voice-edit' as ActiveScreen, label: 'Voice Edit' }, { id: 'models' as ActiveScreen, label: 'Models & Routing' }, { id: 'benchmarks' as ActiveScreen, label: 'Benchmarks' }, { id: 'extensions' as ActiveScreen, label: 'Extensions' }, { id: 'privacy' as ActiveScreen, label: 'Privacy' }, { id: 'diagnostics' as ActiveScreen, label: 'Diagnostics' }, { id: 'settings' as ActiveScreen, label: 'Settings' }];
+  React.useEffect(() => { const onKeyDown = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); } }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown); }, []);
+  const navigate = (screen: ActiveScreen) => { setActiveScreen(screen); setSearch(''); onClose?.(); };
 
   const coreNav: { id: ActiveScreen; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Home', icon: <Home className="w-4 h-4" /> },
@@ -69,14 +70,18 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[#98928A]" />
           <input
+            ref={searchRef}
             type="text"
             aria-label="Search Sori"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
             placeholder="Search Sori..."
             className="sori-sidebar-search w-full bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] rounded-[10px] pl-8 pr-12 py-1.5 text-[12.5px] text-[#1C1B19] placeholder-[#B2AEA8] focus:outline-none focus:bg-white focus:border-[rgba(92,84,75,0.25)] transition-all shadow-2xs"
           />
           <span className="absolute right-2.5 top-2 text-[10px] text-[#98928A] font-mono bg-white/70 px-1 rounded border border-[rgba(92,84,75,0.12)]">
             Ctrl+K
           </span>
+           {search.trim() && <div role="listbox" aria-label="Search results" className="absolute left-0 right-0 top-10 z-20 rounded-xl border border-[rgba(92,84,75,0.12)] bg-[#FFFDF9] p-1 shadow-lg">{searchItems.filter((item) => item.label.toLowerCase().includes(search.trim().toLowerCase())).map((item) => <button type="button" role="option" key={item.id} onClick={() => navigate(item.id)} className="w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-[#F2EEE8]">{item.label}</button>)}{!searchItems.some((item) => item.label.toLowerCase().includes(search.trim().toLowerCase())) && <div className="px-3 py-2 text-xs text-[#98928A]">No matching Sori destinations</div>}</div>}
         </div>
 
         {/* Core Navigation Section */}

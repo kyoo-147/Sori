@@ -56,7 +56,7 @@ export class RuntimeClient {
   history(limit = 20) { return this.call('recent_history', mapHistory, [], { limit }); }
   async purgeHistory() { return this.control('purge_history'); }
   async deleteHistory(id: string) { return this.control('delete_history', { id }); }
-  async setConfig(key: string, value: unknown) { return this.control('set_config', { key, value }); }
+  async setConfig(key: string, value: unknown) { const previous = this.configWrites.get(key) ?? Promise.resolve(); const write = previous.catch(() => undefined).then(() => this.control('set_config', { key, value })); this.configWrites.set(key, write); try { return await write; } finally { if (this.configWrites.get(key) === write) this.configWrites.delete(key); } }
   async reconnect() { return this.status(); }
   async dictationStart() { return this.control('dictation_start'); }
   async dictationStop() { return this.call('dictation_stop', mapTranscript, null); }
@@ -80,6 +80,7 @@ export class RuntimeClient {
   setActiveModel(modelId: string) { return this.setResource<{ activeModelId: string | null }>('route', { activeModelId: modelId }); }
   setRoutePolicy(policy: 'Performance' | 'Balanced' | 'Battery' | 'Privacy' | 'LocalFirst' | 'CloudAllowed' | 'NeverCloud') { return this.setConfig('route.policy', policy); }
   private readonly resourceWrites = new Map<string, Promise<unknown>>();
+  private readonly configWrites = new Map<string, Promise<unknown>>();
   async deleteResource(name: string) { return this.control('resource_delete', { resource: name }); }
   async setResource<T>(name: string, value: T) {
     const previous = this.resourceWrites.get(name) ?? Promise.resolve();

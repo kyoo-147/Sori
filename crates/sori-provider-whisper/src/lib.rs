@@ -596,6 +596,13 @@ impl WhisperCppProvider {
         }
         status
     }
+    pub fn discover_models_with_persisted_metadata(
+        &self,
+        persisted: &[ModelManifest],
+    ) -> Result<Vec<ModelManifest>, ModelError> {
+        let discovered = self.discover_models()?;
+        restore_persisted_manifest_metadata(discovered, persisted)
+    }
 
     /// Discover real model files; no manifest is emitted for a missing file.
     pub fn discover_models(&self) -> Result<Vec<ModelManifest>, ModelError> {
@@ -646,6 +653,54 @@ impl WhisperCppProvider {
         models.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(models)
     }
+}
+
+fn restore_persisted_manifest_metadata(
+    discovered: Vec<ModelManifest>,
+    persisted: &[ModelManifest],
+) -> Result<Vec<ModelManifest>, ModelError> {
+    let mut restored = discovered;
+    let mut used = vec![false; persisted.len()];
+    for manifest in &mut restored {
+        let matches = persisted
+            .iter()
+            .enumerate()
+            .filter(|(_, saved)| {
+                saved.id == manifest.id
+                    || saved.sha256 == manifest.sha256
+                    || saved.source.as_deref().is_some_and(|source| {
+                        Path::new(source).file_name() == Path::new(&manifest.id.0).file_name()
+                    })
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if matches.len() > 1 {
+            return Err(ModelError::Inference(format!(
+                "ambiguous persisted whisper manifest metadata for {}",
+                manifest.id.0
+            )));
+        }
+        if let Some(index) = matches.first().copied() {
+            let saved = &persisted[index];
+            if saved.sha256.is_some() && saved.sha256 != manifest.sha256 {
+                return Err(ModelError::Inference(format!(
+                    "persisted whisper manifest checksum mismatch for {}",
+                    manifest.id.0
+                )));
+            }
+            *manifest = saved.clone();
+            used[index] = true;
+        }
+    }
+    if used.iter().any(|used| !used) {
+        return Err(ModelError::Inference(
+            "persisted whisper manifest has no matching installed artifact".into(),
+        ));
+    }
+    Ok(restored)
+}
+
+impl WhisperCppProvider {
     pub fn process_spec_with_format(
         &self,
         model: &ModelId,
@@ -1559,6 +1614,34 @@ mod tests {
             source: Some("deterministic-test".into()),
             sha256: None,
         }
+    }
+
+    #[test]
+    fn restores_imported_metadata_after_provider_reopen() {
+        let bytes = b"persisted model";
+        let digest = format!("{:x}", sha2::Sha256::digest(bytes));
+        let mut discovered = manifest("model.bin");
+        discovered.sha256 = Some(digest.clone());
+        discovered.source = Some("installed/model.bin".into());
+        let mut persisted = manifest("model.bin");
+        persisted.sha256 = Some(digest);
+        persisted.source = Some("C:/imports/model.bin".into());
+        persisted.license.attribution = Some("Copyright model authors".into());
+        let restored = restore_persisted_manifest_metadata(vec![discovered], &[persisted]).unwrap();
+        assert_eq!(restored[0].source.as_deref(), Some("C:/imports/model.bin"));
+        assert_eq!(
+            restored[0].license.attribution.as_deref(),
+            Some("Copyright model authors")
+        );
+    }
+
+    #[test]
+    fn persisted_metadata_mismatch_fails_closed() {
+        let mut discovered = manifest("model.bin");
+        discovered.sha256 = Some("actual".into());
+        let mut persisted = manifest("model.bin");
+        persisted.sha256 = Some("different".into());
+        assert!(restore_persisted_manifest_metadata(vec![discovered], &[persisted]).is_err());
     }
 
     #[test]

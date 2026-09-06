@@ -20,12 +20,14 @@ export const VoiceIdentityScreen: React.FC<Props> = ({ voiceProfile, setVoicePro
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  const [configState, setConfigState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
 
   useEffect(() => {
     void runtimeClient.configSummary().then((result) => {
-      if (result.error || !result.data) return;
+      if (result.error || !result.data) { setConfigState('unavailable'); setError(result.error ?? 'Runtime configuration is unavailable.'); return; }
       setSave(result.data.history_enabled);
       setRetention(result.data.history_retention_limit);
+      setConfigState('ready');
     });
   }, [runtimeClient]);
 
@@ -64,8 +66,9 @@ export const VoiceIdentityScreen: React.FC<Props> = ({ voiceProfile, setVoicePro
   const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => <button type="button" role="switch" aria-checked={value} onClick={() => onChange(!value)} className={`h-6 w-11 rounded-full p-1 ${value ? 'bg-[#A89C8C]' : 'bg-[#D5D0C9]'}`}><span className={`block h-4 w-4 rounded-full bg-[#FFFDF9] transition-transform ${value ? 'translate-x-5' : ''}`} /></button>;
   return <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-8">
     <header><h1 className="sori-page-heading">Privacy &amp; Data Control</h1><p className="sori-body-text mt-1">Local-first by design. Data stays on this device unless you choose otherwise.</p></header>
+    {configState === 'loading' && <div role="status" className="rounded-xl border border-[#E5E0D9] bg-[#F7F4EF] p-3 text-xs text-[#68635D]">Loading persisted privacy settings…</div>}
     {msg && <div role="status" className="rounded-xl border border-[#CBE5D4] bg-[#EAF3ED] p-3 text-xs text-[#4E7A61]">{msg}</div>}
-    {error && <div role="alert" className="rounded-xl border border-[#EBD1CA] bg-[#FFF4F0] p-3 text-xs text-[#A75850]">Privacy operation failed: {error}</div>}
+    {error && <div role="alert" className="rounded-xl border border-[#EBD1CA] bg-[#FFF4F0] p-3 text-xs text-[#A75850]">Privacy operation unavailable: {error}</div>}
     <div className="grid gap-5 lg:grid-cols-2"><section className="sori-pane space-y-4 p-5"><h2 className="sori-section-heading">Local data &amp; retention</h2>
       <div className="flex items-center gap-3 rounded-xl border border-[#E5E0D9] p-3"><Volume2 className="h-5 w-5 text-[#6E7A80]" /><div className="flex-1"><div className="text-sm font-medium">Save transcript history</div><div className="sori-meta-text">Persist transcripts locally for search and review.</div></div><Toggle value={save} onChange={(value) => updateConfig('history.enabled', value, () => setSave(value))} /></div>
       <label className="block rounded-xl border border-[#E5E0D9] p-3 text-sm font-medium">History retention limit <output className="float-right font-mono">{retention} entries</output><input aria-label="History retention limit" type="range" min="1" max="365" value={retention} onChange={(e) => { const value = Number(e.target.value); updateConfig('history.retention_limit', value, () => setRetention(value)); }} className="mt-4 w-full accent-[#A89C8C]" /></label>

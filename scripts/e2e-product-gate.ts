@@ -157,6 +157,10 @@ function browserEnv(session: string): NodeJS.ProcessEnv {
   return {
     CHROME_DEVTOOLS_AXI_SESSION: session,
     CHROME_DEVTOOLS_AXI_USER_DATA_DIR: resolve('.tmp', `${session}-profile`),
+    // chrome-devtools-axi 0.1.29 sends take_snapshot without pageId. Pin the
+    // MCP peer to the schema it was released against; latest MCP now requires
+    // pageId and makes every semantic snapshot fail after page selection.
+    CHROME_DEVTOOLS_AXI_MCP_PATH: resolve('node_modules', 'chrome-devtools-mcp', 'build', 'src', 'bin', 'chrome-devtools-mcp.js'),
   };
 }
 

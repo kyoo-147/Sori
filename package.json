@@ -43,6 +43,7 @@
     "@types/node": "^24.10.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.14",
+    "chrome-devtools-mcp": "1.7.0"
   }
 }

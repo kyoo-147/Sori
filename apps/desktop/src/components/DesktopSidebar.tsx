@@ -76,7 +76,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search Sori..."
-            className="sori-sidebar-search w-full bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] rounded-[10px] pl-8 pr-12 py-1.5 text-[12.5px] text-[#1C1B19] placeholder-[#B2AEA8] focus:outline-none focus:bg-white focus:border-[rgba(92,84,75,0.25)] transition-all shadow-2xs"
+            className="sori-focus-ring sori-sidebar-search w-full bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] rounded-[10px] pl-8 pr-12 py-1.5 text-[12.5px] text-[#1C1B19] placeholder-[#B2AEA8] focus:outline-none focus:bg-white focus:border-[rgba(92,84,75,0.25)] transition-all shadow-2xs"
           />
           <span className="absolute right-2.5 top-2 text-[10px] text-[#98928A] font-mono bg-white/70 px-1 rounded border border-[rgba(92,84,75,0.12)]">
             Ctrl+K

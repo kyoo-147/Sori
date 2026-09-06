@@ -687,3 +687,23 @@
     background: var(--sori-bg-panel);
   }
 }
+
+/* Wave 2 keyboard and focus affordances. */
+.sori-focus-ring:focus-visible {
+  outline: 2px solid var(--sori-border-focus) !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sori-border-focus) 24%, transparent) !important;
+}
+.sori-sidebar-divider:focus-visible {
+  outline: 2px solid var(--sori-border-focus);
+  outline-offset: 1px;
+}
+@media (max-width: 480px) {
+  .sori-titlebar { padding-inline: 6px 0; gap: 2px; }
+  .sori-titlebar__center-actions { gap: 2px; }
+  .sori-titlebar__center-actions > button:first-child { padding-inline: 8px; }
+  .sori-titlebar__actions { gap: 2px; }
+  .sori-titlebar__actions > button { padding-inline: 6px; }
+  .sori-window-controls { margin-left: 2px; }
+  .sori-window-control { width: 32px; }
+}

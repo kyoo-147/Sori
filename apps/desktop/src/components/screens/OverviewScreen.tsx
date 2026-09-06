@@ -78,7 +78,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
           <div className="mt-5 rounded-[10px] border border-[#EBD9A8] bg-[#FFF7E6] px-3 py-2 text-xs text-[#6B552C]">Unavailable: native focused-window identity and target selection are not exposed by the canonical IPC contract.</div>
           <div className="mt-4 overflow-hidden rounded-[14px] border border-[rgba(92,84,75,0.12)] bg-[#FFFDF9]">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[rgba(92,84,75,0.08)] px-4 py-3 text-[11px] text-[#98928A]"><span className="font-mono">Sori preview · no native target</span><span>{state === 'listening' ? 'Daemon capture active' : 'Preview only'}</span></div>
-            <textarea value={preview} readOnly aria-label="Browser preview without focused target" className="min-h-[210px] w-full resize-y focus-visible:ring-2 focus-visible:ring-[var(--sori-border-focus)] border-0 bg-transparent p-5 text-sm leading-7 text-[#68635D] outline-none" />
+            <textarea value={preview} readOnly aria-label="Browser preview without focused target" className="sori-focus-ring min-h-[210px] w-full resize-y border-0 bg-transparent p-5 text-sm leading-7 text-[#68635D] outline-none" />
             <div className="flex items-center justify-between border-t border-[rgba(92,84,75,0.08)] px-4 py-3 text-xs text-[#68635D]"><span className="flex items-center gap-2"><Activity className="h-4 w-4 text-[#6E7A80]" />{copy.detail}</span><span className="font-mono">{settings.hotkey}</span></div>
           </div>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">

@@ -110,14 +110,14 @@ export const FirstRunOnboardingScreen: React.FC<FirstRunOnboardingScreenProps> =
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 p-4 text-[#1C1B19] md:p-8" data-testid="first-run-setup">
+    <div className="mx-auto w-full max-w-3xl space-y-6 p-3 text-[var(--sori-text-primary)] sm:p-4 md:p-8" data-testid="first-run-setup">
       <header className="space-y-2 text-center">
         <div className="inline-flex items-center gap-1.5 rounded-full border border-[#D9D4CC] bg-[#F2EEE8] px-3 py-1 text-xs font-medium text-[#68635D]"><Sparkles className="h-3.5 w-3.5" /> First Run Setup</div>
         <h1 className="sori-page-heading">Get ready to speak into any window</h1>
         <p className="sori-body-text mx-auto max-w-xl">We’ll check your local daemon, microphone, permissions, and hotkey. Hardware-dependent checks stay explicitly visible when they cannot be verified here.</p>
       </header>
 
-      <nav aria-label="First Run Setup progress" className="mx-auto flex max-w-2xl items-start justify-between">
+      <nav aria-label="First Run Setup progress" className="mx-auto flex max-w-2xl items-start justify-between gap-1 overflow-x-auto px-1 pb-1">
         {steps.map((step, index) => {
           const active = currentStep === step.id;
           const complete = stepStates[step.id] === 'complete' || (step.id < currentStep && stepStates[step.id] === 'granted');
@@ -131,7 +131,7 @@ export const FirstRunOnboardingScreen: React.FC<FirstRunOnboardingScreenProps> =
         })}
       </nav>
 
-      <section className="space-y-6 rounded-[18px] border border-[#DED9D1] bg-[#FBF9F6] p-5 shadow-sm md:p-8" aria-live="polite">
+      <section className="space-y-6 rounded-[var(--sori-radius-xl)] border border-[var(--sori-border-default)] bg-[var(--sori-bg-panel)] p-4 shadow-[var(--sori-shadow-sm)] sm:p-5 md:p-8" aria-live="polite">
         {error && <div role="alert" className="flex items-start gap-2 rounded-xl border border-[#E6BDB7] bg-[#FBEFED] p-3 text-sm text-[#A75850]"><XCircle className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>Setup check failed.</strong> {error} Retry the check or resolve it in Diagnostics.</span></div>}
 
         {currentStep === 1 && <div className="space-y-5 py-4 text-center">

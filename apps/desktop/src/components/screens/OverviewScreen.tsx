@@ -50,7 +50,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
   };
 
   return (
-    <div className="mx-auto max-w-[1180px] space-y-6 p-1 text-[#1C1B19] sm:p-2 md:p-4">
+    <div className="mx-auto max-w-[1180px] space-y-6 p-1 text-[var(--sori-text-primary)] sm:p-2 md:p-4">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-[#98928A]">Overview</p>
@@ -64,7 +64,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
       </header>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="rounded-[18px] border border-[rgba(92,84,75,0.13)] bg-[#FBF9F6] p-5 shadow-[0_4px_18px_rgba(92,84,75,0.05)] md:p-6">
+        <section className="rounded-[18px] border border-[rgba(92,84,75,0.13)] bg-[var(--sori-bg-panel)] p-5 shadow-[var(--sori-shadow-sm)] md:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[rgba(92,84,75,0.08)] pb-4">
             <div className="flex gap-3">
               <div className="rounded-xl bg-[#ECEEEB] p-2.5 text-[#6E7A80]"><Target className="h-5 w-5" /></div>
@@ -77,8 +77,8 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
 
           <div className="mt-5 rounded-[10px] border border-[#EBD9A8] bg-[#FFF7E6] px-3 py-2 text-xs text-[#6B552C]">Unavailable: native focused-window identity and target selection are not exposed by the canonical IPC contract.</div>
           <div className="mt-4 overflow-hidden rounded-[14px] border border-[rgba(92,84,75,0.12)] bg-[#FFFDF9]">
-            <div className="flex items-center justify-between border-b border-[rgba(92,84,75,0.08)] px-4 py-3 text-[11px] text-[#98928A]"><span className="font-mono">Sori preview · no native target</span><span>{state === 'listening' ? 'Daemon capture active' : 'Preview only'}</span></div>
-            <textarea value={preview} readOnly aria-label="Browser preview without focused target" className="min-h-[210px] w-full resize-y border-0 bg-transparent p-5 text-sm leading-7 text-[#68635D] outline-none" />
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[rgba(92,84,75,0.08)] px-4 py-3 text-[11px] text-[#98928A]"><span className="font-mono">Sori preview · no native target</span><span>{state === 'listening' ? 'Daemon capture active' : 'Preview only'}</span></div>
+            <textarea value={preview} readOnly aria-label="Browser preview without focused target" className="min-h-[210px] w-full resize-y focus-visible:ring-2 focus-visible:ring-[var(--sori-border-focus)] border-0 bg-transparent p-5 text-sm leading-7 text-[#68635D] outline-none" />
             <div className="flex items-center justify-between border-t border-[rgba(92,84,75,0.08)] px-4 py-3 text-xs text-[#68635D]"><span className="flex items-center gap-2"><Activity className="h-4 w-4 text-[#6E7A80]" />{copy.detail}</span><span className="font-mono">{settings.hotkey}</span></div>
           </div>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">

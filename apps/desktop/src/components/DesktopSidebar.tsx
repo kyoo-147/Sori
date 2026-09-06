@@ -63,7 +63,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
   return (
     <aside className={`${isOpen && !collapsed ? 'flex' : 'hidden'} sori-shell__sidebar md:flex max-md:fixed max-md:top-10 max-md:inset-y-0 max-md:left-0 max-md:z-40 flex-col justify-between select-none`} data-open={isOpen && !collapsed} data-collapsed={collapsed}>
-      <button type="button" aria-label="Close navigation" onClick={onClose} className="md:hidden absolute top-3 right-3 text-[#68635D] p-2 rounded-md hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#6E7A80]">×</button>
+      <button type="button" aria-label="Close navigation" onClick={onClose} className="sori-sidebar-mobile-close md:hidden absolute top-3 right-3 p-2 rounded-md" />
       {/* Top Search & Nav */}
       <div className="sori-shell__sidebar-nav p-3 space-y-3.5 custom-scrollbar" role="navigation" aria-label="Primary Sori navigation">
         {/* Search Input Box */}
@@ -91,7 +91,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveScreen(item.id)}
+                onClick={() => navigate(item.id)}
                 aria-label={item.label}
                 aria-current={isActive ? 'page' : undefined}
                 className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
@@ -118,7 +118,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveScreen(item.id)}
+                  onClick={() => navigate(item.id)}
                   aria-label={item.label}
                   aria-current={isActive ? 'page' : undefined}
                   className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
@@ -146,7 +146,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveScreen(item.id)}
+                  onClick={() => navigate(item.id)}
                   aria-label={item.label}
                   aria-current={isActive ? 'page' : undefined}
                   className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
@@ -174,7 +174,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveScreen(item.id)}
+                  onClick={() => navigate(item.id)}
                   aria-label={item.label}
                   aria-current={isActive ? 'page' : undefined}
                   className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${

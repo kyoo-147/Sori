@@ -22,6 +22,10 @@ function isConfigSummary(value: unknown): value is ConfigSummaryResponse { if (!
 function isSetting(value: unknown): value is SettingResponse { return isRecord(value) && hasString(value, 'key') && Object.prototype.hasOwnProperty.call(value, 'value'); }
 function isVoiceEdit(value: unknown): value is VoiceEditResponse { return isRecord(value) && typeof value.accepted === 'boolean' && isNullableString(value.transformed_text) && isNullableString(value.diff) && hasString(value, 'detail'); }
 function isBenchmark(value: unknown): value is Record<string, unknown> { return isRecord(value) && hasString(value, 'run_id') && hasString(value, 'started_at') && hasString(value, 'completed_at') && hasString(value, 'model') && hasString(value, 'provider') && typeof value.samples === 'number' && typeof value.attempts === 'number' && Number.isFinite(value.samples) && Number.isFinite(value.attempts); }
+function isResourceResponse(value: unknown, expectedName: string): value is { resource: string; value: unknown } { return isRecord(value) && value.resource === expectedName && Object.prototype.hasOwnProperty.call(value, 'value'); }
+function resourcePayload<T>(value: unknown, expectedName: string): T { const payload = responsePayload(value, 'Resource'); if (!isResourceResponse(payload, expectedName)) throw new Error(`daemon returned an invalid resource response for ${expectedName}`); return payload.value as T; }
+function isModelStatus(value: unknown, expectedModel: string): value is { provider: string; status: Record<string, unknown> } { if (!isRecord(value) || typeof value.provider !== 'string' || !isRecord(value.status)) return false; const status = value.status; return status.model === expectedModel && typeof status.installed === 'boolean' && typeof status.loaded === 'boolean' && typeof status.warm === 'boolean' && (status.memory_bytes === null || typeof status.memory_bytes === 'number') && (status.backend === null || typeof status.backend === 'string'); }
+function modelStatusPayload(value: unknown, expectedModel: string): { provider: string; status: Record<string, unknown> } { const payload = responsePayload(value, 'ModelStatus'); if (!isModelStatus(payload, expectedModel)) throw new Error(`daemon returned an invalid model status response for ${expectedModel}`); return payload; }
 function isTranscript(value: unknown): value is TranscriptResponse { if (!isRecord(value) || !hasString(value, 'text')) return false; if ('language' in value && !isNullableString(value.language)) return false; return !('segments' in value) || Array.isArray(value.segments); }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function mapTranscript(value: unknown): TranscriptResponse { return requiredPayload<TranscriptResponse>(value, 'Transcript', 'daemon returned no transcript (invalid transcript response)', isTranscript); }
@@ -65,17 +69,17 @@ export class RuntimeClient {
   async voiceEdit(selection: VoiceEditSelection, instruction: string, approved = false) { return this.call('voice_edit', (value) => requiredPayload<VoiceEditResponse>(value, 'VoiceEdit', 'daemon returned an invalid voice edit response', isVoiceEdit), null, { selection, instruction, approved }); }
   async runBenchmark(model: string, audio: unknown[], reference: string | null, iterations = 5, sessionId = crypto.randomUUID(), timeoutMs = 60_000) { return this.call('run_benchmark', (v) => requiredPayload<unknown>(v, 'Benchmark', 'daemon returned no benchmark response (invalid benchmark response)', isBenchmark), null, { model, audio, reference, iterations, session_id: sessionId, timeout_ms: timeoutMs }); }
   async cancelBenchmark(sessionId: string) { return this.control('cancel_benchmark', { session_id: sessionId }); }
-  async recentBenchmarks(limit = 20) { return this.call('recent_benchmarks', (v) => (responsePayload(v, 'Resource') as { value: BenchmarkHistoryPayload } | undefined)?.value ?? { runs: [], recommendation: null }, { runs: [], recommendation: null }, { limit }); }
-  async applyBenchmarkRecommendation() { return this.call('apply_benchmark_recommendation', (value) => (responsePayload(value, 'Resource') as { value: unknown } | undefined)?.value ?? null, null); }
-  resource<T>(name: string) { return this.call('resource_get', (value) => (responsePayload(value, 'Resource') as { value: T }).value, null as T, { resource: name }); }
+  async recentBenchmarks(limit = 20) { return this.call('recent_benchmarks', (v) => resourcePayload<BenchmarkHistoryPayload>(v, 'benchmarks'), { runs: [], recommendation: null }, { limit }); }
+  async applyBenchmarkRecommendation() { return this.call('apply_benchmark_recommendation', (value) => resourcePayload<unknown>(value, 'route'), null); }
+  resource<T>(name: string) { return this.call('resource_get', (value) => resourcePayload<T>(value, name), null as T, { resource: name }); }
   models() { return this.call('models', mapModels, [] as ModelRecord[]); }
   private modelKey(model: string) { return model.includes('/') ? model.slice(model.lastIndexOf('/') + 1) : model; }
-  installModel(model: string, source: string, expectedSha256: string) { return this.call('model_install', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model), source, expected_sha256: expectedSha256 }); }
-  modelStatus(model: string) { return this.call('model_status', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model) }); }
-  loadModel(model: string) { return this.call('model_load', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model) }); }
-  warmModel(model: string) { return this.call('model_warm', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model) }); }
-  unloadModel(model: string) { return this.call('model_unload', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model) }); }
-  removeModel(model: string) { return this.call('model_remove', (value) => responsePayload(value, 'ModelStatus') ?? null, null, { model: this.modelKey(model) }); }
+  installModel(model: string, source: string, expectedSha256: string) { const expected = this.modelKey(model); return this.call('model_install', (value) => modelStatusPayload(value, expected), null, { model: expected, source, expected_sha256: expectedSha256 }); }
+  modelStatus(model: string) { const expected = this.modelKey(model); return this.call('model_status', (value) => modelStatusPayload(value, expected), null, { model: expected }); }
+  loadModel(model: string) { const expected = this.modelKey(model); return this.call('model_load', (value) => modelStatusPayload(value, expected), null, { model: expected }); }
+  warmModel(model: string) { const expected = this.modelKey(model); return this.call('model_warm', (value) => modelStatusPayload(value, expected), null, { model: expected }); }
+  unloadModel(model: string) { const expected = this.modelKey(model); return this.call('model_unload', (value) => modelStatusPayload(value, expected), null, { model: expected }); }
+  removeModel(model: string) { const expected = this.modelKey(model); return this.call('model_remove', (value) => modelStatusPayload(value, expected), null, { model: expected }); }
   route<T = unknown>() { return this.resource<T>('route'); }
   setActiveModel(modelId: string) { return this.setResource<{ activeModelId: string | null }>('route', { activeModelId: modelId }); }
   setRoutePolicy(policy: 'Performance' | 'Balanced' | 'Battery' | 'Privacy' | 'LocalFirst' | 'CloudAllowed' | 'NeverCloud') { return this.setConfig('route.policy', policy); }
@@ -84,7 +88,7 @@ export class RuntimeClient {
   async deleteResource(name: string) { return this.control('resource_delete', { resource: name }); }
   async setResource<T>(name: string, value: T) {
     const previous = this.resourceWrites.get(name) ?? Promise.resolve();
-    const write = previous.catch(() => undefined).then(() => this.call('resource_set', (response) => (responsePayload(response, 'Resource') as { value: T }).value, value, { resource: name, value }));
+    const write = previous.catch(() => undefined).then(() => this.call('resource_set', (response) => resourcePayload<T>(response, name), value, { resource: name, value }));
     this.resourceWrites.set(name, write);
     try { return await write; } finally { if (this.resourceWrites.get(name) === write) this.resourceWrites.delete(name); }
   }

@@ -167,9 +167,19 @@ export default function App() {
 
   useEffect(() => {
     if (!settingsHydrated.current) return;
-    void runtimeClient.setResource('settings', settings).then((result) => {
-      if (result.error) setRuntimeError(`Settings unavailable: ${result.error}`);
-    });
+    let cancelled = false;
+    const persist = async () => {
+      const result = await runtimeClient.setResource('settings', settings);
+      if (cancelled) return;
+      if (!result.error) return;
+      setRuntimeError(`Settings unavailable: ${result.error}`);
+      const reconciled = await runtimeClient.resource<Partial<AppSettings>>('settings');
+      if (!cancelled && !reconciled.error && reconciled.data && typeof reconciled.data === 'object') {
+        setSettings((current) => ({ ...current, ...reconciled.data }));
+      }
+    };
+    void persist();
+    return () => { cancelled = true; };
   }, [runtimeClient, settings]);
 
   useEffect(() => {
@@ -201,10 +211,23 @@ export default function App() {
 
   useEffect(() => {
     if (!preferencesHydrated.current) return;
+    let cancelled = false;
     const preferences: PersistedPreferences = { version: 1, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile, activeScreen };
-    void runtimeClient.setResource('preferences', preferences).then((result) => {
-      if (result.error) setRuntimeError(`Preferences unavailable: ${result.error}`);
-    });
+    const persist = async () => {
+      const result = await runtimeClient.setResource('preferences', preferences);
+      if (cancelled) return;
+      if (!result.error) return;
+      setRuntimeError(`Preferences unavailable: ${result.error}`);
+      const reconciled = await runtimeClient.resource<Partial<PersistedPreferences>>('preferences');
+      if (cancelled || reconciled.error || !reconciled.data || typeof reconciled.data !== 'object') return;
+      if (typeof reconciled.data.sidebarCollapsed === 'boolean') setSidebarCollapsed(reconciled.data.sidebarCollapsed);
+      if (typeof reconciled.data.sidebarWidth === 'number' && reconciled.data.sidebarWidth >= 180 && reconciled.data.sidebarWidth <= 360) setSidebarWidth(reconciled.data.sidebarWidth);
+      if (reconciled.data.assistantVoice) setAssistantVoice((current) => ({ ...current, ...reconciled.data!.assistantVoice }));
+      if (reconciled.data.voiceProfile) setVoiceProfile((current) => ({ ...current, ...reconciled.data!.voiceProfile }));
+      if (typeof reconciled.data.activeScreen === 'string') setActiveScreen(reconciled.data.activeScreen as ActiveScreen);
+    };
+    void persist();
+    return () => { cancelled = true; };
   }, [runtimeClient, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile, activeScreen]);
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {

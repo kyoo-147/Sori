@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
-    "fastify": "^5.6.2",
+    "fastify": "^5.12.3",
     "zod": "^4.1.13"
   },
   "devDependencies": {
@@ -45,5 +45,11 @@
     "typescript": "^5.9.3",
     "vitest": "^4.0.14",
     "chrome-devtools-mcp": "1.7.0"
+  },
+  "overrides": {
+    "fast-uri": "^4.1.4",
+    "ajv": {
+      "fast-uri": "^3.1.6"
+    }
   }
 }

@@ -33,15 +33,25 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
   const [hotkeyDraft, setHotkeyDraft] = useState(settings.hotkey);
   const [micCheck, setMicCheck] = useState<string>('UNVERIFIED: microphone readiness has not been checked.');
   const [micReadiness, setMicReadiness] = useState<'checking' | 'ready' | 'attention' | 'unverified'>('unverified');
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+    setConfigLoading(true);
     runtimeClient.configSummary().then((result) => {
-      if (result.error || !result.data) return;
-      const config = result.data;
-      setHotkeyDraft(config.hotkey);
-      setSettings((current) => ({ ...current, hotkey: config.hotkey }));
+      if (!mounted) return;
+      if (result.error || !result.data) {
+        setConfigError(result.error ?? 'Settings could not be loaded from sorid.');
+      } else {
+        const config = result.data;
+        setHotkeyDraft(config.hotkey);
+        setSettings((current) => ({ ...current, hotkey: config.hotkey }));
+      }
+      setConfigLoading(false);
     });
     void checkMicrophone();
+    return () => { mounted = false; };
   }, [runtimeClient, setSettings]);
   const checkMicrophone = async () => {
     setMicReadiness('checking');
@@ -139,6 +149,8 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
 
         {/* Right Settings Pane */}
         <div className="p-6 space-y-5 bg-white">
+          {configLoading && <div className="rounded-[10px] border border-[#D5E0EA] bg-[#EEF2F6] px-3 py-2 text-[11px] text-[#24384C]" role="status">Loading canonical settings…</div>}
+          {configError && <div className="rounded-[10px] border border-[#EBD0CD] bg-[#FFF1EF] px-3 py-2 text-[11px] text-[#8B3E38]" role="alert">Unable to load canonical settings: {configError}</div>}
           <div className="flex items-center justify-between pb-3 border-b border-[#E2E4E8]">
             <h2 className="text-sm font-semibold text-[#161616]">{activeTab}</h2>
             <span className="text-[11px] font-mono text-[#858A90]">Sori Daemon Engine</span>

@@ -7,6 +7,7 @@ const endpoint = new URL(process.env.SORI_IPC_URL ?? 'http://127.0.0.1:17373/ipc
 const artifactDir = resolve('.tmp/e2e-full-product');
 const db = join(artifactDir, `sori-${process.pid}.db`);
 const observations: Array<{ name: string; status: 'PASS' | 'UNVERIFIED' | 'SKIP'; detail: string }> = [];
+const owner = join(artifactDir, `sori-${process.pid}.owner.json`);
 
 type Result = { ok: boolean; status: number; body: any; ms: number };
 
@@ -40,7 +41,7 @@ async function waitReady(): Promise<void> {
 }
 function startDaemon(): ChildProcess {
   const binary = resolve('target/debug', process.platform === 'win32' ? 'sorid.exe' : 'sorid');
-  const child = spawn(binary, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host, SORI_DATABASE_PATH: db, SORI_DB_PATH: db, SORI_E2E: '1' } });
+  const child = spawn(binary, [], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: { ...process.env, SORI_IPC_URL: endpoint.toString(), SORI_IPC_ADDR: endpoint.host, SORI_DATABASE_PATH: db, SORI_DB_PATH: db, SORI_DAEMON_OWNER_PATH: owner, SORI_E2E: '1' } });
   child.stdout.on('data', chunk => process.stdout.write(`[sorid] ${chunk}`));
   child.stderr.on('data', chunk => process.stderr.write(`[sorid] ${chunk}`));
   return child;

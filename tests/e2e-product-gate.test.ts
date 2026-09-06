@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PRODUCT_NAVIGATION, stopServer, UNVERIFIED_HARDWARE_CAPABILITIES } from '../scripts/e2e-product-gate.js';
+import { parsePageIds, PRODUCT_NAVIGATION, stopServer, UNVERIFIED_HARDWARE_CAPABILITIES } from '../scripts/e2e-product-gate.js';
 
 describe('sequential product E2E gate contract', () => {
   it('keeps every primary desktop route in the semantic navigation sequence', () => {
@@ -58,6 +58,17 @@ describe('product gate daemon ownership isolation', () => {
     const source = readFileSync(resolve('scripts/e2e-product-gate.ts'), 'utf8');
     expect(source).toContain("const owner = join(evidenceDir, 'daemon-owner.json');");
     expect(source).toContain('SORI_DAEMON_OWNER_PATH: owner');
+    expect(source).toContain('SORI_DAEMON_OWNER_PATH: owner');
+    const fullProduct = readFileSync(resolve('scripts/e2e-full-product.ts'), 'utf8');
+    expect(fullProduct).toContain('const owner = join(artifactDir, `sori-${process.pid}.owner.json`);');
+    expect(fullProduct).toContain('SORI_DAEMON_OWNER_PATH: owner');
+  });
+  it('selects the page created by chrome-devtools-axi newpage before snapshot use', () => {
+    expect(parsePageIds('pages[2]{id,url,selected}:\n  1,about:blank,false\n  2,Example,false')).toEqual([1, 2]);
+    const source = readFileSync(resolve('scripts/e2e-product-gate.ts'), 'utf8');
+    expect(source).toContain("await browser(['newpage', url], session);");
+    expect(source).toContain("await browser(['selectpage', String(pageId)], session);");
+    expect(source).toContain('await openPage(webUrl, session);');
   });
   it('closes a keep-alive connection and resolves shutdown within the bound', async () => {
     const server = createServer((_request, response) => response.end('ok'));

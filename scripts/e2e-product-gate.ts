@@ -167,6 +167,18 @@ async function browser(args: string[], session: string): Promise<string> {
   return result.output;
 }
 
+export function parsePageIds(output: string): number[] {
+  return [...output.matchAll(/^\s+(\d+),/gm)].map((match) => Number(match[1]));
+}
+
+async function openPage(url: string, session: string): Promise<void> {
+  const before = parsePageIds(await browser(['pages'], session));
+  await browser(['newpage', url], session);
+  const after = parsePageIds(await browser(['pages'], session));
+  const pageId = after.find((id) => !before.includes(id));
+  if (pageId === undefined) throw new Error(`newpage did not expose a new page for ${url}`);
+  await browser(['selectpage', String(pageId)], session);
+}
 function uidFor(snapshot: string, role: string, label: string): string {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const line = snapshot.split('\n').find((candidate) => new RegExp(` ${role} "${escaped}\\s*"(?: |$)`).test(candidate));
@@ -281,7 +293,7 @@ async function runProductGate(): Promise<void> {
     proxy = startSameOriginProxy(endpoint, vitePort, proxyPort);
     await waitForHttp(webUrl);
 
-    await browser(['newpage', webUrl], session);
+    await openPage(webUrl, session);
     let state = await waitForText(session, 'Runtime overview');
     state = await waitForText(session, 'Backend');
     assertIncludes(state, 'Backend', 'real daemon-backed initial desktop state');

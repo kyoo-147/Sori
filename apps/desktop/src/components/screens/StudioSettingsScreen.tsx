@@ -149,7 +149,7 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({
 
         {/* Right Settings Pane */}
         <div className="p-6 space-y-5 bg-white">
-          {configLoading && <div className="rounded-[10px] border border-[#D5E0EA] bg-[#EEF2F6] px-3 py-2 text-[11px] text-[#24384C]" role="status">Loading canonical settings…</div>}
+          {configLoading && <div className="rounded-[10px] border border-[#D5E0EA] bg-[#EEF2F6] px-3 py-2 text-[11px] text-[#24384C]" role="status">Loading canonical settings...</div>}
           {configError && <div className="rounded-[10px] border border-[#EBD0CD] bg-[#FFF1EF] px-3 py-2 text-[11px] text-[#8B3E38]" role="alert">Unable to load canonical settings: {configError}</div>}
           <div className="flex items-center justify-between pb-3 border-b border-[#E2E4E8]">
             <h2 className="text-sm font-semibold text-[#161616]">{activeTab}</h2>

@@ -108,6 +108,20 @@ impl SqliteStore {
         )?;
         Ok(deleted)
     }
+    pub fn set_resource_with_legacy(
+        &self,
+        resource: &str,
+        value: &serde_json::Value,
+    ) -> Result<()> {
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction()?;
+        let json = serde_json::to_string(value)?;
+        let now = unix_timestamp();
+        transaction.execute("INSERT INTO user_data (resource, value_json, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(resource) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at", params![resource, &json, now])?;
+        transaction.execute("INSERT INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at", params![format!("resource.{resource}"), json, now])?;
+        transaction.commit()?;
+        Ok(())
+    }
 
     /// Persist a user-owned resource atomically in SQLite. This is the authority
     /// for FE settings, vocabulary, and snippets; the browser must not mirror it.
@@ -767,6 +781,15 @@ mod tests {
         assert!(reopened.delete_resource("snippets").unwrap());
         assert!(reopened.resource("snippets").unwrap().is_none());
         assert!(!reopened.delete_resource("snippets").unwrap());
+    }
+
+    #[test]
+    fn resource_and_legacy_mirror_commit_together() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let value = serde_json::json!({"activeModelId":"whisper.cpp/base"});
+        store.set_resource_with_legacy("route", &value).unwrap();
+        assert_eq!(store.resource("route").unwrap(), Some(value.clone()));
+        assert_eq!(store.setting("resource.route").unwrap(), Some(value));
     }
 
     fn store_resource_update(store: &SqliteStore) {

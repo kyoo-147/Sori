@@ -1,0 +1,25 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+
+const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+const sidebar = readFileSync(new URL('./components/DesktopSidebar.tsx', import.meta.url), 'utf8');
+const overview = readFileSync(new URL('./components/screens/OverviewScreen.tsx', import.meta.url), 'utf8');
+
+ describe('Wave 2 UI accessibility contracts', () => {
+  it('exposes a keyboard-operable sidebar separator', () => {
+    expect(app).toContain('aria-valuemin={180}');
+    expect(app).toContain('aria-valuemax={360}');
+    expect(app).toContain('onKeyDown={resizeSidebarByKeyboard}');
+    expect(app).toContain("event.key === 'Home'");
+    expect(app).toContain("event.key === 'End'");
+  });
+
+  it('keeps shared focus affordances and top-level dialog hooks', () => {
+    expect(sidebar).toContain('sori-focus-ring');
+    expect(overview).toContain('sori-focus-ring');
+    expect(app).toContain('const settingsDialogRef = useRef');
+    expect(app).toContain('settingsTriggerRef.current?.focus()');
+    expect(app).toContain("event.key !== 'Tab'");
+    expect(app).not.toMatch(/refreshHistory[\s\S]{0,500}useRef/);
+  });
+});

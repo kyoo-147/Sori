@@ -81,19 +81,33 @@ export default function App() {
   const refreshGeneration = useRef(0);
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
+  const settingsCloseRef = useRef<HTMLButtonElement>(null);
+  const settingsDialogRef = useRef<HTMLDivElement>(null);
+  const settingsTriggerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!isSettingsModalOpen) return;
+    settingsTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = settingsDialogRef.current;
+    const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') ?? []).filter((element) => !element.hasAttribute('disabled'));
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); setIsSettingsModalOpen(false); return; }
+      if (event.key !== 'Tab') return;
+      const elements = focusable();
+      if (elements.length === 0) return;
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    settingsCloseRef.current?.focus();
+    return () => { window.removeEventListener('keydown', onKeyDown); settingsTriggerRef.current?.focus(); settingsTriggerRef.current = null; };
+  }, [isSettingsModalOpen]);
 
   const refreshHistory = useCallback(async () => {
     setHistoryState('loading');
     const result = await runtimeClient.history(50);
     if (result.error !== null) { setHistoryState('error'); return false; }
-  const settingsCloseRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!isSettingsModalOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); setIsSettingsModalOpen(false); } };
-    window.addEventListener('keydown', onKeyDown);
-    settingsCloseRef.current?.focus();
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isSettingsModalOpen]);
     setHistory(result.data.map((entry) => ({
       id: entry.id,
       timestamp: entry.at,
@@ -229,6 +243,19 @@ export default function App() {
     void persist();
     return () => { cancelled = true; };
   }, [runtimeClient, sidebarCollapsed, sidebarWidth, assistantVoice, voiceProfile, activeScreen]);
+
+  const resizeSidebarByKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (sidebarCollapsed) return;
+    const step = event.shiftKey ? 40 : 16;
+    let next = sidebarWidth;
+    if (event.key === 'ArrowLeft') next -= step;
+    else if (event.key === 'ArrowRight') next += step;
+    else if (event.key === 'Home') next = 180;
+    else if (event.key === 'End') next = 360;
+    else return;
+    event.preventDefault();
+    setSidebarWidth(Math.max(180, Math.min(360, next)));
+  };
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     if (sidebarCollapsed) return;
@@ -407,7 +434,18 @@ export default function App() {
             collapsed={sidebarCollapsed}
           />
 
-          <div className="sori-sidebar-divider" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" onPointerDown={startSidebarResize} />
+          <div
+            className="sori-sidebar-divider"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            aria-valuemin={180}
+            aria-valuemax={360}
+            aria-valuenow={sidebarWidth}
+            tabIndex={sidebarCollapsed ? -1 : 0}
+            onKeyDown={resizeSidebarByKeyboard}
+            onPointerDown={startSidebarResize}
+          />
 
           {sidebarOpen && (
             <button
@@ -545,13 +583,14 @@ export default function App() {
         {/* Studio Settings Modal overlay if invoked */}
       {isSettingsModalOpen && (
           <div className="fixed inset-0 z-50 bg-[#1C1B1A]/20 backdrop-blur-xs flex items-center justify-center p-4" role="presentation">
-            <div className="w-full max-w-3xl relative animate-in fade-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
+            <div ref={settingsDialogRef} className="w-full max-w-3xl relative animate-in fade-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
               <div id="settings-dialog-title" className="sr-only">Sori settings</div>
               <StudioSettingsScreen settings={settings} setSettings={setSettings} runtimeClient={runtimeClient} />
               <button
                 type="button"
                 aria-label="Close settings"
                 onClick={() => setIsSettingsModalOpen(false)}
+                ref={settingsCloseRef}
                 className="absolute top-4 right-4 text-[#94928E] hover:text-[#1C1B1A] p-1"
               >
                 ✕

@@ -446,7 +446,7 @@ impl AudioEngine for CpalAudioController {
             self.commands.take();
             self.chunks.take();
             if let Some(worker) = self.worker.take() {
-                let _ = worker.join();
+                join_worker_bounded(worker, "audio worker error cleanup");
             }
             self.session = None;
             self.state = CaptureState::Idle;
@@ -534,15 +534,12 @@ impl AudioCaptureEngine for CpalAudioController {
             Ok(Ok(value)) => value,
             Ok(Err(error)) => {
                 self.state = CaptureState::Idle;
-                let _ = worker.join();
+                join_worker_bounded(worker, "audio worker startup error cleanup");
                 return Err(error);
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Do not join here: a backend call that is stuck in native code
-                // would otherwise transfer the very wedge this deadline avoids
-                // into the daemon's caller. The worker observes this command as
-                // soon as CPAL returns and tears its stream down.
                 let _ = command_tx.send(());
+                join_worker_bounded(worker, "audio worker startup timeout cleanup");
                 self.state = CaptureState::Idle;
                 return Err(AudioError::BackendUnavailable(
                     "audio device did not become ready within 5 seconds".into(),
@@ -550,7 +547,7 @@ impl AudioCaptureEngine for CpalAudioController {
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 self.state = CaptureState::Idle;
-                let _ = worker.join();
+                join_worker_bounded(worker, "audio worker disconnect cleanup");
                 return Err(AudioError::DeviceUnavailable(
                     "audio worker failed to become ready".into(),
                 ));
@@ -578,7 +575,7 @@ impl AudioCaptureEngine for CpalAudioController {
             let _ = command.send(());
         }
         if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+            join_worker_bounded(worker, "audio capture stop cleanup");
         }
         self.session = None;
         self.state = CaptureState::Idle;
@@ -601,6 +598,28 @@ impl AudioCaptureEngine for CpalAudioController {
     }
 }
 
+const WORKER_JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Join a capture worker without allowing a wedged native CPAL call to wedge
+/// DictationStop/Cancel. A worker that does not finish by the deadline is
+/// detached; it still owns its engine and will perform its normal cleanup once
+/// the native call returns.
+fn join_worker_bounded(worker: std::thread::JoinHandle<()>, context: &str) {
+    let deadline = std::time::Instant::now() + WORKER_JOIN_TIMEOUT;
+    while !worker.is_finished() {
+        if std::time::Instant::now() >= deadline {
+            tracing::warn!(
+                context,
+                ?WORKER_JOIN_TIMEOUT,
+                "audio worker did not stop before deadline; detaching"
+            );
+            drop(worker);
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let _ = worker.join();
+}
 fn validate_supported_config(config: &cpal::SupportedStreamConfig) -> Result<(), AudioError> {
     if !matches!(
         config.sample_format(),
@@ -858,6 +877,14 @@ mod lifecycle_tests {
             classify_stream_error("input device disconnected"),
             AudioError::DeviceUnavailable(_)
         ));
+    }
+
+    #[test]
+    fn bounded_worker_join_does_not_wait_for_blocked_native_worker() {
+        let worker = std::thread::spawn(|| std::thread::sleep(std::time::Duration::from_secs(1)));
+        let started = std::time::Instant::now();
+        join_worker_bounded(worker, "test blocked worker cleanup");
+        assert!(started.elapsed() < std::time::Duration::from_millis(750));
     }
 }
 

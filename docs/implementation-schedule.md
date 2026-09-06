@@ -1,6 +1,6 @@
 # Sori implementation schedule
 
-This schedule reflects the current Rust daemon + desktop-shell MVP. It separates shipped boundaries from the work required for first real dictation.
+This schedule reflects the current Rust daemon + desktop-shell MVP. It separates implemented deterministic/contract/runtime paths from the physical Windows evidence still required for release confidence.
 
 ## Done / implemented
 
@@ -8,16 +8,25 @@ This schedule reflects the current Rust daemon + desktop-shell MVP. It separates
 - `sorid` lifecycle runtime and loopback IPC contract/transport.
 - SQLite migration and lifecycle-event persistence.
 - React/Tauri desktop shell with native IPC bridge and browser/mock fallback.
-- Desktop status/doctor surfaces and deterministic tests.
+- Windows global hotkey registration, hold/release state handling, conflict/recovery behavior, and daemon service wiring.
+- CPAL microphone capture lifecycle, device/configuration checks, sample conversion, chunk delivery, VAD events, cancellation, and restart-safe cleanup.
+- External whisper.cpp provider discovery/configuration, temporary WAV execution, output parsing, prerequisite/process failure reporting, and cleanup.
+- Windows text-injection planning/target validation and SendInput adapter outcomes, including explicit unsupported/failure states.
+- Daemon dictation path connecting hotkey → microphone/VAD → Whisper → injection → SQLite/events/frontend boundaries.
+- Desktop status/doctor surfaces and deterministic contract/fake-boundary tests.
 
-## Scaffold / next integration queue
+## Physical Windows acceptance still required
 
-1. Wire a Windows global hold-to-talk hotkey into `sorid`.
-2. Add Windows microphone capture, VAD, and permission/error reporting.
-3. Execute the Whisper provider against a packaged or explicitly configured model.
-4. Connect transcript output to the Windows text-injection adapter, including blocked-app fallback.
-5. Run an end-to-end Windows smoke test: hotkey → audio → ASR → injection → SQLite history.
-6. Harden tray lifecycle, permissions, packaging, signing, and recovery behavior.
+These are validation work, not a reason to describe the implemented software boundaries as scaffolds:
+
+1. Grant microphone/input permissions and start a real Windows input device.
+2. Hold and release the configured global hotkey on the target machine.
+3. Speak real audio through a configured whisper.cpp executable and valid model.
+4. Insert the resulting transcript into a safe focused application, including blocked/elevated-target behavior.
+5. Confirm the resulting transcript/events are persisted and reflected by the native shell.
+6. Validate installed tray lifecycle, installer/package behavior, and signing.
+
+Until this controlled run is observed, microphone permissions, real speech, physical global-hotkey delivery, focused-app insertion, installer behavior, and signing remain `UNVERIFIED`. Fake devices/runners/targets and UI/IPC checks do not substitute for that evidence.
 
 ## Deferred after the first working path
 

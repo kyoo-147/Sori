@@ -50,11 +50,35 @@ describe('RuntimeClient resource persistence', () => {
     expect(operations).toEqual([JSON.stringify({ hotkey: 'Alt+Space' }), JSON.stringify({ hotkey: 'Ctrl+Space' })]);
   });
 
+  it('rejects malformed and wrong-resource envelopes for reads and writes', async () => {
+    const malformed = await new RuntimeClient(transport({ Resource: { resource: 'settings' } })).resource('settings');
+    const wrong = await new RuntimeClient(transport({ Resource: { resource: 'preferences', value: {} } })).resource('settings');
+    const writeWrong = await new RuntimeClient(transport({ Resource: { resource: 'preferences', value: {} } })).setResource('settings', {});
+    expect(malformed.error).toContain('invalid resource response for settings');
+    expect(wrong.error).toContain('invalid resource response for settings');
+    expect(writeWrong.error).toContain('invalid resource response for settings');
+  });
+
   it('turns a daemon Error response into an error result', async () => {
     const client = new RuntimeClient(transport({ Error: { code: 'validation', detail: 'invalid vocabulary' } }));
     const result = await client.setResource('vocabulary', []);
     expect(result.error).toBeTruthy();
     expect(result.source).toBe('unavailable');
+  });
+});
+
+describe('RuntimeClient model status envelopes', () => {
+  const valid = (model: string) => ({ ModelStatus: { provider: 'whisper.cpp', status: { model, installed: true, loaded: false, warm: false, memory_bytes: null, backend: 'whisper.cpp' } } });
+  it('accepts a status for the requested model', async () => {
+    const result = await new RuntimeClient(transport(valid('ggml-base.en'))).modelStatus('whisper.cpp/ggml-base.en');
+    expect(result.error).toBeNull();
+    expect(result.data?.status.model).toBe('ggml-base.en');
+  });
+  it('rejects malformed and wrong-model status responses', async () => {
+    const malformed = await new RuntimeClient(transport({ ModelStatus: { provider: 'whisper.cpp', status: { model: 'ggml-base.en', installed: true } } })).modelStatus('ggml-base.en');
+    const wrong = await new RuntimeClient(transport(valid('other-model'))).modelStatus('ggml-base.en');
+    expect(malformed.error).toContain('invalid model status response for ggml-base.en');
+    expect(wrong.error).toContain('invalid model status response for ggml-base.en');
   });
 });
 

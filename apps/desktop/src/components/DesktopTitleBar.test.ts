@@ -25,3 +25,12 @@ describe('titlebar dictation capability labels', () => {
     expect(titlebarCaptureLabel('backend', true)).toBe('Stop daemon dictation');
   });
 });
+
+describe('titlebar drag boundary', () => {
+  it('does not drag when the event is not a primary-button interaction', async () => {
+    const { handleTitlebarMouseDownBoundary } = await import('./DesktopTitleBar');
+    let dragStarted = false;
+    handleTitlebarMouseDownBoundary(null, 2, () => { dragStarted = true; });
+    expect(dragStarted).toBe(false);
+  });
+});

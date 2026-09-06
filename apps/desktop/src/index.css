@@ -645,3 +645,45 @@
 @media (max-width: 767px) {
   .sori-sidebar-divider { display: none; }
 }
+
+/* Shared shell affordances use semantic tokens so preview and native windows stay aligned. */
+.sori-sidebar-mobile-close {
+  color: var(--sori-text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease;
+}
+.sori-sidebar-mobile-close::before {
+  display: block;
+  content: '\00d7';
+  font-size: 20px;
+  line-height: 16px;
+}
+.sori-sidebar-mobile-close:hover {
+  color: var(--sori-text-primary);
+  background: var(--sori-fill-hover);
+  border-color: var(--sori-border-default);
+}
+.sori-sidebar-mobile-close:focus-visible {
+  border-color: var(--sori-border-focus);
+}
+.sori-sidebar-item[aria-current='page'] {
+  background: var(--sori-fill-selected) !important;
+  border-color: var(--sori-accent-primary-border) !important;
+  color: var(--sori-text-primary) !important;
+  box-shadow: var(--sori-shadow-inset) !important;
+}
+.sori-sidebar-item:hover {
+  background: var(--sori-fill-hover) !important;
+  color: var(--sori-text-primary) !important;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .sori-glass,
+  .sori-glass-strong,
+  .sori-floating,
+  .sori-overlay {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--sori-bg-panel);
+  }
+}

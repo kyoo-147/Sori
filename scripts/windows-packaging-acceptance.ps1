@@ -74,6 +74,16 @@ function Assert-EndpointFree {
   $owner = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $IpcPort -State Listen -ErrorAction SilentlyContinue)
   if ($owner) { Fail "refusing to touch endpoint owned by PID $($owner[0].OwningProcess); inspect it before retrying" }
 }
+function Get-OwnedDatabase([string]$Data, [string]$Install) {
+  $databases = @(Get-ChildItem -LiteralPath $Data -Recurse -File -Filter '*.db' -ErrorAction SilentlyContinue)
+  if ($databases.Count -ne 1) { Fail "refusing reinstall: expected exactly one SQLite database under user-owned data root $Data; found $($databases.Count)" }
+  $database = $databases[0]
+  $databasePath = (Resolve-Path -LiteralPath $database.FullName).Path
+  $installPath = [IO.Path]::GetFullPath($Install).TrimEnd('\')
+  if ($databasePath.StartsWith($installPath, [StringComparison]::OrdinalIgnoreCase)) { Fail "refusing reinstall: database is under replaceable install root: $databasePath" }
+  if ($database.Length -le 0) { Fail "refusing reinstall: database is empty: $databasePath" }
+  [pscustomobject]@{ Path = $databasePath; Hash = (Get-FileHash -LiteralPath $databasePath -Algorithm SHA256).Hash; Length = $database.Length }
+}
 function Assert-UserDataOutsideInstall([string]$Install, [string]$Data) {
   if (-not $Data) { Skip 'user-data location not supplied; set -DataRoot for persistence evidence'; return }
   if (-not (Test-Path -LiteralPath $Data)) { New-Item -ItemType Directory -Force -Path $Data | Out-Null }
@@ -85,11 +95,22 @@ function Assert-UserDataOutsideInstall([string]$Install, [string]$Data) {
   Pass "user data is outside the install root: $dataPath"
 }
 
+function Get-ExpectedInstaller([string]$Root, [string]$Type) {
+  $directory = Join-Path $Root $Type
+  $pattern = if ($Type -eq 'nsis') { '^Sori_[0-9]+\.[0-9]+\.[0-9]+_x64-setup\.exe$' } else { '^Sori_[0-9]+\.[0-9]+\.[0-9]+_x64_en-US\.msi$' }
+  $matches = @(Get-ChildItem -LiteralPath $directory -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -cmatch $pattern })
+  if ($matches.Count -ne 1) { Fail "expected exactly one $Type artifact matching $pattern under $directory; found $($matches.Count)" }
+  return $matches[0]
+}
 $bundle = (Resolve-Path $BundleRoot).Path
-$artifacts = @(Get-ChildItem -LiteralPath $bundle -Recurse -File)
-if (-not ($artifacts | Where-Object Extension -eq '.msi')) { Fail 'MSI artifact was not found' }
-if (-not ($artifacts | Where-Object { $_.Name -match 'nsis|setup' -or $_.Extension -eq '.exe' })) { Fail 'NSIS installer artifact was not found' }
-Pass 'NSIS and MSI installer artifacts exist'
+$expectedInstaller = Get-ExpectedInstaller $bundle $InstallerType
+if ($InstallerPath) {
+  $providedInstaller = (Resolve-Path -LiteralPath $InstallerPath -ErrorAction SilentlyContinue).Path
+  if (-not $providedInstaller -or -not [String]::Equals($providedInstaller, $expectedInstaller.FullName, [StringComparison]::OrdinalIgnoreCase)) {
+    Fail "-InstallerPath must identify the exact selected $InstallerType artifact: $($expectedInstaller.FullName)"
+  }
+}
+Pass "exact $InstallerType installer artifact exists: $($expectedInstaller.FullName)"
 Assert-ExternalRuntimeBoundary $bundle
 if ($Phase -eq 'bundle') {
   Skip 'install, launch, restart, and uninstall/reinstall phases require a real Windows installation; provide an explicit installer and product-owned root for install/reinstall'
@@ -102,8 +123,7 @@ if ($Phase -in @('install', 'reinstall')) {
   if ($Phase -eq 'reinstall') {
     if (-not (Test-Path -LiteralPath $InstalledRoot)) { Fail "refusing reinstall: existing product root is absent: $InstalledRoot" }
     if (-not $DataRoot) { Fail '-DataRoot is required for reinstall acceptance' }
-    $database = Get-ChildItem -LiteralPath $DataRoot -Recurse -File -Filter '*.db' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $database) { Fail "refusing reinstall: no SQLite database found under user-owned data root $DataRoot" }
+    $database = Get-OwnedDatabase $DataRoot $InstalledRoot
     Assert-EndpointFree
     Invoke-Uninstaller $InstalledRoot $InstallerType $ProductCode
     Start-Sleep -Seconds 2
@@ -126,9 +146,10 @@ if ($Phase -eq 'installed') {
   exit 0
 }
 if ($Phase -eq 'reinstall') {
-  $database = Get-ChildItem -LiteralPath $DataRoot -Recurse -File -Filter '*.db' -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $database) { Fail "user-owned SQLite data did not survive reinstall: $DataRoot" }
-  Pass "user-owned SQLite data survived silent uninstall/reinstall: $($database.FullName)"
+  $afterDatabase = Get-OwnedDatabase $DataRoot $InstalledRoot
+  if (-not [String]::Equals($afterDatabase.Path, $database.Path, [StringComparison]::OrdinalIgnoreCase)) { Fail "user-owned SQLite database identity changed across reinstall: expected $($database.Path), found $($afterDatabase.Path)" }
+  if ($afterDatabase.Hash -ne $database.Hash -or $afterDatabase.Length -ne $database.Length) { Fail "user-owned SQLite database content changed across reinstall: $($database.Path)" }
+  Pass "user-owned SQLite database identity and content survived silent uninstall/reinstall: $($database.Path)"
 }
 
 Assert-EndpointFree

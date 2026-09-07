@@ -47,7 +47,7 @@
 .settings-chip { display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border-radius:var(--sori-radius-pill); background:var(--sori-success-bg); color:var(--sori-success-text); font-size:.68rem; font-weight:700; }
 .settings-chip svg { width:13px; }
 .settings-copy { max-width:62ch; margin:0; color:var(--sori-text-secondary); font-size:.8rem; line-height:1.55; }
-.settings-group { padding:15px; border:1px solid var(--sori-settings-border); border-radius:var(--sori-settings-radius); background:var(--sori-settings-surface); }
+.settings-group { padding:15px; border-radius:var(--sori-settings-radius); background:var(--sori-settings-surface); }
 .settings-label { display:block; margin-bottom:8px; color:var(--sori-text-primary); font-size:.78rem; font-weight:700; }
 .settings-input { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--sori-settings-border); border-radius:var(--sori-settings-radius); background:var(--sori-settings-input); color:var(--sori-text-primary); font-size:.8rem; transition:border-color var(--sori-motion-fast) ease, box-shadow var(--sori-motion-fast) ease; }
 .settings-input:disabled { background:var(--sori-fill-disabled); color:var(--sori-text-quiet); }

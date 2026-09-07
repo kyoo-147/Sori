@@ -30,7 +30,7 @@ describe('desktop preview truth contracts', () => {
     expect(tray).not.toContain('65ms (Local CUDA)');
     expect(tray).toContain('Sori Quick Controls');
     expect(tray).not.toContain('Sori System Tray');
-    expect(settings).toContain('an OS notification-area icon are not exposed');
+    expect(settings).toContain('a notification-area icon are not connected');
     expect(tray).toContain('disabled');
     expect(tray).toContain('Needs Wiring');
   });

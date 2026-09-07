@@ -135,9 +135,14 @@ export default function App() {
     return true;
   }, [runtimeClient]);
 
-  const refreshRuntime = useCallback(() => {
+  const refreshRuntime = useCallback((ensureFresh = false) => {
+    if (runtimeRefreshPromise.current) {
+      // Polling shares the active read instead of extending the replay loop.
+      // Mutations request one coalesced authoritative read after that batch.
+      if (ensureFresh) runtimeRefreshPending.current = true;
+      return runtimeRefreshPromise.current;
+    }
     runtimeRefreshPending.current = true;
-    if (runtimeRefreshPromise.current) return runtimeRefreshPromise.current;
 
     const run = async () => {
       while (runtimeRefreshPending.current) {
@@ -326,7 +331,7 @@ export default function App() {
     setRuntimeStatus(result.data);
     setRuntimeSource(result.source);
     setRuntimeError(result.error);
-    if (!result.error) await refreshRuntime();
+    if (!result.error) await refreshRuntime(true);
   };
 
   const setPaused = async (paused: boolean) => {
@@ -377,7 +382,7 @@ export default function App() {
     setRuntimeError(failure);
     setIsListening(false);
     setInterimTranscript('');
-    if (!failure) await refreshRuntime();
+    if (!failure) await refreshRuntime(true);
   };
 
   const handleApplyRecommendedPolicy = async () => {
@@ -387,7 +392,7 @@ export default function App() {
     if (!result.error) {
       // The daemon owns the route. Re-read it rather than trusting the
       // mutation response or leaving other screens with stale state.
-      await refreshRuntime();
+      await refreshRuntime(true);
       if (typeof route?.activeModelId === 'string') setActiveModelId(route.activeModelId);
     }
   };
@@ -410,7 +415,7 @@ export default function App() {
     if (!benchmarkSessionId) return;
     const result = await runtimeClient.cancelBenchmark(benchmarkSessionId);
     setRuntimeError(result.error);
-    if (result.error) await refreshRuntime();
+    if (result.error) await refreshRuntime(true);
   };
 
   return (

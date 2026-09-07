@@ -35,7 +35,8 @@ describe('shared palette tokens', () => {
       blue: { primary: '#2563EB', accent: '#2563EB' },
     });
     expect(css).toContain('--sori-settings-modal-bg: #FFFFFF');
-    expect(css).toContain('--sori-settings-sidebar: #F7F7F6');
+    expect(css).toContain('--sori-settings-sidebar: var(--sori-bg-sidebar)');
+    expect(css).toContain('--sori-settings-selected: var(--sori-fill-selected)');
     expect(css).toContain('--sori-settings-radius: 5px');
     expect(css).toContain('--sori-settings-modal-radius: 7px');
   });

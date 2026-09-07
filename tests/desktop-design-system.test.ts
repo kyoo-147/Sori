@@ -16,8 +16,8 @@ describe('desktop visual architecture contracts', () => {
     for (const token of [
       '--sori-space-1: 4px',
       '--sori-space-6: 24px',
-      '--sori-radius-md: 10px',
-      '--sori-radius-xl: 18px',
+      '--sori-radius-md: 5px',
+      '--sori-radius-xl: 7px',
       '--sori-shadow-xs:',
       '--sori-shadow-lg:',
       '--sori-type-page-size: 26px',
@@ -27,7 +27,7 @@ describe('desktop visual architecture contracts', () => {
     }
 
     expect(ts).toContain('spacing:');
-    expect(ts).toContain("radius: { xs: '6px'");
+    expect(ts).toContain("radius: { xs: '4px'");
     expect(ts).toContain('shadows:');
     expect(ts).toContain("breakpoints: { compact: '1199px', narrow: '899px', mobile: '767px' }");
   });
@@ -63,6 +63,8 @@ describe('desktop visual architecture contracts', () => {
     expect(sidebar).toContain('data-collapsed={collapsed}');
     expect(sidebar).toContain('sori-shell__sidebar-nav');
     expect(sidebar).toContain('sori-shell__sidebar-footer');
+    expect(sidebar).toContain("if (screen === 'settings') openSettingsModal()");
+    expect(sidebar).not.toContain("navigate('settings'); openSettingsModal()");
     expect(css).toContain('.sori-shell__sidebar-nav');
     expect(css).toContain('overflow-y: auto;');
     expect(css).toContain('.sori-shell__sidebar-footer');

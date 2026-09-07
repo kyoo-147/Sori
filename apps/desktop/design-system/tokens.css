@@ -81,12 +81,12 @@
   --sori-space-1: 4px;
   /* Settings semantic roles keep the modal consistent across persisted palettes. */
   --sori-settings-modal-bg: #FFFFFF;
-  --sori-settings-surface: #FAFAF9;
-  --sori-settings-sidebar: #F7F7F6;
-  --sori-settings-hover: #F2F3F3;
-  --sori-settings-active: #ECEEEF;
-  --sori-settings-border: #E3E5E7;
-  --sori-settings-selected: #EAF3F8;
+  --sori-settings-surface: var(--sori-bg-panel-subtle);
+  --sori-settings-sidebar: var(--sori-bg-sidebar);
+  --sori-settings-hover: var(--sori-fill-hover);
+  --sori-settings-active: var(--sori-fill-active);
+  --sori-settings-border: var(--sori-border-default);
+  --sori-settings-selected: var(--sori-fill-selected);
   --sori-settings-input: #FFFFFF;
   --sori-settings-muted: #73777C;
   --sori-settings-focus: var(--sori-primary);
@@ -103,11 +103,11 @@
   --sori-space-9: 48px;
 
   /* Shape */
-  --sori-radius-xs: 6px;
-  --sori-radius-sm: 8px;
-  --sori-radius-md: 10px;
-  --sori-radius-lg: 14px;
-  --sori-radius-xl: 18px;
+  --sori-radius-xs: 4px;
+  --sori-radius-sm: 5px;
+  --sori-radius-md: 5px;
+  --sori-radius-lg: 5px;
+  --sori-radius-xl: 7px;
   --sori-radius-pill: 999px;
 
   /* Quiet, low-contrast elevation */

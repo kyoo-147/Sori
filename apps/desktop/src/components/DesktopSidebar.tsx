@@ -16,7 +16,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({ activeScreen, se
   ];
   const searchItems = groups.flatMap((group) => group.items).concat({ id: 'settings', label: 'Settings', icon: <Settings /> });
   React.useEffect(() => { const onKeyDown = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); } }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown); }, []);
-  const navigate = (screen: ActiveScreen) => { setActiveScreen(screen); setSearch(''); onClose?.(); };
+  const navigate = (screen: ActiveScreen) => { if (screen === 'settings') openSettingsModal(); else setActiveScreen(screen); setSearch(''); onClose?.(); };
   const itemButton = (item: NavItem) => { const active = activeScreen === item.id; return <button key={item.id} type="button" onClick={() => navigate(item.id)} aria-label={item.label} aria-current={active ? 'page' : undefined} className="sori-sidebar-item"><span className="sori-sidebar-item__icon">{item.icon}</span><span className="truncate">{item.label}</span></button>; };
   return <aside className={`${isOpen && !collapsed ? 'flex' : 'hidden'} sori-shell__sidebar md:flex max-md:fixed max-md:top-10 max-md:inset-y-0 max-md:left-0 max-md:z-40`} data-open={isOpen && !collapsed} data-collapsed={collapsed}>
     <div className="sori-shell__sidebar-nav" role="navigation" aria-label="Primary Sori navigation">
@@ -24,6 +24,6 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({ activeScreen, se
       {groups.map((group) => <section className="sori-sidebar-section" key={group.label}><h2>{group.label}</h2>{group.items.map(itemButton)}</section>)}
       <section className="sori-sidebar-section"><h2>Setup</h2>{itemButton({ id: 'onboarding', label: 'First-run setup', icon: <PlayCircle /> })}</section>
     </div>
-    <div className="sori-shell__sidebar-footer"><button type="button" onClick={() => { navigate('settings'); openSettingsModal(); }} aria-current={activeScreen === 'settings' ? 'page' : undefined} className="sori-sidebar-item"><span className="sori-sidebar-item__icon"><Settings /></span><span>Settings</span></button><div className="sori-sidebar-account"><span className="sori-sidebar-avatar">A</span><span><strong>Alex Chen</strong><small>Local workspace</small></span></div></div>
+    <div className="sori-shell__sidebar-footer"><button type="button" onClick={() => navigate('settings')} aria-haspopup="dialog" className="sori-sidebar-item"><span className="sori-sidebar-item__icon"><Settings /></span><span>Settings</span></button><div className="sori-sidebar-account"><span className="sori-sidebar-avatar">A</span><span><strong>Alex Chen</strong><small>Local workspace</small></span></div></div>
   </aside>;
 };

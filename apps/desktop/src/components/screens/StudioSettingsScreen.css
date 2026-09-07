@@ -16,7 +16,7 @@
   max-width: 860px;
   max-height: min(780px, calc(100dvh - 24px));
   overflow: auto;
-  background: var(--sori-settings-modal-bg);
+  background: #FFFFFF;
   border: 1px solid var(--sori-settings-border);
   border-radius: var(--sori-settings-modal-radius);
   box-shadow: var(--sori-shadow-lg);

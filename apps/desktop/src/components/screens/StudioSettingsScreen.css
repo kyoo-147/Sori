@@ -31,7 +31,7 @@
 .settings-close svg { width:17px; }
 .settings-layout { display:grid; grid-template-columns: 196px minmax(0, 1fr); margin-top:20px; border:1px solid var(--sori-settings-border); border-radius:var(--sori-settings-radius); overflow:hidden; background:var(--sori-settings-surface); }
 .settings-panel--modal .settings-layout { margin:0; border:0; border-radius:0; }
-.settings-nav { padding:13px 10px; background:var(--sori-settings-sidebar); border-right:1px solid var(--sori-settings-border); }
+.settings-nav { padding:13px 10px; background:var(--sori-settings-sidebar); border-right: 1px solid var(--sori-settings-border); }
 .settings-nav__label { padding:5px 9px 7px; color:var(--sori-settings-muted); font-size:.65rem; font-weight:750; letter-spacing:.1em; text-transform:uppercase; }
 .settings-nav__label--spaced { margin-top:13px; padding-top:16px; border-top:1px solid var(--sori-border-soft); }
 .settings-tab { display:flex; align-items:center; gap:9px; width:100%; min-height:36px; padding:7px 9px; border:1px solid transparent; border-radius:var(--sori-settings-radius); background:transparent; color:var(--sori-text-secondary); text-align:left; font-size:.77rem; font-weight:550; cursor:pointer; transition:background-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease, border-color var(--sori-motion-fast) ease; }

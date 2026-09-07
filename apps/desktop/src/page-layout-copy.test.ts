@@ -14,6 +14,7 @@ const productionScreens = [
   'AssistantVoiceScreen.tsx',
   'CoverageChecklistScreen.tsx',
   'SystemDesignScreen.tsx',
+  'StudioSettingsScreen.tsx',
 ];
 
 const screenSource = (name: string) => read(`./components/screens/${name}`);

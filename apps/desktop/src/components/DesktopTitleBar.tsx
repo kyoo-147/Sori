@@ -21,13 +21,13 @@ interface DesktopTitleBarProps {
   isListening: boolean; toggleListening: () => void; trayOpen: boolean; setTrayOpen: (open: boolean) => void;
   activeModelName: string; runtimeSource: RuntimeSource; runtimeStatus: DaemonStatus; runtimeError: string | null;
   onWindowError: (message: string) => void; onTogglePaused: () => void; onReconnect: () => void;
-  sidebarOpen: boolean; onToggleMobileSidebar: () => void; onToggleSidebarCollapse: () => void;
+  sidebarOpen: boolean; onToggleSidebar: () => void;
   sidebarCollapsed: boolean; onNavigate: (screen: ActiveScreen) => void;
 }
 
 export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   isListening, toggleListening, trayOpen, setTrayOpen, runtimeSource, runtimeStatus, runtimeError,
-  onWindowError, onTogglePaused, onReconnect, sidebarOpen, onToggleMobileSidebar, onToggleSidebarCollapse,
+  onWindowError, onTogglePaused, onReconnect, sidebarOpen, onToggleSidebar,
   sidebarCollapsed, onNavigate, activeModelName,
 }) => {
   const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
@@ -51,8 +51,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   return (
     <div role="toolbar" aria-label="Sori window title bar" onMouseDown={handleMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar">
       <div className="sori-titlebar__leading" data-sori-no-drag>
-        <button type="button" onClick={onToggleMobileSidebar} aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'} className="sori-titlebar__mobile-menu md:hidden">{sidebarOpen ? <X /> : <Menu />}</button>
-        <button type="button" onClick={onToggleSidebarCollapse} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={sidebarCollapsed} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} className="sori-titlebar__sidebar-toggle hidden md:inline-flex">{sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</button>
+        <button type="button" onClick={onToggleSidebar} aria-label={sidebarCollapsed ? 'Expand sidebar' : sidebarOpen ? 'Close navigation' : 'Open navigation'} aria-pressed={sidebarCollapsed || sidebarOpen} title={sidebarCollapsed ? 'Expand sidebar' : sidebarOpen ? 'Close navigation' : 'Open navigation'} className="sori-titlebar__sidebar-control"><span className="sori-titlebar__mobile-icon" aria-hidden="true">{sidebarOpen ? <X /> : <Menu />}</span><span className="sori-titlebar__desktop-icon" aria-hidden="true">{sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</span></button>
         <span className="sori-titlebar__brand">Sori</span>
       </div>
       <div className="sori-titlebar__center-actions" data-sori-no-drag>

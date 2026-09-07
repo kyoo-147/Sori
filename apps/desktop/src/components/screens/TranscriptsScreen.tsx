@@ -4,33 +4,28 @@ import type { RuntimeClient } from '../../runtime-client';
 import { AlertCircle, ChevronLeft, ChevronRight, Clock3, Copy, Filter, Search, Volume2, X } from 'lucide-react';
 import './TranscriptsScreen.css';
 
-interface TranscriptsScreenProps { history: HistoryItem[]; setHistory: React.Dispatch<React.SetStateAction<HistoryItem[]>>; runtimeClient: RuntimeClient; onReinsert?: (text: string) => void; onRetry?: () => Promise<boolean>; onRefreshAfterMutation?: () => Promise<boolean>; loadState?: 'loading' | 'ready' | 'error'; }
+interface TranscriptsScreenProps { history: HistoryItem[]; setHistory: React.Dispatch<React.SetStateAction<HistoryItem[]>>; runtimeClient: RuntimeClient; onReinsert?: (text: string) => void; onRetry?: () => Promise<boolean>; onRefreshAfterMutation?: () => Promise<boolean>; loadState?: 'loading' | 'ready' | 'error'; loadError?: string | null; }
 type ViewState = 'normal' | 'loading' | 'empty' | 'error';
 
 export const TRANSCRIPTS_PAGE_SIZE = 10;
 export function paginateItems<T>(items: T[], page: number, pageSize = TRANSCRIPTS_PAGE_SIZE): T[] { const safePageSize = Math.max(1, Math.floor(pageSize)); const safePage = Math.max(1, Math.floor(page)); return items.slice((safePage - 1) * safePageSize, safePage * safePageSize); }
 
-export const TranscriptsScreen: React.FC<TranscriptsScreenProps> = ({ history, runtimeClient, onReinsert, onRetry, onRefreshAfterMutation, loadState = 'ready' }) => {
+export const TranscriptsScreen: React.FC<TranscriptsScreenProps> = ({ history, runtimeClient, onReinsert, onRetry, onRefreshAfterMutation, loadState = 'ready', loadError = null }) => {
   const [deleteState, setDeleteState] = useState<{ id: string; phase: 'loading' | 'error'; detail?: string } | null>(null);
-  const [query, setQuery] = useState(''); const [appFilter, setAppFilter] = useState('all'); const [selectedId, setSelectedId] = useState<string | null>(history[0]?.id ?? null); const [copied, setCopied] = useState<string | null>(null); const [page, setPage] = useState(1); const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const [query, setQuery] = useState(''); const [appFilter, setAppFilter] = useState('all'); const [selectedId, setSelectedId] = useState<string | null>(history[0]?.id ?? null); const [copied, setCopied] = useState<string | null>(null); const [page, setPage] = useState(1);
   const filtered = useMemo(() => history.filter((item) => `${item.processedText} ${item.rawTranscript} ${item.activeApp}`.toLowerCase().includes(query.toLowerCase()) && (appFilter === 'all' || item.activeApp.toLowerCase().includes(appFilter))), [history, query, appFilter]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / TRANSCRIPTS_PAGE_SIZE)); const currentPage = Math.min(page, totalPages); const visible = useMemo(() => paginateItems(filtered, currentPage), [filtered, currentPage]);
   const selected = selectedId ? filtered.find((item) => item.id === selectedId) ?? null : null;
   // Keep the inspector useful after refreshes and filter changes, but preserve an intentional close.
   useEffect(() => { if (selectedId && filtered.some((item) => item.id === selectedId)) return; if (selectedId !== null) setSelectedId(filtered[0]?.id ?? null); }, [filtered, selectedId]);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
-  useEffect(() => {
-    if (loadState !== 'loading' || history.length > 0) { setLoadingTimedOut(false); return undefined; }
-    const timer = window.setTimeout(() => setLoadingTimedOut(true), 8_000);
-    return () => window.clearTimeout(timer);
-  }, [loadState, history.length]);
-  const retry = () => { setLoadingTimedOut(false); if (onRetry) void onRetry(); };
+  const retry = () => { if (onRetry) void onRetry(); };
   const copyText = async (text: string, id: string) => { try { await navigator.clipboard.writeText(text); setCopied(id); window.setTimeout(() => setCopied(''), 1400); } catch { setCopied(''); } };
   const remove = async (id: string) => { if (deleteState) return; setDeleteState({ id, phase: 'loading' }); const result = await runtimeClient.deleteHistory(id); if (result.error || !result.data.accepted) { setDeleteState({ id, phase: 'error', detail: result.error ?? result.data.detail }); return; } const refreshed = onRefreshAfterMutation ? await onRefreshAfterMutation() : true; if (!refreshed) { setDeleteState({ id, phase: 'error', detail: 'Transcript was deleted, but authoritative history could not be refreshed.' }); return; } setSelectedId((current) => current === id ? null : current); setDeleteState(null); };
   const deleteBusy = deleteState?.phase === 'loading';
-  // Keep already-received data visible during a background refresh. Only show the skeleton before the first result.
-  const displayState: ViewState = loadState === 'error' && history.length === 0 ? 'error' : loadState === 'loading' && history.length === 0 ? (loadingTimedOut ? 'error' : 'loading') : history.length === 0 ? 'empty' : 'normal';
-  const unavailableDetail = loadingTimedOut ? 'The local history service did not respond.' : 'Local history could not be read.';
+  // A refresh replaces the snapshot; never present an older snapshot as current.
+  const displayState: ViewState = loadState === 'error' ? 'error' : loadState === 'loading' ? 'loading' : history.length === 0 ? 'empty' : 'normal';
+  const unavailableDetail = loadError ?? 'Local history could not be read.';
 
   return <main className="transcripts-screen mx-auto max-w-[1180px] space-y-6 p-1 sm:p-2 md:p-4" aria-busy={displayState === 'loading'}>
     <header className="transcripts-screen__header"><div><p className="transcripts-screen__eyebrow">Review / local history</p><h1 className="sori-page-heading">Transcripts timeline</h1><p className="sori-body-text mt-1">Review captured audio, raw ASR, and processed output without losing the source.</p></div>{loadState === 'loading' && history.length > 0 && <span className="transcripts-screen__sync"><span className="transcripts-screen__sync-dot" />Refreshing history</span>}</header>

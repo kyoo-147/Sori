@@ -64,6 +64,7 @@ export default function App() {
   const [dictionary, setDictionary] = useState<DictionaryTerm[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
   const [benchmarkSessionId, setBenchmarkSessionId] = useState<string | null>(null);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(defaultVoiceProfile);
@@ -84,6 +85,7 @@ export default function App() {
   const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly', version: null });
   const [runtimeSource, setRuntimeSource] = useState<RuntimeSource>('unavailable');
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const historyRequestGeneration = useRef(0);
   const refreshGeneration = useRef(0);
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
@@ -109,29 +111,34 @@ export default function App() {
     settingsCloseRef.current?.focus();
     return () => { window.removeEventListener('keydown', onKeyDown); settingsTriggerRef.current?.focus(); settingsTriggerRef.current = null; };
   }, [isSettingsModalOpen]);
+  const mapHistoryItems = (entries: Awaited<ReturnType<RuntimeClient['history']>>['data']): HistoryItem[] => entries.map((entry) => ({
+    id: entry.id,
+    timestamp: entry.at,
+    rawTranscript: entry.transcript.text,
+    processedText: entry.transcript.text,
+    activeApp: entry.active_app ?? 'Unknown target',
+    mode: 'dictation' as const,
+    latencyMs: 0,
+    modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
+  }));
 
   const refreshHistory = useCallback(async () => {
-    setHistoryState('loading');
+    const requestGeneration = ++historyRequestGeneration.current;
+    setHistory([]); setHistoryError(null); setHistoryState('loading');
     const result = await runtimeClient.history(50);
-    if (result.error !== null) { setHistoryState('error'); return false; }
-    setHistory(result.data.map((entry) => ({
-      id: entry.id,
-      timestamp: entry.at,
-      rawTranscript: entry.transcript.text,
-      processedText: entry.transcript.text,
-      activeApp: entry.active_app ?? 'Unknown target',
-      mode: 'dictation' as const,
-      latencyMs: 0,
-      modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
-    })));
+    if (requestGeneration !== historyRequestGeneration.current) return false;
+    if (result.error !== null) { setHistoryError('The local history service did not respond.'); setHistoryState('error'); return false; }
+    setHistory(mapHistoryItems(result.data));
     setHistoryState('ready');
     return true;
   }, [runtimeClient]);
 
   const refreshRuntime = useCallback(async () => {
+    const historyGeneration = ++historyRequestGeneration.current;
+    setHistory([]); setHistoryError(null); setHistoryState('loading');
     const generation = ++refreshGeneration.current;
     const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
-    if (generation !== refreshGeneration.current) return;
+    if (generation !== refreshGeneration.current || historyGeneration !== historyRequestGeneration.current) return;
     setRuntimeStatus(statusResult.data);
     setRuntimeSource(statusResult.source);
     setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
@@ -140,18 +147,9 @@ export default function App() {
     if (!routeResult.error && routeResult.data && typeof routeResult.data.activeModelId === 'string') setActiveModelId(routeResult.data.activeModelId);
     else if (!routeResult.error) setActiveModelId(null);
     if (historyResult.error === null) {
-      setHistory(historyResult.data.map((entry) => ({
-        id: entry.id,
-        timestamp: entry.at,
-        rawTranscript: entry.transcript.text,
-        processedText: entry.transcript.text,
-        activeApp: entry.active_app ?? 'Unknown target',
-        mode: 'dictation' as const,
-        latencyMs: 0,
-        modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
-      })));
+      setHistory(mapHistoryItems(historyResult.data)); setHistoryError(null);
       setHistoryState('ready');
-    } else setHistoryState('error');
+    } else { setHistoryError(statusResult.source === 'unavailable' ? 'The local history service did not respond.' : 'History refresh failed; no current transcripts are available.'); setHistoryState('error'); }
   }, [runtimeClient]);
 
   useEffect(() => {
@@ -511,7 +509,7 @@ export default function App() {
             )}
 
             {activeScreen === 'transcripts' && (
-              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} onRefreshAfterMutation={refreshHistory} loadState={historyState} />
+              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} onRefreshAfterMutation={refreshHistory} loadState={historyState} loadError={historyError} />
             )}
 
             {activeScreen === 'onboarding' && (

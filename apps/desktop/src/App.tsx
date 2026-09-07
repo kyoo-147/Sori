@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ActiveScreen,
   AppSettings,
@@ -50,6 +50,35 @@ type PersistedPreferences = {
   activeScreen: ActiveScreen;
 };
 
+export const createCoalescedRefresh = (run: () => Promise<boolean>) => {
+  let active: Promise<boolean> | null = null;
+  let pending = false;
+
+  return (ensureFresh = false): Promise<boolean> => {
+    if (active) {
+      // Routine polling shares the active read. A mutation or explicit retry
+      // requests one follow-up read, regardless of how many callers arrive.
+      if (ensureFresh) pending = true;
+      return active;
+    }
+    pending = true;
+
+    const execute = async () => {
+      let historyReady = false;
+      while (pending) {
+        pending = false;
+        historyReady = await run();
+      }
+      return historyReady;
+    };
+    const request = execute().finally(() => {
+      if (active === request) active = null;
+    });
+    active = request;
+    return request;
+  };
+};
+
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
   const [settings, setSettings] = useState<AppSettings>(() => ({ ...defaultSettings, theme: readShellPreferences().theme }));
@@ -92,8 +121,6 @@ export default function App() {
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const settingsDialogRef = useRef<HTMLDivElement>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
-  const runtimeRefreshPromise = useRef<Promise<void> | null>(null);
-  const runtimeRefreshPending = useRef(false);
   useEffect(() => {
     if (!isSettingsModalOpen) return;
     settingsTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -124,53 +151,29 @@ export default function App() {
     modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
   }));
 
-  const refreshHistory = useCallback(async () => {
-    const requestGeneration = ++historyRequestGeneration.current;
+  const runRuntimeRefresh = useCallback(async () => {
+    const historyGeneration = ++historyRequestGeneration.current;
     setHistory([]); setHistoryError(null); setHistoryState('loading');
-    const result = await runtimeClient.history(50);
-    if (requestGeneration !== historyRequestGeneration.current) return false;
-    if (result.error !== null) { setHistoryError('The local history service did not respond.'); setHistoryState('error'); return false; }
-    setHistory(mapHistoryItems(result.data));
-    setHistoryState('ready');
-    return true;
-  }, [runtimeClient]);
-
-  const refreshRuntime = useCallback((ensureFresh = false) => {
-    if (runtimeRefreshPromise.current) {
-      // Polling shares the active read instead of extending the replay loop.
-      // Mutations request one coalesced authoritative read after that batch.
-      if (ensureFresh) runtimeRefreshPending.current = true;
-      return runtimeRefreshPromise.current;
+    const generation = ++refreshGeneration.current;
+    const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
+    if (generation !== refreshGeneration.current || historyGeneration !== historyRequestGeneration.current) return false;
+    setRuntimeStatus(statusResult.data);
+    setRuntimeSource(statusResult.source);
+    setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
+    setDoctorChecks(doctorResult.data);
+    if (!modelsResult.error && Array.isArray(modelsResult.data)) setModels(modelsResult.data);
+    if (!routeResult.error && routeResult.data && typeof routeResult.data.activeModelId === 'string') setActiveModelId(routeResult.data.activeModelId);
+    else if (!routeResult.error) setActiveModelId(null);
+    if (historyResult.error === null) {
+      setHistory(mapHistoryItems(historyResult.data)); setHistoryError(null);
+      setHistoryState('ready');
+      return true;
     }
-    runtimeRefreshPending.current = true;
-
-    const run = async () => {
-      while (runtimeRefreshPending.current) {
-        runtimeRefreshPending.current = false;
-        const historyGeneration = ++historyRequestGeneration.current;
-        setHistory([]); setHistoryError(null); setHistoryState('loading');
-        const generation = ++refreshGeneration.current;
-        const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
-        if (generation !== refreshGeneration.current || historyGeneration !== historyRequestGeneration.current) continue;
-        setRuntimeStatus(statusResult.data);
-        setRuntimeSource(statusResult.source);
-        setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
-        setDoctorChecks(doctorResult.data);
-        if (!modelsResult.error && Array.isArray(modelsResult.data)) setModels(modelsResult.data);
-        if (!routeResult.error && routeResult.data && typeof routeResult.data.activeModelId === 'string') setActiveModelId(routeResult.data.activeModelId);
-        else if (!routeResult.error) setActiveModelId(null);
-        if (historyResult.error === null) {
-          setHistory(mapHistoryItems(historyResult.data)); setHistoryError(null);
-          setHistoryState('ready');
-        } else { setHistoryError(statusResult.source === 'unavailable' ? 'The local history service did not respond.' : 'History refresh failed; no current transcripts are available.'); setHistoryState('error'); }
-      }
-    };
-    const pending = run().finally(() => {
-      if (runtimeRefreshPromise.current === pending) runtimeRefreshPromise.current = null;
-    });
-    runtimeRefreshPromise.current = pending;
-    return pending;
+    setHistoryError('Check that Sori is running, then retry.');
+    setHistoryState('error');
+    return false;
   }, [runtimeClient]);
+  const refreshRuntime = useMemo(() => createCoalescedRefresh(runRuntimeRefresh), [runRuntimeRefresh]);
 
   useEffect(() => {
     let disposed = false;
@@ -529,7 +532,7 @@ export default function App() {
             )}
 
             {activeScreen === 'transcripts' && (
-              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} onRefreshAfterMutation={refreshHistory} loadState={historyState} loadError={historyError} />
+              <TranscriptsScreen history={history} runtimeClient={runtimeClient} onRetry={() => refreshRuntime(true)} onRefreshAfterMutation={() => refreshRuntime(true)} loadState={historyState} loadError={historyError} />
             )}
 
             {activeScreen === 'onboarding' && (
@@ -603,7 +606,7 @@ export default function App() {
                 runtimeSource={runtimeSource}
                 runtimeStatus={runtimeStatus}
                 runtimeError={runtimeError}
-                onRefresh={refreshRuntime}
+                onRefresh={async () => { await refreshRuntime(); }}
               />
             )}
           </main>

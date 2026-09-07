@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { paginateItems } from './TranscriptsScreen';
+import { paginateItems, resolveTranscriptViewState } from './TranscriptsScreen';
 import { readFileSync } from 'node:fs';
 
 const screen = readFileSync(new URL('./TranscriptsScreen.tsx', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('./TranscriptsScreen.css', import.meta.url), 'utf8');
 
 describe('transcript timeline states', () => {
-  it('does not hide received history behind a refresh skeleton', () => {
-    expect(screen).toContain("loadState === 'loading' ? 'loading' : history.length === 0 ? 'empty' : 'normal'");
-    expect(screen).toContain('Refreshing history');
+  it('does not present received history as current while a refresh is pending', () => {
+    expect(resolveTranscriptViewState(3, 'loading')).toBe('loading');
+    expect(resolveTranscriptViewState(3, 'error')).toBe('error');
+    expect(resolveTranscriptViewState(3, 'ready')).toBe('ready');
   });
   it('fails closed instead of hanging on an unresponsive history service', () => {
     expect(screen).toContain('loadError?: string | null');
@@ -23,7 +24,7 @@ describe('transcript timeline states', () => {
   it('renders explicit loading, empty, error, and no-match affordances', () => {
     expect(screen).toContain('Loading local history');
     expect(screen).toContain('No transcripts yet');
-    expect(screen).toContain('History unavailable');
+    expect(screen).toContain("History couldn't load");
     expect(screen).toContain('No matching transcripts');
   });
 

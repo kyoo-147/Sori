@@ -92,7 +92,8 @@ export default function App() {
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const settingsDialogRef = useRef<HTMLDivElement>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
-  const runtimeRefreshInFlight = useRef(false);
+  const runtimeRefreshPromise = useRef<Promise<void> | null>(null);
+  const runtimeRefreshPending = useRef(false);
   useEffect(() => {
     if (!isSettingsModalOpen) return;
     settingsTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -134,29 +135,36 @@ export default function App() {
     return true;
   }, [runtimeClient]);
 
-  const refreshRuntime = useCallback(async () => {
-    if (runtimeRefreshInFlight.current) return;
-    runtimeRefreshInFlight.current = true;
-    try {
-      const historyGeneration = ++historyRequestGeneration.current;
-      setHistory([]); setHistoryError(null); setHistoryState('loading');
-      const generation = ++refreshGeneration.current;
-      const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
-      if (generation !== refreshGeneration.current || historyGeneration !== historyRequestGeneration.current) return;
-      setRuntimeStatus(statusResult.data);
-      setRuntimeSource(statusResult.source);
-      setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
-      setDoctorChecks(doctorResult.data);
-      if (!modelsResult.error && Array.isArray(modelsResult.data)) setModels(modelsResult.data);
-      if (!routeResult.error && routeResult.data && typeof routeResult.data.activeModelId === 'string') setActiveModelId(routeResult.data.activeModelId);
-      else if (!routeResult.error) setActiveModelId(null);
-      if (historyResult.error === null) {
-        setHistory(mapHistoryItems(historyResult.data)); setHistoryError(null);
-        setHistoryState('ready');
-      } else { setHistoryError(statusResult.source === 'unavailable' ? 'The local history service did not respond.' : 'History refresh failed; no current transcripts are available.'); setHistoryState('error'); }
-    } finally {
-      runtimeRefreshInFlight.current = false;
-    }
+  const refreshRuntime = useCallback(() => {
+    runtimeRefreshPending.current = true;
+    if (runtimeRefreshPromise.current) return runtimeRefreshPromise.current;
+
+    const run = async () => {
+      while (runtimeRefreshPending.current) {
+        runtimeRefreshPending.current = false;
+        const historyGeneration = ++historyRequestGeneration.current;
+        setHistory([]); setHistoryError(null); setHistoryState('loading');
+        const generation = ++refreshGeneration.current;
+        const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
+        if (generation !== refreshGeneration.current || historyGeneration !== historyRequestGeneration.current) continue;
+        setRuntimeStatus(statusResult.data);
+        setRuntimeSource(statusResult.source);
+        setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
+        setDoctorChecks(doctorResult.data);
+        if (!modelsResult.error && Array.isArray(modelsResult.data)) setModels(modelsResult.data);
+        if (!routeResult.error && routeResult.data && typeof routeResult.data.activeModelId === 'string') setActiveModelId(routeResult.data.activeModelId);
+        else if (!routeResult.error) setActiveModelId(null);
+        if (historyResult.error === null) {
+          setHistory(mapHistoryItems(historyResult.data)); setHistoryError(null);
+          setHistoryState('ready');
+        } else { setHistoryError(statusResult.source === 'unavailable' ? 'The local history service did not respond.' : 'History refresh failed; no current transcripts are available.'); setHistoryState('error'); }
+      }
+    };
+    const pending = run().finally(() => {
+      if (runtimeRefreshPromise.current === pending) runtimeRefreshPromise.current = null;
+    });
+    runtimeRefreshPromise.current = pending;
+    return pending;
   }, [runtimeClient]);
 
   useEffect(() => {

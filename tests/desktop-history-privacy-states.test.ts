@@ -17,8 +17,9 @@ describe('history and privacy screen truth boundaries', () => {
 
   it('prevents polling overlap from leaving history in a permanent loading state', () => {
     const source = app();
-    expect(source).toContain('if (runtimeRefreshInFlight.current) return;');
-    expect(source).toContain('runtimeRefreshInFlight.current = false;');
+    expect(source).toContain('runtimeRefreshPending.current = true;');
+    expect(source).toContain('while (runtimeRefreshPending.current)');
+    expect(source).toContain('return runtimeRefreshPromise.current;');
   });
 
   it('does not hide a failed persisted privacy configuration', () => {

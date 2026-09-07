@@ -61,6 +61,7 @@ describe('desktop visual architecture contracts', () => {
     expect(sidebar).toContain('className={`${isOpen && !collapsed ? \'flex\' : \'hidden\'} sori-shell__sidebar');
     expect(sidebar).toContain('data-open={isOpen && !collapsed}');
     expect(sidebar).toContain('data-collapsed={collapsed}');
+    expect(sidebar).toContain('id="sori-navigation"');
     expect(sidebar).toContain('sori-shell__sidebar-nav');
     expect(sidebar).toContain('sori-shell__sidebar-footer');
     expect(sidebar).toContain("if (screen === 'settings') openSettingsModal()");

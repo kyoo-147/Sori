@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ActiveScreen, AppSettings } from '../types';
 import type { DaemonStatus, RuntimeSource } from '../runtime-client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Activity, Command, Copy, Menu, Mic, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Settings2, Square, X } from 'lucide-react';
+import { Activity, Copy, Menu, Mic, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Settings2, Square, X } from 'lucide-react';
 import { performWindowAction, tauriWindowControls, type WindowAction } from '../window-controls';
 
 export const isTitlebarInteractiveTarget = (target: EventTarget | null) =>
@@ -53,9 +53,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
       <div className="sori-titlebar__leading" data-sori-no-drag>
         <button type="button" onClick={onToggleMobileSidebar} aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'} className="sori-titlebar__mobile-menu md:hidden">{sidebarOpen ? <X /> : <Menu />}</button>
         <button type="button" onClick={onToggleSidebarCollapse} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={sidebarCollapsed} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} className="sori-titlebar__sidebar-toggle hidden md:inline-flex">{sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</button>
-        <span className="sori-titlebar__brand-mark" aria-hidden="true"><Command /></span>
         <span className="sori-titlebar__brand">Sori</span>
-        <span className="sori-titlebar__context">Voice workspace</span>
       </div>
       <div className="sori-titlebar__center-actions" data-sori-no-drag>
         <button type="button" onClick={toggleListening} disabled={titlebarCaptureDisabled(runtimeSource)} title={titlebarCaptureDisabled(runtimeSource) ? 'Unavailable until the canonical sorid runtime is connected' : 'Uses canonical DictationStart/DictationStop IPC'} aria-label={titlebarCaptureLabel(runtimeSource, isListening)} className={`sori-capture-button ${isListening ? 'is-listening' : ''}`}><Mic /><span>{isListening ? 'Stop daemon dictation' : 'Dictate'}</span></button>

@@ -53,9 +53,8 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
     <div className="sori-screen sori-screen-home mx-auto max-w-[1180px] space-y-6 p-1 text-[var(--sori-text-primary)] sm:p-2 md:p-4">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="sori-eyebrow">Workspace</p>
-          <h1 className="sori-page-heading">Ready when you are</h1>
-          <p className="sori-body-text mt-1">A quiet place to capture thoughts with Sori.</p>
+          <h1 className="sori-page-heading">Overview</h1>
+          <p className="sori-body-text mt-1">Capture, review, and check runtime readiness.</p>
         </div>
         <div className="flex items-center gap-2 rounded-full border border-[var(--sori-border-soft)] bg-[var(--sori-bg-panel)] px-3 py-2 text-xs text-[var(--sori-text-secondary)] shadow-[var(--sori-shadow-xs)]">
           <span className={`h-2 w-2 rounded-full ${runtimeSource === 'native' || runtimeSource === 'backend' ? 'bg-[var(--sori-success-text)]' : 'bg-[var(--sori-warning-text)]'}`} />

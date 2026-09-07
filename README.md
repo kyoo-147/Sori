@@ -1,6 +1,8 @@
 <p align="center">
-  <img src="docs/assets/sori-familiar.png" alt="A serpentine Sori familiar, drawn as a dragon, fish, and horse hybrid" width="180">
+  <img src="docs/assets/sori-familiar.png" alt="Serpentine Sori familiar" width="180">
 </p>
+
+<p align="center"><sub><a href="docs/assets/sori-familiar.provenance.md">Asset provenance and usage notice</a></sub></p>
 
 <h1 align="center">Sori</h1>
 

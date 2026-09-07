@@ -58,3 +58,12 @@ export const systemDesignTokens = {
 } as const;
 
 export type DesignTokens = typeof systemDesignTokens;
+
+/** Stable user-facing palette choices. `clear` is the default and `light` is a backwards-compatible alias. */
+export const soriThemes = ['clear', 'brown', 'green', 'blue'] as const;
+export type SoriTheme = (typeof soriThemes)[number];
+export const themeLabels: Record<SoriTheme, string> = { clear: 'Clear', brown: 'Brown', green: 'Green', blue: 'Blue' };
+/** Apply a palette without changing runtime state or status semantics. */
+export function applySoriTheme(theme: SoriTheme, target: HTMLElement = document.documentElement): void {
+  target.dataset.soriTheme = theme;
+}

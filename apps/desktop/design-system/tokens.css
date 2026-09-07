@@ -40,6 +40,28 @@
   --sori-accent-button-border: #D5E0EA;
   --sori-accent-button-hover: #E1E8F0;
 
+  /* Semantic component roles: every surface resolves through one primary + one accent. */
+  --sori-primary: #5C728A;
+  --sori-accent: #8A6A4A;
+  --sori-button-bg: var(--sori-primary);
+  --sori-button-text: #FFFFFF;
+  --sori-button-hover: color-mix(in srgb, var(--sori-primary) 88%, #000000);
+  --sori-button-border: var(--sori-primary);
+  --sori-badge-bg: var(--sori-accent);
+  --sori-badge-text: #FFFFFF;
+  --sori-badge-border: color-mix(in srgb, var(--sori-accent) 70%, transparent);
+  --sori-input-bg: var(--sori-bg-panel);
+  --sori-input-border: var(--sori-border-default);
+  --sori-input-focus: var(--sori-primary);
+  --sori-card-bg: var(--sori-bg-panel);
+  --sori-card-border: var(--sori-border-soft);
+  --sori-focus-ring: var(--sori-primary);
+  --sori-sidebar-bg: var(--sori-bg-sidebar);
+  --sori-topbar-bg: var(--sori-bg-app);
+  --sori-accent-primary: var(--sori-primary);
+  --sori-accent-primary-soft: var(--sori-fill-selected);
+  --sori-accent-primary-border: var(--sori-border-default);
+
   /* Feedback */
   --sori-success-text: #1F6B43;
   --sori-success-bg: #EAF6EE;
@@ -120,6 +142,30 @@
   --sori-glass-overlay-bg: rgba(255, 255, 255, 0.82);
   --sori-glass-overlay-radius: 18px;
 }
+
+
+/* User-adjustable palettes. Theme names are stable API values mirrored in tokens.ts. */
+[data-sori-theme='clear'], [data-sori-theme='light'] {
+  --sori-primary: #4D6F8F; --sori-accent: #8A6A4A; --sori-bg-canvas: #F6F7F5; --sori-bg-app: #FCFCFA; --sori-bg-sidebar: #F0F2F1; --sori-bg-panel: #FFFFFF; --sori-text-primary: #17202A; --sori-text-secondary: #58636D; --sori-border-default: #DCE2E6; --sori-fill-selected: #E6EEF5; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected);
+}
+[data-sori-theme='brown'] {
+  --sori-primary: #76523A; --sori-accent: #B47745; --sori-bg-canvas: #F3EEE8; --sori-bg-app: #FAF7F2; --sori-bg-sidebar: #EDE4D9; --sori-bg-panel: #FFFDFC; --sori-text-primary: #2D211A; --sori-text-secondary: #6D5B4D; --sori-border-default: #DCCFC2; --sori-fill-selected: #F0E2D5; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected);
+}
+[data-sori-theme='green'] {
+  --sori-primary: #3F725C; --sori-accent: #6F9B61; --sori-bg-canvas: #EEF4EF; --sori-bg-app: #F8FBF8; --sori-bg-sidebar: #E5EFE7; --sori-bg-panel: #FFFFFF; --sori-text-primary: #17251D; --sori-text-secondary: #557064; --sori-border-default: #D1E0D5; --sori-fill-selected: #DDEDE2; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected);
+}
+[data-sori-theme='blue'] {
+  --sori-primary: #356B9A; --sori-accent: #5B8FC4; --sori-bg-canvas: #EEF3F8; --sori-bg-app: #F8FAFC; --sori-bg-sidebar: #E4EDF5; --sori-bg-panel: #FFFFFF; --sori-text-primary: #172536; --sori-text-secondary: #566D82; --sori-border-default: #D2DFEB; --sori-fill-selected: #DDEBF7; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected);
+}
+/* Semantic hooks for shared primitives; component CSS can stay theme-agnostic. */
+.sori-button { background: var(--sori-button-bg); border-color: var(--sori-button-border); color: var(--sori-button-text); }
+.sori-button:hover:not(:disabled) { background: var(--sori-button-hover); }
+.sori-badge { background: var(--sori-badge-bg); border-color: var(--sori-badge-border); color: var(--sori-badge-text); }
+.sori-input { background: var(--sori-input-bg); border-color: var(--sori-input-border); }
+.sori-input:focus-visible, .sori-card:focus-visible { outline: 2px solid var(--sori-focus-ring); outline-offset: 2px; }
+.sori-card { background: var(--sori-card-bg); border-color: var(--sori-card-border); }
+.sori-sidebar { background: var(--sori-sidebar-bg); }
+.sori-topbar { background: var(--sori-topbar-bg); }
 
 .sori-glass {
   background: var(--sori-glass-light-bg);

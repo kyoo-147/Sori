@@ -36,8 +36,18 @@ The voice path is deliberately not overstated. Hotkey capture, physical micropho
 
 ## How it works
 
-```text
-React/Tauri shell ── native bridge ── loopback IPC ── sorid (Rust) ── SQLite
+The flow below shows the implemented control/runtime boundaries; physical hotkey delivery, microphone capture, real ASR, and focused-app insertion remain `UNVERIFIED`.
+
+```mermaid
+flowchart LR
+    U["User / hotkey or capture entry"] --> D["Tauri desktop shell / control surface"]
+    D -->|local IPC| S["sorid daemon / authoritative runtime"]
+    S --> A["Audio / capture pipeline"]
+    A --> R{"Configured provider?"}
+    R -->|yes| P["Whisper.cpp provider / external model"]
+    R -->|no| X["Unavailable / no dictation claim"]
+    P --> T["Transcript / history / text-injection boundary"]
+    T --> O["Focused target app output"]
 ```
 
 The workspace is split into small boundaries:

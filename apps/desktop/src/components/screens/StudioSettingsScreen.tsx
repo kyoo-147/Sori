@@ -91,8 +91,8 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({ sett
     return <section className="space-y-4"><div className="settings-note"><div className="settings-label">{activeTab}</div><p className="settings-copy mt-2">Unavailable: these settings are not connected yet.</p></div></section>;
   };
 
-  return <div className={compact ? 'settings-panel settings-panel--modal' : 'settings-panel'}>
-    <header className="settings-header"><div><h1 className="settings-title">Settings</h1></div>{onClose && <button type="button" onClick={onClose} ref={closeRef} className="settings-close" aria-label="Close settings"><X aria-hidden="true" /></button>}</header>
+  return <div className={compact ? 'settings-panel settings-panel--modal' : 'settings-panel sori-page-layout space-y-6'}>
+    <header className="settings-header"><div><h1 className="settings-title sori-page-heading">Settings</h1></div>{onClose && <button type="button" onClick={onClose} ref={closeRef} className="settings-close" aria-label="Close settings"><X aria-hidden="true" /></button>}</header>
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections"><div className="settings-nav__label">Core</div>{coreTabs.map((tab) => <TabButton key={tab.id} tab={tab} active={activeTab === tab.id} onSelect={setActiveTab} />)}<div className="settings-nav__label settings-nav__label--spaced">System</div>{systemTabs.map((tab) => <TabButton key={tab.id} tab={tab} active={activeTab === tab.id} onSelect={setActiveTab} />)}</nav>
       <main className="settings-content" aria-labelledby="settings-section-title"><div className="settings-content__heading"><div><h2 id="settings-section-title">{activeTab}</h2></div>{activeTab === 'Microphone' && <span className="settings-chip"><CheckCircle2 aria-hidden="true" /> Local</span>}</div>{configLoading && <div className="settings-note" role="status">Loading canonical settings...</div>}{configError && <div className="settings-status settings-status--error" role="alert">Settings unavailable: {configError}</div>}{renderContent()}{configMsg && <p className="settings-feedback" role="status">{configMsg}</p>}</main>

@@ -92,7 +92,7 @@ export const BenchmarkScreen: React.FC<Props> = ({ benchmarkResults, onApplyPoli
   };
   return (
     <main className="sori-screen sori-page-layout min-w-0 space-y-6" aria-busy={running}>
-      <header><h1 className="sori-page-heading">Benchmarks</h1><p className="sori-body-text mt-1">Run provider-backed measurements using a real WAV fixture.</p></header>
+      <header><h1 className="sori-page-heading">Benchmarks</h1><p className="sori-body-text mt-1">Measure a model with a real WAV file.</p></header>
       <div className="grid min-w-0 gap-5 lg:grid-cols-[0.9fr_1.1fr]">
         <section className="sori-pane min-w-0 space-y-5 p-5" aria-labelledby="benchmark-execution-heading">
           <div className="flex items-center justify-between border-b border-[var(--sori-border-soft)] pb-3"><h2 id="benchmark-execution-heading" className="sori-section-heading">Benchmark execution</h2><span className="rounded-full bg-[var(--sori-fill-selected)] px-2.5 py-1 text-xs" aria-live="polite">{running ? 'Running' : 'Idle'}</span></div>

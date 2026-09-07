@@ -74,7 +74,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
             </span>
           </div>
 
-          <div className="mt-5 rounded-[10px] border border-[var(--sori-warning-border)] bg-[var(--sori-warning-bg)] px-3 py-2 text-xs text-[var(--sori-warning-text)]">Unavailable: native focused-window identity and target selection are not exposed by the canonical IPC contract.</div>
+          <div className="mt-5 rounded-[10px] border border-[var(--sori-warning-border)] bg-[var(--sori-warning-bg)] px-3 py-2 text-xs text-[var(--sori-warning-text)]">Native target detection is unavailable.</div>
           <div className="mt-4 overflow-hidden rounded-[14px] border border-[var(--sori-border-soft)] bg-[var(--sori-bg-panel)]">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--sori-border-soft)] px-4 py-3 text-[11px] text-[var(--sori-text-tertiary)]"><span className="font-mono">Sori preview · no native target</span><span>{state === 'listening' ? 'Daemon capture active' : 'Preview only'}</span></div>
             <textarea value={preview} readOnly aria-label="Browser preview without focused target" className="sori-focus-ring min-h-[210px] w-full resize-y border-0 bg-transparent p-5 text-sm leading-7 text-[var(--sori-text-secondary)] outline-none" />
@@ -82,7 +82,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
           </div>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <div className="flex gap-2"><button type="button" onClick={startCapture} disabled={runtimeSource === 'unavailable' || runtimeSource === 'mock'} title={runtimeSource === 'mock' ? 'Unavailable in browser preview' : runtimeSource === 'unavailable' ? 'Unavailable: sorid is not connected' : undefined} className="sori-tactile-btn rounded-[10px] px-4 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50"><Mic className="mr-2 inline h-4 w-4" />{isListening ? 'Stop daemon capture' : runtimeSource === 'unavailable' || runtimeSource === 'mock' ? 'Capture unavailable' : 'Start daemon capture'}</button><button type="button" onClick={() => setPreview('')} className="sori-tactile-btn rounded-[10px] px-3 py-2 text-xs">Clear preview</button></div>
-            {state === 'injection-error' && <span className="flex items-center gap-1.5 text-[11px] text-[var(--sori-error-text)]"><WifiOff className="h-3.5 w-3.5" /> No fake success: connect sorid to enable injection.</span>}
+            {state === 'injection-error' && <span className="flex items-center gap-1.5 text-[11px] text-[var(--sori-error-text)]"><WifiOff className="h-3.5 w-3.5" /> Connect sorid to enable injection.</span>}
           </div>
         </section>
 

@@ -11,6 +11,7 @@
   margin: 0 auto;
   color: var(--sori-text-primary);
 }
+.settings-panel:not(.settings-panel--modal) { max-width:1180px; }
 .settings-panel--modal {
   max-width: 860px;
   max-height: min(780px, calc(100dvh - 24px));

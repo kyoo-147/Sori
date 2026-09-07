@@ -399,7 +399,7 @@ export default function App() {
   };
 
   return (
-    <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sori-theme={theme} data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
+    <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sori-theme={theme} data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
       {/* Top Window Titlebar (Chrome Window Header) */}
       <div className="sori-shell__titlebar">
       <DesktopTitleBar

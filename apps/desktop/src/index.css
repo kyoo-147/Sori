@@ -1020,14 +1020,12 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 7px;
+  border-radius: 5px;
   color: var(--sori-text-secondary);
   background: transparent;
 }
 .sori-titlebar__sidebar-control svg { width: 16px; height: 16px; }
 .sori-titlebar__sidebar-control:hover { color: var(--sori-text-primary); background: var(--sori-fill-hover); }
-.sori-titlebar__desktop-icon { display: inline-flex; }
-.sori-titlebar__mobile-icon { display: none; }
 .sori-shell__titlebar { border-bottom: 0; }
 .sori-shell__sidebar-footer { border-top: 0; }
 .sori-shell { --sori-shell-radius: 5px; }
@@ -1035,15 +1033,47 @@
 .sori-shell__sidebar { border-radius: 0 0 0 5px; }
 .sori-shell__workspace { border-radius: 0 0 5px 0; }
 @media (max-width: 767px) {
-  .sori-titlebar__desktop-icon { display: none; }
-  .sori-titlebar__mobile-icon { display: inline-flex; }
   .sori-shell__titlebar,
   .sori-shell__sidebar,
   .sori-shell__workspace { border-radius: 0; }
 }
-
 /* Shared page frame: Overview is the alignment baseline for production screens. */
 .sori-page-layout { width: 100%; max-width: 1180px; margin-inline: auto; padding: 16px; color: var(--sori-text-primary); }
 .sori-page-layout > header { margin: 0; }
 .sori-page-layout > header .sori-page-heading { margin: 0; }
 .sori-page-layout > header .sori-body-text { margin-top: 4px; max-width: 44rem; }
+
+/* Final shell feedback pass: the resize rail is a transparent hit target;
+ * its pseudo-element owns exactly one persistent one-pixel seam. */
+.sori-shell__body {
+  grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) 1px minmax(0, 1fr);
+}
+.sori-sidebar-divider {
+  width: 9px;
+  margin-left: -4px;
+  background: transparent;
+  z-index: 2;
+}
+.sori-sidebar-divider::after,
+.sori-sidebar-divider:hover::after,
+.sori-sidebar-divider:active::after {
+  left: 4px;
+  width: 1px;
+  height: 100%;
+  background: var(--sori-shell-divider);
+  border-radius: 0;
+}
+.sori-shell__workspace {
+  border-left: 0;
+  box-shadow: none;
+}
+/* Shared primitives use the compact product radius; transient dialogs/panels
+ * are the only intentionally larger surfaces. */
+:where(.sori-card, .sori-pane, .sori-control, .sori-input, .sori-button, .sori-tactile-btn,
+  button:not([class*='rounded-full']), input, select, textarea,
+  section[class*='rounded-']:not([class*='rounded-full']), div[class*='rounded-']:not([class*='rounded-full'])) {
+  border-radius: 5px !important;
+}
+:where([role='dialog']) {
+  border-radius: 7px !important;
+}

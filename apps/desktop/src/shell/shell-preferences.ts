@@ -1,3 +1,4 @@
+import { soriThemes } from '../../design-system/tokens.js';
 import type { AppSettings } from '../types.js';
 import { defaultShellLayout, normalizeShellLayout, type ShellLayout } from './layout-model.js';
 
@@ -25,7 +26,7 @@ export const defaultShellPreferences: ShellPreferences = {
   density: 'comfortable',
 };
 
-const themes = new Set<ShellTheme>(['clear', 'brown', 'green', 'blue']);
+const themes = new Set<ShellTheme>(soriThemes);
 const densities = new Set<ShellDensity>(['compact', 'comfortable', 'spacious']);
 
 function browserStorage(): PreferenceStorage | undefined {

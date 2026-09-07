@@ -1,3 +1,5 @@
+import type { SoriTheme } from '../design-system/tokens';
+
 /** Backend-shaped view-model types. Rust IPC remains authoritative for runtime/capability fields. */
 export type CapabilityState = 'available' | 'unavailable' | 'unknown' | 'unsupported';
 export type AppReadiness = 'ready' | 'listening' | 'processing' | 'inserting' | 'error' | 'unavailable';
@@ -126,7 +128,7 @@ export interface AssistantVoiceSettings {
 
 export interface AppSettings {
   overlayStyle: OverlayStyle;
-  theme: 'clear' | 'brown' | 'green' | 'blue';
+  theme: SoriTheme;
   activeProfile: 'Coding' | 'Writing' | 'Vietnamese' | 'General';
   hotkey: string;
   holdToSpeak: boolean;

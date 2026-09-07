@@ -1,13 +1,12 @@
 # Sori logo wordmark: provenance and usage notice
 
 - **Filename:** `sori-logo-wordmark.png`
-- **User-supplied source:** `C:/Users/hoang/Downloads/ChatGPT Image Sep 7, 2026, 08_22_02 PM.png`
-- **Final SHA-256:** `37648c150d50b5281caea80076a9a7833d62540c422b43293ae3533f14d41e29`
-- **Final dimensions and format:** 1894 × 720 RGBA PNG with true alpha and transparent corners.
-- **Processing:** The user-supplied PNG was converted to RGBA without creative changes and losslessly cropped to its non-transparent alpha bounding box, removing empty outer margins. No redraw, compositional change, color change, lettering change, matte, or background was added.
-- **Alpha inspection:** All four final corners are fully transparent; the final image retains both fully transparent and fully opaque pixels.
-- **Provenance:** This final artwork is user supplied. Prior OpenAI-generation provenance does not apply to this file and is not claimed here.
+- **Source:** user supplied image at `C:/Users/hoang/Downloads/ChatGPT Image Sep 7, 2026, 08_22_02 PM.png`
+- **Final SHA 256:** `435d7ad348853468ef6370ac6b75069c5e0d826494746e50670031719efbb0c7`
+- **Final dimensions and format:** `2006 x 784` RGBA PNG with transparent corners.
+- **Processing:** copied from the user supplied source without creative changes. No redraw, crop, color change, lettering change, matte, or background was added.
+- **Provenance:** the final artwork is user supplied. No image generation model or third party asset is claimed for this file.
 
 ## Project asset notice
 
-This is an original project identity asset, not an open-content stock illustration. Its inclusion permits display and redistribution only as part of the Sori repository documentation or forks. Standalone reuse, modification for another product, or trademark/brand use requires permission from Navin Research. This notice does not grant a permissive open-source license to the image or to the repository.
+This is an original project identity asset, not an open content stock illustration. Its inclusion permits display and redistribution only as part of the Sori repository documentation or forks. Standalone reuse, modification for another product, or trademark and brand use requires permission from Navin Research. This notice does not grant a permissive open source license to the image or to the repository.

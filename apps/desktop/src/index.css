@@ -952,3 +952,62 @@
   .sori-shell__sidebar { border-radius: 0; }
   .sori-shell__workspace { border-radius: 0; }
 }
+
+/* Shell polish: one quiet frame, one content seam, and a restrained control rhythm. */
+.sori-shell {
+  --sori-shell-gap: 0px;
+  --sori-shell-radius: 12px;
+  background: var(--sori-bg-canvas);
+}
+.sori-shell__titlebar {
+  background: var(--sori-bg-sidebar);
+  border-bottom: 1px solid var(--sori-border-soft);
+}
+.sori-titlebar {
+  padding-left: 14px;
+  gap: 12px;
+}
+.sori-titlebar__leading { gap: 8px; }
+.sori-titlebar__brand { font-size: 13px; font-weight: 650; letter-spacing: .01em; }
+.sori-titlebar__center-actions { gap: 4px; }
+.sori-titlebar__actions { gap: 4px; }
+.sori-capture-button,
+.sori-titlebar__status-action,
+.sori-runtime-affordance,
+.sori-quick-controls {
+  min-height: 32px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: transparent;
+  padding-inline: 9px;
+  font-size: 12px;
+}
+.sori-capture-button { color: var(--sori-text-primary); }
+.sori-capture-button:hover:not(:disabled),
+.sori-titlebar__status-action:hover:not(:disabled),
+.sori-runtime-affordance:hover,
+.sori-quick-controls:hover,
+.sori-quick-controls.is-open { background: var(--sori-fill-hover); }
+.sori-capture-button.is-listening { background: var(--sori-error-bg); }
+.sori-runtime-affordance.is-connected { color: var(--sori-text-secondary); }
+.sori-runtime-affordance.is-unavailable { color: var(--sori-text-tertiary); }
+.sori-window-controls { margin-left: 6px; }
+.sori-window-controls button { width: 40px; }
+.sori-shell__body { grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) 1px minmax(0, 1fr); }
+.sori-shell__sidebar { border-right: 0; }
+.sori-shell__workspace { border-left: 1px solid var(--sori-shell-divider); }
+.sori-shell__sidebar-nav { padding: 16px 12px; }
+.sori-sidebar-search-wrap { margin-bottom: 16px; }
+.sori-sidebar-search-wrap input { height: 32px; border-color: transparent; background: color-mix(in srgb, var(--sori-bg-panel) 72%, transparent); }
+.sori-sidebar-section { margin-top: 18px; }
+.sori-sidebar-section h2 { margin-bottom: 4px; font-size: 10px; letter-spacing: .1em; }
+.sori-sidebar-item { min-height: 33px; border-radius: 7px; gap: 9px; padding-inline: 8px; }
+.sori-sidebar-item[aria-current='page'] { border-color: transparent; background: var(--sori-fill-selected); }
+.sori-shell__sidebar-footer { gap: 6px; padding: 10px 12px 12px; }
+.sori-sidebar-account { border-color: transparent; background: transparent; padding: 7px 8px; }
+.sori-sidebar-account:hover { background: var(--sori-fill-hover); }
+.sori-shell[data-sidebar-collapsed='true'] .sori-shell__titlebar { left: 0; }
+@media (max-width: 767px) {
+  .sori-titlebar { padding-left: 8px; }
+  .sori-shell__workspace { border-left: 0; }
+}

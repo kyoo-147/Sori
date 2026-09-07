@@ -79,6 +79,15 @@
   /* 4px spacing grid */
   --sori-space-0: 0px;
   --sori-space-1: 4px;
+  /* Settings semantic roles keep the modal consistent across persisted palettes. */
+  --sori-settings-modal-bg: var(--sori-bg-panel);
+  --sori-settings-surface: var(--sori-bg-panel-subtle);
+  --sori-settings-sidebar: var(--sori-bg-sidebar);
+  --sori-settings-border: var(--sori-border-soft);
+  --sori-settings-selected: var(--sori-fill-selected);
+  --sori-settings-input: var(--sori-input-bg);
+  --sori-settings-muted: var(--sori-text-tertiary);
+  --sori-settings-accent: var(--sori-primary);
   --sori-space-2: 8px;
   --sori-space-3: 12px;
   --sori-space-4: 16px;
@@ -151,16 +160,16 @@
 
 /* User-adjustable palettes. Theme names are stable API values mirrored in tokens.ts. */
 [data-sori-theme='clear'], [data-sori-theme='light'] {
-  --sori-primary: #4D6F8F; --sori-accent: #A45F35; --sori-bg-canvas: #F5F7F6; --sori-bg-app: #FBFCFB; --sori-bg-sidebar: #EEF2F1; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #F7F9F8; --sori-text-primary: #17202A; --sori-text-secondary: #58636D; --sori-border-default: #D9E1E4; --sori-border-soft: #E8EDEF; --sori-border-strong: #C4D0D5; --sori-border-focus: #4D6F8F; --sori-fill-hover: #F0F4F4; --sori-fill-active: #E7EEF0; --sori-fill-selected: #E4EDF4; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
+  --sori-primary: #3B6F8F; --sori-accent: #3B6F8F; --sori-primary-hover: #285572; --sori-primary-pressed: #285572; --sori-bg-canvas: #FCFDFD; --sori-bg-app: #FCFDFD; --sori-bg-sidebar: #F3F6F6; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #F5F7F8; --sori-text-primary: #18212B; --sori-text-secondary: #5E6975; --sori-border-default: #DDE4EC; --sori-border-soft: #E8EDF2; --sori-border-strong: #C8D3DE; --sori-border-focus: #3B6F8F; --sori-fill-hover: #F1F5F7; --sori-fill-active: #E8F0F4; --sori-fill-selected: #EAF3F8; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
 }
 [data-sori-theme='brown'] {
-  --sori-primary: #76523A; --sori-accent: #A86131; --sori-bg-canvas: #F5F0EA; --sori-bg-app: #FCFAF7; --sori-bg-sidebar: #EEE6DC; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FAF7F3; --sori-text-primary: #2D211A; --sori-text-secondary: #6D5B4D; --sori-border-default: #DACCC0; --sori-border-soft: #E9DFD6; --sori-border-strong: #C5B2A3; --sori-border-focus: #76523A; --sori-fill-hover: #F4ECE4; --sori-fill-active: #EDE0D4; --sori-fill-selected: #F0E1D4; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
+  --sori-primary: #A35C2D; --sori-accent: #A35C2D; --sori-primary-hover: #884820; --sori-primary-pressed: #713A1A; --sori-bg-canvas: #FFFDFC; --sori-bg-app: #FFFDFC; --sori-bg-sidebar: #F8F4F0; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FAF7F4; --sori-text-primary: #241D19; --sori-text-secondary: #70655E; --sori-border-default: #E8DED6; --sori-border-soft: #F0E8E2; --sori-border-strong: #D8C9BE; --sori-border-focus: #A35C2D; --sori-fill-hover: #FBF4EF; --sori-fill-active: #F7EAE0; --sori-fill-selected: #FAEEE5; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
 }
 [data-sori-theme='green'] {
-  --sori-primary: #39745B; --sori-accent: #8A6335; --sori-bg-canvas: #EFF5F0; --sori-bg-app: #FAFCFA; --sori-bg-sidebar: #E6F0E8; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #F6FAF7; --sori-text-primary: #17251D; --sori-text-secondary: #557064; --sori-border-default: #CEDFD3; --sori-border-soft: #E1ECE3; --sori-border-strong: #B9D0BF; --sori-border-focus: #39745B; --sori-fill-hover: #EDF5EF; --sori-fill-active: #E2EEE5; --sori-fill-selected: #DCEDE1; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
+  --sori-primary: #159466; --sori-accent: #159466; --sori-primary-hover: #0C7C55; --sori-primary-pressed: #086445; --sori-bg-canvas: #FCFEFD; --sori-bg-app: #FCFEFD; --sori-bg-sidebar: #F3F8F5; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #F7FBF9; --sori-text-primary: #18231E; --sori-text-secondary: #606B65; --sori-border-default: #DAE5DF; --sori-border-soft: #E8F0EB; --sori-border-strong: #C9D9D0; --sori-border-focus: #159466; --sori-fill-hover: #EFF8F4; --sori-fill-active: #E4F4EC; --sori-fill-selected: #E7F7F0; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
 }
 [data-sori-theme='blue'] {
-  --sori-primary: #356B9A; --sori-accent: #9A5D32; --sori-bg-canvas: #F0F5F9; --sori-bg-app: #FAFCFE; --sori-bg-sidebar: #E6EEF6; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #F6F9FC; --sori-text-primary: #172536; --sori-text-secondary: #566D82; --sori-border-default: #D0DFEA; --sori-border-soft: #E1EAF1; --sori-border-strong: #B8CDDD; --sori-border-focus: #356B9A; --sori-fill-hover: #EDF4F9; --sori-fill-active: #E3EDF5; --sori-fill-selected: #DCEAF6; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
+  --sori-primary: #2563EB; --sori-accent: #2563EB; --sori-primary-hover: #1D4ED8; --sori-primary-pressed: #1E40AF; --sori-bg-canvas: #FCFDFF; --sori-bg-app: #FCFDFF; --sori-bg-sidebar: #F5F8FC; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #F7F9FC; --sori-text-primary: #18212B; --sori-text-secondary: #5E6975; --sori-border-default: #DDE4EC; --sori-border-soft: #E8EDF2; --sori-border-strong: #C8D3DE; --sori-border-focus: #2563EB; --sori-fill-hover: #F0F5FF; --sori-fill-active: #E5EEFF; --sori-fill-selected: #EAF2FF; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
 }
 /* Semantic hooks for shared primitives; component CSS can stay theme-agnostic. */
 .sori-button { background: var(--sori-button-bg); border-color: var(--sori-button-border); color: var(--sori-button-text); }

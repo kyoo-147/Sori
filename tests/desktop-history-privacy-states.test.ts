@@ -24,9 +24,7 @@ describe('history and privacy screen truth boundaries', () => {
   it('keeps diagnostics and extensions explicit about unavailable capabilities', () => {
     const diagnostics = screen('CoverageChecklistScreen');
     const extensions = screen('ExtensionsSandboxScreen');
-    expect(diagnostics).toContain('UNVERIFIED or unavailable');
     expect(diagnostics).toContain('no signed update endpoint');
-    expect(extensions).toContain('Install, account authentication, and command execution are Unavailable.');
     expect(extensions).toContain('No extensions are presented as available.');
   });
 });

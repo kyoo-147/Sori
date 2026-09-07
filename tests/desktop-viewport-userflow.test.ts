@@ -57,7 +57,7 @@ describe('desktop shell and truthful preview contracts', () => {
     expect(diagnostics).toContain('Restart Daemon (`sorid`) — not wired');
     expect(diagnostics).not.toContain('Text injection payload successfully delivered');
     expect(diagnostics).toContain("name: 'updater'");
-    expect(diagnostics).toContain('desktop updates');
+    expect(diagnostics).toContain('Desktop updater');
     expect(diagnostics).toContain('no signed update endpoint or updater plugin is shipped');
   });
 

@@ -95,3 +95,14 @@ describe('desktop visual architecture contracts', () => {
     expect(shellDoc).toContain('must not be used as a runtime layout breakpoint');
   });
 });
+
+describe('desktop theme primitives', () => {
+  it('keeps the four user-adjustable palettes and semantic component hooks aligned', () => {
+    const css = readDesktop('design-system/tokens.css');
+    const ts = readDesktop('design-system/tokens.ts');
+    for (const theme of ['clear', 'brown', 'green', 'blue']) expect(css).toContain(`[data-sori-theme='${theme}']`);
+    for (const token of ['--sori-primary:', '--sori-accent:', '--sori-button-bg:', '--sori-badge-bg:', '--sori-input-bg:', '--sori-card-bg:', '--sori-focus-ring:', '--sori-sidebar-bg:', '--sori-topbar-bg:']) expect(css).toContain(token);
+    expect(ts).toContain("['clear', 'brown', 'green', 'blue']");
+    expect(ts).toContain('applySoriTheme');
+  });
+});

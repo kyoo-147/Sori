@@ -29,6 +29,6 @@ describe('Wave 2 UI accessibility contracts', () => {
     expect(app).toContain('readShellPreferences()');
     expect(app).toContain('writeShellPreferences');
     expect(app).toContain("theme: readShellPreferences().theme");
-    expect(settings).toMatch(/\['clear', 'Clear'\].*\['brown', 'Brown'\].*\['green', 'Green'\].*\['blue', 'Blue'\]/s);
+    expect(settings).toContain('themeLabels[id]');
   });
 });

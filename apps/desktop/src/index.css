@@ -1011,3 +1011,33 @@
   .sori-titlebar { padding-left: 8px; }
   .sori-shell__workspace { border-left: 0; }
 }
+
+/* Shell polish: one responsive navigation control and quiet, purposeful seams. */
+.sori-titlebar__sidebar-control {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  color: var(--sori-text-secondary);
+  background: transparent;
+}
+.sori-titlebar__sidebar-control svg { width: 16px; height: 16px; }
+.sori-titlebar__sidebar-control:hover { color: var(--sori-text-primary); background: var(--sori-fill-hover); }
+.sori-titlebar__desktop-icon { display: inline-flex; }
+.sori-titlebar__mobile-icon { display: none; }
+.sori-shell__titlebar { border-bottom: 0; }
+.sori-shell__sidebar-footer { border-top: 0; }
+.sori-shell { --sori-shell-radius: 5px; }
+.sori-shell__titlebar { border-radius: 5px 5px 0 0; }
+.sori-shell__sidebar { border-radius: 0 0 0 5px; }
+.sori-shell__workspace { border-radius: 0 0 5px 0; }
+@media (max-width: 767px) {
+  .sori-titlebar__desktop-icon { display: none; }
+  .sori-titlebar__mobile-icon { display: inline-flex; }
+  .sori-shell__titlebar,
+  .sori-shell__sidebar,
+  .sori-shell__workspace { border-radius: 0; }
+}

@@ -60,16 +60,16 @@ export const systemDesignTokens = {
 
 export type DesignTokens = typeof systemDesignTokens;
 
-/** Stable user-facing palette choices. `clear` is the default and `light` is a backwards-compatible alias. */
+/** Stable persisted palette IDs. Labels may evolve without changing the settings API. */
 export const soriThemes = ['clear', 'brown', 'green', 'blue'] as const;
 export type SoriTheme = (typeof soriThemes)[number];
-export const themeLabels: Record<SoriTheme, string> = { clear: 'Clear', brown: 'Brown', green: 'Green', blue: 'Blue' };
+export const themeLabels: Record<SoriTheme, string> = { clear: 'Clear', brown: 'Cognac', green: 'Emerald', blue: 'Cobalt' };
 /** Stable semantic pair used by palette previews and presentational clients. */
 export const themePalettes: Record<SoriTheme, { primary: string; accent: string }> = {
-  clear: { primary: '#4D6F8F', accent: '#A45F35' },
-  brown: { primary: '#76523A', accent: '#A86131' },
-  green: { primary: '#39745B', accent: '#8A6335' },
-  blue: { primary: '#356B9A', accent: '#9A5D32' },
+  clear: { primary: '#3B6F8F', accent: '#3B6F8F' },
+  brown: { primary: '#A35C2D', accent: '#A35C2D' },
+  green: { primary: '#159466', accent: '#159466' },
+  blue: { primary: '#2563EB', accent: '#2563EB' },
 };
 /** Apply a palette without changing runtime state or status semantics. */
 export function applySoriTheme(theme: SoriTheme, target: HTMLElement = document.documentElement): void {

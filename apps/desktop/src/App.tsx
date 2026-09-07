@@ -419,8 +419,13 @@ export default function App() {
           onTogglePaused={() => setPaused(!runtimeStatus.paused)}
           onReconnect={() => void reconnectRuntime()}
           sidebarOpen={sidebarOpen}
-          onToggleMobileSidebar={() => setSidebarOpen((open) => !open)}
-          onToggleSidebarCollapse={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          onToggleSidebar={() => {
+            if (window.matchMedia('(max-width: 767px)').matches) {
+              setSidebarCollapsed(false);
+              setSidebarOpen((open) => !open);
+            }
+            else setSidebarCollapsed((collapsed) => !collapsed);
+          }}
           sidebarCollapsed={sidebarCollapsed}
           onNavigate={(screen) => setActiveScreen(screen)}
       />

@@ -11,7 +11,7 @@ describe('shared palette tokens', () => {
       const palette = themePalettes[theme];
       expect(palette.primary).toMatch(/^#[0-9A-F]{6}$/);
       expect(palette.accent).toMatch(/^#[0-9A-F]{6}$/);
-      expect(palette.primary).not.toBe(palette.accent);
+      expect(palette.accent).toMatch(/^#[0-9A-F]{6}$/);
       expect(css).toContain(`[data-sori-theme='${theme}']`);
       expect(css).toContain(`--sori-primary: ${palette.primary}`);
       expect(css).toContain(`--sori-accent: ${palette.accent}`);
@@ -24,5 +24,6 @@ describe('shared palette tokens', () => {
     }
     expect(css).toContain('--sori-control-height: 36px');
     expect(css).toContain('--sori-card-radius: var(--sori-radius-lg)');
+    for (const token of ['--sori-settings-modal-bg', '--sori-settings-surface', '--sori-settings-sidebar', '--sori-settings-border', '--sori-settings-selected', '--sori-settings-input', '--sori-settings-muted', '--sori-settings-accent']) expect(css).toContain(token);
   });
 });

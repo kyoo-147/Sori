@@ -15,8 +15,8 @@
   max-width: 860px;
   max-height: min(780px, calc(100dvh - 24px));
   overflow: auto;
-  background: var(--sori-card-bg);
-  border: 1px solid var(--sori-card-border);
+  background: var(--sori-settings-modal-bg);
+  border: 1px solid var(--sori-settings-border);
   border-radius: var(--sori-radius-xl);
   box-shadow: var(--sori-shadow-lg);
 }
@@ -28,14 +28,14 @@
 .settings-close:hover { background:var(--sori-fill-hover); color:var(--sori-text-primary); border-color:var(--sori-border-strong); }
 .settings-close:active { transform:translateY(1px); }
 .settings-close svg { width:17px; }
-.settings-layout { display:grid; grid-template-columns:188px minmax(0,1fr); margin-top:20px; border:1px solid var(--sori-border-soft); border-radius:var(--sori-radius-lg); overflow:hidden; background:var(--sori-card-bg); }
+.settings-layout { display:grid; grid-template-columns:188px minmax(0,1fr); margin-top:20px; border:1px solid var(--sori-settings-border); border-radius:var(--sori-radius-lg); overflow:hidden; background:var(--sori-settings-surface); }
 .settings-panel--modal .settings-layout { margin:0; border:0; border-radius:0; }
-.settings-nav { padding:13px 10px; background:var(--sori-bg-sidebar); border-right:1px solid var(--sori-border-soft); }
-.settings-nav__label { padding:5px 9px 7px; color:var(--sori-text-tertiary); font-size:.65rem; font-weight:750; letter-spacing:.1em; text-transform:uppercase; }
+.settings-nav { padding:13px 10px; background:var(--sori-settings-sidebar); border-right:1px solid var(--sori-settings-border); }
+.settings-nav__label { padding:5px 9px 7px; color:var(--sori-settings-muted); font-size:.65rem; font-weight:750; letter-spacing:.1em; text-transform:uppercase; }
 .settings-nav__label--spaced { margin-top:13px; padding-top:16px; border-top:1px solid var(--sori-border-soft); }
 .settings-tab { display:flex; align-items:center; gap:9px; width:100%; min-height:36px; padding:7px 9px; border:1px solid transparent; border-radius:var(--sori-radius-sm); background:transparent; color:var(--sori-text-secondary); text-align:left; font-size:.77rem; font-weight:550; cursor:pointer; transition:background-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease, border-color var(--sori-motion-fast) ease; }
 .settings-tab:hover { background:var(--sori-fill-hover); color:var(--sori-text-primary); }
-.settings-tab--active { border-color:var(--sori-border-default); background:var(--sori-bg-panel); color:var(--sori-text-primary); box-shadow:var(--sori-shadow-xs); font-weight:700; }
+.settings-tab--active { border-color:var(--sori-settings-border); background:var(--sori-settings-surface); color:var(--sori-text-primary); box-shadow:var(--sori-shadow-xs); font-weight:700; }
 .settings-tab__icon { display:grid; place-items:center; flex:none; color:var(--sori-text-tertiary); }
 .settings-tab svg { width:15px; height:15px; }
 .settings-tab--active .settings-tab__icon { color:var(--sori-accent-primary); }
@@ -46,9 +46,9 @@
 .settings-chip { display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border-radius:var(--sori-radius-pill); background:var(--sori-success-bg); color:var(--sori-success-text); font-size:.68rem; font-weight:700; }
 .settings-chip svg { width:13px; }
 .settings-copy { max-width:62ch; margin:0; color:var(--sori-text-secondary); font-size:.8rem; line-height:1.55; }
-.settings-group { padding:15px; border:1px solid var(--sori-border-soft); border-radius:var(--sori-radius-md); background:var(--sori-bg-panel-subtle); }
+.settings-group { padding:15px; border:1px solid var(--sori-settings-border); border-radius:var(--sori-radius-md); background:var(--sori-settings-surface); }
 .settings-label { display:block; margin-bottom:8px; color:var(--sori-text-primary); font-size:.78rem; font-weight:700; }
-.settings-input { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--sori-input-border); border-radius:var(--sori-radius-sm); background:var(--sori-input-bg); color:var(--sori-text-primary); font-size:.8rem; transition:border-color var(--sori-motion-fast) ease, box-shadow var(--sori-motion-fast) ease; }
+.settings-input { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--sori-settings-border); border-radius:var(--sori-radius-sm); background:var(--sori-settings-input); color:var(--sori-text-primary); font-size:.8rem; transition:border-color var(--sori-motion-fast) ease, box-shadow var(--sori-motion-fast) ease; }
 .settings-input:disabled { background:var(--sori-fill-disabled); color:var(--sori-text-quiet); }
 .settings-input--mono { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-weight:650; }
 .settings-input--readonly { display:flex; align-items:center; color:var(--sori-text-secondary); }
@@ -57,9 +57,9 @@
 .settings-button--primary { border-color:var(--sori-button-border); background:var(--sori-button-bg); color:var(--sori-button-text); }
 .settings-button--primary:hover:not(:disabled) { background:var(--sori-button-hover); }
 .settings-button:disabled { opacity:.55; cursor:not-allowed; }
-.settings-help { margin:8px 0 0; color:var(--sori-text-tertiary); font-size:.7rem; line-height:1.45; }
+.settings-help { margin:8px 0 0; color:var(--sori-settings-muted); font-size:.7rem; line-height:1.45; }
 .settings-note,.settings-status { padding:11px 12px; border:1px solid var(--sori-border-default); border-radius:var(--sori-radius-md); color:var(--sori-text-secondary); font-size:.75rem; line-height:1.45; }
-.settings-note { background:var(--sori-bg-sidebar); }
+.settings-note { background:var(--sori-settings-sidebar); }
 .settings-status { display:flex; align-items:flex-start; gap:8px; }
 .settings-status--attention { border-color:var(--sori-warning-border); background:var(--sori-warning-bg); color:var(--sori-warning-text); }
 .settings-status--ready { border-color:var(--sori-success-border); background:var(--sori-success-bg); color:var(--sori-success-text); }
@@ -69,13 +69,10 @@
 .settings-panel button:focus-visible,.settings-panel input:focus-visible,.settings-panel select:focus-visible { outline:2px solid var(--sori-border-focus); outline-offset:2px; box-shadow:0 0 0 3px color-mix(in srgb,var(--sori-border-focus) 22%,transparent); }
 .settings-panel button:disabled { border-color:var(--sori-border-soft); }
 .theme-picker { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
-.theme-picker__option { display:flex; align-items:center; gap:7px; min-height:38px; border:1px solid var(--sori-border-default); border-radius:var(--sori-radius-sm); padding:0 9px; color:var(--sori-text-secondary); background:var(--sori-bg-panel); font:inherit; font-size:12px; cursor:pointer; transition:background-color var(--sori-motion-fast) ease, border-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease; }
+.theme-picker__option { display:flex; align-items:center; gap:7px; min-height:38px; border:1px solid var(--sori-settings-border); border-radius:var(--sori-radius-sm); padding:0 9px; color:var(--sori-text-secondary); background:var(--sori-settings-modal-bg); font:inherit; font-size:12px; cursor:pointer; transition:background-color var(--sori-motion-fast) ease, border-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease; }
 .theme-picker__option:hover { border-color:var(--sori-border-strong); background:var(--sori-fill-hover); }
-.theme-picker__option.is-selected { border-color:var(--sori-accent-primary-border); color:var(--sori-text-primary); background:var(--sori-fill-selected); box-shadow:0 0 0 2px color-mix(in srgb,var(--sori-accent-primary) 16%,transparent); }
-.theme-picker__swatch { width:12px; height:12px; flex:0 0 12px; border-radius:50%; background:var(--sori-accent-primary); }
-.theme-picker__option--brown .theme-picker__swatch { background:#76523A; }
-.theme-picker__option--green .theme-picker__swatch { background:#3F725C; }
-.theme-picker__option--blue .theme-picker__swatch { background:#356B9A; }
+.theme-picker__option.is-selected { border-color:var(--sori-settings-accent); color:var(--sori-text-primary); background:var(--sori-settings-selected); box-shadow:0 0 0 2px color-mix(in srgb,var(--sori-settings-accent) 16%,transparent); }
+.theme-picker__swatch { width:12px; height:12px; flex:0 0 12px; border-radius:50%; background:var(--sori-settings-accent); }
 @media(max-width:640px) {
   .settings-panel--modal { max-height:calc(100dvh - 16px); border-radius:var(--sori-radius-lg); }
   .settings-panel--modal .settings-header { padding:18px 16px 14px; }

@@ -50,12 +50,12 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
   };
 
   return (
-    <div className="mx-auto max-w-[1180px] space-y-6 p-1 text-[var(--sori-text-primary)] sm:p-2 md:p-4">
+    <div className="sori-screen sori-screen-home mx-auto max-w-[1180px] space-y-6 p-1 text-[var(--sori-text-primary)] sm:p-2 md:p-4">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-[#98928A]">Overview</p>
-          <h1 className="sori-page-heading">Runtime overview</h1>
-          <p className="sori-body-text mt-1">Local-first dictation with explicit capability boundaries.</p>
+          <p className="sori-eyebrow">Workspace</p>
+          <h1 className="sori-page-heading">Ready when you are</h1>
+          <p className="sori-body-text mt-1">A quiet place to capture thoughts with Sori.</p>
         </div>
         <div className="flex items-center gap-2 rounded-full border border-[rgba(92,84,75,0.12)] bg-[#FFFDF9] px-3 py-2 text-xs text-[#68635D] shadow-[0_2px_8px_rgba(92,84,75,0.05)]">
           <span className={`h-2 w-2 rounded-full ${runtimeSource === 'native' || runtimeSource === 'backend' ? 'bg-[#4E7A61]' : 'bg-[#9A7442]'}`} />

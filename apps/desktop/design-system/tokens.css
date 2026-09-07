@@ -40,16 +40,16 @@
   --sori-accent-button-border: #D5E0EA;
   --sori-accent-button-hover: #E1E8F0;
 
-  /* Semantic component roles: every surface resolves through one primary + one accent. */
+  /* Semantic component roles: every theme has one primary and one accent. */
   --sori-primary: #5C728A;
-  --sori-accent: #8A6A4A;
+  --sori-accent: #A45F35;
   --sori-button-bg: var(--sori-primary);
   --sori-button-text: #FFFFFF;
   --sori-button-hover: color-mix(in srgb, var(--sori-primary) 88%, #000000);
   --sori-button-border: var(--sori-primary);
   --sori-badge-bg: var(--sori-accent);
   --sori-badge-text: #FFFFFF;
-  --sori-badge-border: color-mix(in srgb, var(--sori-accent) 70%, transparent);
+  --sori-badge-border: var(--sori-accent);
   --sori-input-bg: var(--sori-bg-panel);
   --sori-input-border: var(--sori-border-default);
   --sori-input-focus: var(--sori-primary);
@@ -106,6 +106,11 @@
 
   /* Type */
   --sori-font-sans: "Geist", "SF Pro Text", "SF Pro Display", "Avenir Next", "Inter", system-ui, -apple-system, sans-serif;
+  /* Shared geometry aliases keep controls, cards, and overlays on one scale. */
+  --sori-control-height: 36px;
+  --sori-card-radius: var(--sori-radius-lg);
+  --sori-control-radius: var(--sori-radius-sm);
+  --sori-overlay-radius: var(--sori-radius-xl);
   --sori-font-mono: "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
   --sori-type-page-size: 26px;
   --sori-type-page-leading: 32px;
@@ -146,16 +151,16 @@
 
 /* User-adjustable palettes. Theme names are stable API values mirrored in tokens.ts. */
 [data-sori-theme='clear'], [data-sori-theme='light'] {
-  --sori-primary: #4D6F8F; --sori-accent: #8A6A4A; --sori-bg-canvas: #F6F7F5; --sori-bg-app: #FCFCFA; --sori-bg-sidebar: #F0F2F1; --sori-bg-panel: #FFFFFF; --sori-text-primary: #17202A; --sori-text-secondary: #58636D; --sori-border-default: #DCE2E6; --sori-fill-selected: #E6EEF5; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected);
+  --sori-primary: #4D6F8F; --sori-accent: #A45F35; --sori-bg-canvas: #F5F7F6; --sori-bg-app: #FBFCFB; --sori-bg-sidebar: #EEF2F1; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #F7F9F8; --sori-text-primary: #17202A; --sori-text-secondary: #58636D; --sori-border-default: #D9E1E4; --sori-border-soft: #E8EDEF; --sori-border-strong: #C4D0D5; --sori-border-focus: #4D6F8F; --sori-fill-hover: #F0F4F4; --sori-fill-active: #E7EEF0; --sori-fill-selected: #E4EDF4; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
 }
 [data-sori-theme='brown'] {
-  --sori-primary: #76523A; --sori-accent: #B47745; --sori-bg-canvas: #F3EEE8; --sori-bg-app: #FAF7F2; --sori-bg-sidebar: #EDE4D9; --sori-bg-panel: #FFFDFC; --sori-text-primary: #2D211A; --sori-text-secondary: #6D5B4D; --sori-border-default: #DCCFC2; --sori-fill-selected: #F0E2D5; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected);
+  --sori-primary: #76523A; --sori-accent: #A86131; --sori-bg-canvas: #F5F0EA; --sori-bg-app: #FCFAF7; --sori-bg-sidebar: #EEE6DC; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FAF7F3; --sori-text-primary: #2D211A; --sori-text-secondary: #6D5B4D; --sori-border-default: #DACCC0; --sori-border-soft: #E9DFD6; --sori-border-strong: #C5B2A3; --sori-border-focus: #76523A; --sori-fill-hover: #F4ECE4; --sori-fill-active: #EDE0D4; --sori-fill-selected: #F0E1D4; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
 }
 [data-sori-theme='green'] {
-  --sori-primary: #3F725C; --sori-accent: #6F9B61; --sori-bg-canvas: #EEF4EF; --sori-bg-app: #F8FBF8; --sori-bg-sidebar: #E5EFE7; --sori-bg-panel: #FFFFFF; --sori-text-primary: #17251D; --sori-text-secondary: #557064; --sori-border-default: #D1E0D5; --sori-fill-selected: #DDEDE2; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected);
+  --sori-primary: #39745B; --sori-accent: #8A6335; --sori-bg-canvas: #EFF5F0; --sori-bg-app: #FAFCFA; --sori-bg-sidebar: #E6F0E8; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #F6FAF7; --sori-text-primary: #17251D; --sori-text-secondary: #557064; --sori-border-default: #CEDFD3; --sori-border-soft: #E1ECE3; --sori-border-strong: #B9D0BF; --sori-border-focus: #39745B; --sori-fill-hover: #EDF5EF; --sori-fill-active: #E2EEE5; --sori-fill-selected: #DCEDE1; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
 }
 [data-sori-theme='blue'] {
-  --sori-primary: #356B9A; --sori-accent: #5B8FC4; --sori-bg-canvas: #EEF3F8; --sori-bg-app: #F8FAFC; --sori-bg-sidebar: #E4EDF5; --sori-bg-panel: #FFFFFF; --sori-text-primary: #172536; --sori-text-secondary: #566D82; --sori-border-default: #D2DFEB; --sori-fill-selected: #DDEBF7; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected);
+  --sori-primary: #356B9A; --sori-accent: #9A5D32; --sori-bg-canvas: #F0F5F9; --sori-bg-app: #FAFCFE; --sori-bg-sidebar: #E6EEF6; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #F6F9FC; --sori-text-primary: #172536; --sori-text-secondary: #566D82; --sori-border-default: #D0DFEA; --sori-border-soft: #E1EAF1; --sori-border-strong: #B8CDDD; --sori-border-focus: #356B9A; --sori-fill-hover: #EDF4F9; --sori-fill-active: #E3EDF5; --sori-fill-selected: #DCEAF6; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: var(--sori-fill-selected); --sori-accent-primary-border: var(--sori-border-default);
 }
 /* Semantic hooks for shared primitives; component CSS can stay theme-agnostic. */
 .sori-button { background: var(--sori-button-bg); border-color: var(--sori-button-border); color: var(--sori-button-text); }

@@ -20,6 +20,7 @@ export const systemDesignTokens = {
   },
   spacing: { 0: '0px', 1: '4px', 2: '8px', 3: '12px', 4: '16px', 5: '20px', 6: '24px', 7: '32px', 8: '40px', 9: '48px' },
   radius: { xs: '6px', sm: '8px', md: '10px', lg: '14px', xl: '18px', pill: '999px' },
+  geometry: { controlHeight: '36px', controlRadius: '8px', cardRadius: '14px', overlayRadius: '18px' },
   shadows: {
     none: '0 0 transparent',
     xs: '0 1px 2px rgba(26, 31, 36, 0.04)',
@@ -63,6 +64,13 @@ export type DesignTokens = typeof systemDesignTokens;
 export const soriThemes = ['clear', 'brown', 'green', 'blue'] as const;
 export type SoriTheme = (typeof soriThemes)[number];
 export const themeLabels: Record<SoriTheme, string> = { clear: 'Clear', brown: 'Brown', green: 'Green', blue: 'Blue' };
+/** Stable semantic pair used by palette previews and presentational clients. */
+export const themePalettes: Record<SoriTheme, { primary: string; accent: string }> = {
+  clear: { primary: '#4D6F8F', accent: '#A45F35' },
+  brown: { primary: '#76523A', accent: '#A86131' },
+  green: { primary: '#39745B', accent: '#8A6335' },
+  blue: { primary: '#356B9A', accent: '#9A5D32' },
+};
 /** Apply a palette without changing runtime state or status semantics. */
 export function applySoriTheme(theme: SoriTheme, target: HTMLElement = document.documentElement): void {
   target.dataset.soriTheme = theme;

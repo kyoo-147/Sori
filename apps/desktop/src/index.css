@@ -869,7 +869,6 @@
 .sori-shell[data-sidebar-collapsed='true'] .sori-sidebar-divider { display: none; }
 .sori-shell[data-sidebar-collapsed='true'] .sori-shell__titlebar { left: var(--sori-shell-gap); }
 .sori-shell .sori-overlay { z-index: 100; }
-.sori-shell [role='dialog'] { max-width: min(32rem, calc(100vw - 2rem)); }
 @media (max-width: 767px) {
   .sori-titlebar { min-width: 0; }
   .sori-titlebar__leading,

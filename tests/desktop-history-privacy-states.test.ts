@@ -8,9 +8,10 @@ describe('history and privacy screen truth boundaries', () => {
   it('exposes transcript loading, retry, and unavailable audio semantics', () => {
     const source = screen('TranscriptsScreen');
     expect(source).toContain("loadState === 'loading'");
-    expect(source).toContain('History could not be loaded');
-    expect(source).toContain('Audio waveform unavailable');
-    expect(source).toContain('disabled aria-label="Play audio unavailable"');
+    expect(source).toContain('title="History unavailable"');
+    expect(source).toContain('detail="Local history could not be read."');
+    expect(source).toContain('role="note" aria-label="Audio unavailable"');
+    expect(source).toContain('Audio is not retained for this transcript.');
   });
 
   it('does not hide a failed persisted privacy configuration', () => {

@@ -53,30 +53,53 @@ type PersistedPreferences = {
 export const createCoalescedRefresh = (run: () => Promise<boolean>) => {
   let active: Promise<boolean> | null = null;
   let pending = false;
+  let followUpReserved = false;
+  let followUpConsumed = false;
+  let disposed = false;
 
-  return (ensureFresh = false): Promise<boolean> => {
+  const refresh: ((ensureFresh?: boolean) => Promise<boolean>) & { dispose: () => void } = (ensureFresh = false): Promise<boolean> => {
+    if (disposed) return Promise.resolve(false);
     if (active) {
-      // Routine polling shares the active read. A mutation or explicit retry
-      // requests one follow-up read, regardless of how many callers arrive.
-      if (ensureFresh) pending = true;
+      // Routine polling shares the active read. Reserve at most one
+      // authoritative follow-up for the whole active batch; repeated retries
+      // during that follow-up must not create an unbounded replay loop.
+      if (ensureFresh && !followUpReserved && !followUpConsumed) followUpReserved = true;
       return active;
     }
     pending = true;
+    followUpReserved = false;
+    followUpConsumed = false;
 
     const execute = async () => {
       let historyReady = false;
-      while (pending) {
+      while (pending && !disposed) {
         pending = false;
         historyReady = await run();
+        if (followUpReserved && !followUpConsumed && !disposed) {
+          followUpConsumed = true;
+          pending = true;
+        }
       }
-      return historyReady;
+      return disposed ? false : historyReady;
     };
     const request = execute().finally(() => {
-      if (active === request) active = null;
+      if (active === request) {
+        active = null;
+        pending = false;
+        followUpReserved = false;
+        followUpConsumed = false;
+      }
     });
     active = request;
     return request;
   };
+
+  refresh.dispose = () => {
+    disposed = true;
+    pending = false;
+    followUpReserved = false;
+  };
+  return refresh;
 };
 
 export default function App() {
@@ -116,6 +139,7 @@ export default function App() {
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const historyRequestGeneration = useRef(0);
   const refreshGeneration = useRef(0);
+  const runtimeDisposed = useRef(false);
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
@@ -152,10 +176,12 @@ export default function App() {
   }));
 
   const runRuntimeRefresh = useCallback(async () => {
+    if (runtimeDisposed.current) return false;
     const historyGeneration = ++historyRequestGeneration.current;
     setHistory([]); setHistoryError(null); setHistoryState('loading');
     const generation = ++refreshGeneration.current;
     const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
+    if (runtimeDisposed.current) return false;
     if (generation !== refreshGeneration.current || historyGeneration !== historyRequestGeneration.current) return false;
     setRuntimeStatus(statusResult.data);
     setRuntimeSource(statusResult.source);
@@ -177,12 +203,13 @@ export default function App() {
 
   useEffect(() => {
     let disposed = false;
+    runtimeDisposed.current = false;
     const refresh = () => { if (!disposed) refreshRuntime().catch(() => undefined); };
     // Reconnect after an independently restarted daemon through canonical
     // read operations only; destructive mutations are never retried.
     refresh();
     const timer = window.setInterval(refresh, 5_000);
-    return () => { disposed = true; window.clearInterval(timer); };
+    return () => { disposed = true; runtimeDisposed.current = true; refreshRuntime.dispose(); window.clearInterval(timer); };
   }, [refreshRuntime]);
   const refreshBenchmarks = useCallback(async () => {
     const result = await runtimeClient.recentBenchmarks(20);

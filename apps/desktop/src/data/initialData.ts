@@ -16,7 +16,7 @@ export const disabledCloudFallbackContract = {
 
 export const defaultSettings: AppSettings = {
   overlayStyle: 'pill',
-  theme: 'dark-obsidian',
+  theme: 'clear',
   activeProfile: 'Coding',
   hotkey: 'Alt + Space',
   holdToSpeak: true,

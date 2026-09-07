@@ -38,6 +38,7 @@ export const applySidebarLiveWidth = (shell: Pick<HTMLElement, 'style'>, width: 
   shell.style.setProperty('--sori-sidebar-width-live', `${width}px`);
 };
 import { RuntimeClient, type DaemonStatus, type DoctorCheck, type RuntimeSource } from './runtime-client';
+import { readShellPreferences, writeShellPreferences, type ShellTheme } from './shell/shell-preferences';
 import type { BenchmarkFixture } from './benchmark-fixture';
 
 type PersistedPreferences = {
@@ -51,7 +52,12 @@ type PersistedPreferences = {
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
-  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [settings, setSettings] = useState<AppSettings>(() => ({ ...defaultSettings, theme: readShellPreferences().theme }));
+  const theme: ShellTheme = settings.theme;
+  useEffect(() => {
+    const shellPreferences = readShellPreferences();
+    writeShellPreferences({ ...shellPreferences, theme });
+  }, [theme]);
   const settingsHydrated = useRef(false);
   const [models, setModels] = useState<ModelRecord[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
@@ -172,7 +178,7 @@ export default function App() {
     runtimeClient.resource<Partial<AppSettings>>('settings').then((result) => {
       if (cancelled) return;
       if (result.error === null && result.data && typeof result.data === 'object') {
-        setSettings((current) => ({ ...current, ...result.data }));
+        setSettings((current) => ({ ...current, ...result.data, theme: current.theme }));
       }
       settingsHydrated.current = true;
     }).catch(() => { settingsHydrated.current = true; });
@@ -395,7 +401,7 @@ export default function App() {
   };
 
   return (
-    <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
+    <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sori-theme={theme} data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
       {/* Top Window Titlebar (Chrome Window Header) */}
       <div className="sori-shell__titlebar">
       <DesktopTitleBar

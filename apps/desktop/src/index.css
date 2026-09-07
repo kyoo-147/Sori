@@ -1077,3 +1077,47 @@
 :where([role='dialog']) {
   border-radius: 7px !important;
 }
+
+/* Captain-approved app shell refinement: keep the titlebar and navigation as
+   one uninterrupted surface, with a quiet rounded workspace transition. The
+   resize rail remains a keyboard/pointer hit target but never paints a seam. */
+.sori-shell {
+  --sori-shell-radius: 15px;
+  background: var(--sori-bg-sidebar);
+  border-radius: var(--sori-shell-radius);
+}
+.sori-shell__titlebar {
+  border: 0;
+  border-radius: var(--sori-shell-radius) var(--sori-shell-radius) 0 0;
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__body {
+  grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) 1px minmax(0, 1fr);
+  border: 0;
+  border-radius: 0 0 var(--sori-shell-radius) var(--sori-shell-radius);
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__sidebar {
+  border: 0;
+  border-radius: 0 0 0 var(--sori-shell-radius);
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__workspace {
+  border: 0;
+  border-radius: 15px 0 var(--sori-shell-radius) 0;
+  background: color-mix(in srgb, var(--sori-bg-app) 96%, var(--sori-bg-sidebar));
+  box-shadow: none;
+}
+.sori-sidebar-divider,
+.sori-sidebar-divider::after,
+.sori-sidebar-divider:hover::after,
+.sori-sidebar-divider:active::after {
+  background: transparent;
+}
+@media (max-width: 767px) {
+  .sori-shell__titlebar,
+  .sori-shell__body,
+  .sori-shell__sidebar,
+  .sori-shell__workspace { border-radius: 0; }
+  .sori-shell__workspace { background: var(--sori-bg-app); }
+}

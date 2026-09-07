@@ -707,3 +707,16 @@
   .sori-window-controls { margin-left: 2px; }
   .sori-window-control { width: 32px; }
 }
+
+/* Wave 1 screen polish: calm hierarchy without changing shared tokens. */
+.sori-screen { animation: sori-screen-in 180ms ease-out both; }
+.sori-eyebrow { margin: 0 0 8px; color: var(--sori-text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.sori-screen .sori-pane { border-radius: 16px; box-shadow: var(--sori-shadow-xs); }
+.sori-screen h1 { letter-spacing: -.025em; }
+.sori-empty-state { padding: 18px 8px; text-align: center; color: var(--sori-text-secondary); font-size: 12px; }
+.sori-empty-state svg { color: var(--sori-text-tertiary); }
+.sori-empty-state span { display: block; margin-top: 4px; color: var(--sori-text-tertiary); font-size: 11px; }
+.sori-screen-models input, .sori-screen-benchmarks textarea { transition: border-color 160ms ease, box-shadow 160ms ease; }
+.sori-screen-models input:focus, .sori-screen-benchmarks textarea:focus { border-color: var(--sori-border-focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sori-border-focus) 15%, transparent); outline: none; }
+@keyframes sori-screen-in { from { opacity: .85; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .sori-screen { animation: none; } }

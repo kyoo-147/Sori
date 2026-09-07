@@ -890,3 +890,65 @@
   .sori-titlebar__brand { font-size: 13px; }
   .sori-titlebar { padding-inline: 4px 0; }
 }
+
+/* Wave 3 shell: one connected frame with a shared rail/title surface. Keep
+ * the content boundary as the only persistent divider. */
+.sori-shell {
+  padding: 0;
+  border: 1px solid var(--sori-border-soft);
+  border-radius: var(--sori-shell-radius);
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__titlebar {
+  position: relative;
+  inset: auto;
+  width: auto;
+  flex: 0 0 var(--sori-titlebar-height);
+  height: var(--sori-titlebar-height);
+  border: 0;
+  border-bottom: 1px solid var(--sori-border-soft);
+  border-radius: var(--sori-shell-radius) var(--sori-shell-radius) 0 0;
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__body {
+  height: auto;
+  flex: 1 1 auto;
+  padding-top: 0;
+  border: 0;
+  border-radius: 0 0 var(--sori-shell-radius) var(--sori-shell-radius);
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__sidebar {
+  margin-top: 0;
+  height: 100%;
+  border-radius: 0 0 0 var(--sori-shell-radius);
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__workspace {
+  border-left: 1px solid var(--sori-shell-divider);
+  border-radius: 0 0 var(--sori-shell-radius) 0;
+  background: var(--sori-bg-app);
+}
+.sori-capture-button,
+.sori-titlebar__status-action,
+.sori-runtime-affordance,
+.sori-quick-controls {
+  border-color: transparent;
+  background: transparent;
+}
+.sori-capture-button:hover:not(:disabled),
+.sori-titlebar__status-action:hover:not(:disabled),
+.sori-runtime-affordance:hover,
+.sori-quick-controls:hover {
+  border-color: transparent;
+  background: var(--sori-fill-hover);
+}
+.sori-window-controls { border-left: 0; }
+.sori-shell[data-sidebar-collapsed='true'] .sori-shell__titlebar { left: auto; }
+@media (max-width: 767px) {
+  .sori-shell { border: 0; border-radius: 0; }
+  .sori-shell__titlebar { border-radius: 0; }
+  .sori-shell__body { border-radius: 0; }
+  .sori-shell__sidebar { border-radius: 0; }
+  .sori-shell__workspace { border-radius: 0; }
+}

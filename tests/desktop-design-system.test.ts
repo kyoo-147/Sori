@@ -106,12 +106,12 @@ describe('desktop visual architecture contracts', () => {
 });
 
 describe('desktop theme primitives', () => {
-  it('keeps the four user-adjustable palettes and semantic component hooks aligned', () => {
+  it('keeps the ten user-adjustable palettes and semantic component hooks aligned', () => {
     const css = readDesktop('design-system/tokens.css');
     const ts = readDesktop('design-system/tokens.ts');
-    for (const theme of ['clear', 'brown', 'green', 'blue']) expect(css).toContain(`[data-sori-theme='${theme}']`);
+    for (const theme of ['clear', 'blue', 'azure', 'green', 'forest', 'brown', 'golden', 'terracotta', 'wisteria', 'ink']) expect(css).toContain(`[data-sori-theme='${theme}']`);
     for (const token of ['--sori-primary:', '--sori-accent:', '--sori-button-bg:', '--sori-badge-bg:', '--sori-input-bg:', '--sori-card-bg:', '--sori-focus-ring:', '--sori-sidebar-bg:', '--sori-topbar-bg:']) expect(css).toContain(token);
-    expect(ts).toContain("['clear', 'brown', 'green', 'blue']");
+    expect(ts).toContain("['clear', 'blue', 'azure', 'green', 'forest', 'brown', 'golden', 'terracotta', 'wisteria', 'ink']");
     expect(ts).toContain('applySoriTheme');
   });
 });

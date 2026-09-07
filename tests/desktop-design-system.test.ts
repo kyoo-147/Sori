@@ -70,6 +70,12 @@ describe('desktop visual architecture contracts', () => {
     expect(css).toContain('cursor: col-resize;');
     expect(css).toContain('overflow: hidden;');
     expect(css).toContain('height: 100%;');
+    expect(css).toContain('height: 100%;');
+    expect(css).toContain("grid-template-areas: 'sidebar divider workspace';");
+    expect(css).toContain("grid-template-areas: 'workspace workspace workspace';");
+    expect(css).toContain(".sori-shell[data-sidebar-collapsed='true'] .sori-sidebar-divider");
+    expect(css).toContain('.sori-shell .sori-overlay { z-index: 100; }');
+    expect(css).toContain('min-width: 32px;');
   });
 
   it('covers keyboard, hover, disabled, pressed, and error states', () => {

@@ -780,3 +780,114 @@
 .sori-sidebar-account small { margin-top: 2px; color: var(--sori-text-tertiary); font-size: 11px; }
 .sori-shell__workspace { border-top: 0; border-left: 1px solid var(--sori-border-soft); border-radius: 0; background: var(--sori-bg-app); box-shadow: none; }
 @media (max-width: 767px) { .sori-titlebar { padding-left: 10px; gap: 8px; } .sori-titlebar__context { display: none; } .sori-titlebar__leading { gap: 6px; } .sori-titlebar__center-actions { margin-left: auto; } .sori-titlebar__actions { flex: 0 0 auto; gap: 3px; } .sori-capture-button, .sori-titlebar__status-action, .sori-runtime-affordance, .sori-quick-controls { width: 30px; justify-content: center; padding: 0; border-color: transparent; background: transparent; } .sori-shell__sidebar { border-right: 1px solid var(--sori-border-default); } .sori-shell__workspace { border-left: 0; } .sori-window-controls { display: none; } }
+
+/* Wave 2: one continuous native application frame. The titlebar is visually
+ * owned by the right pane while the rail runs uninterrupted from top to bottom. */
+.sori-shell {
+  --sori-shell-radius: 18px;
+  --sori-shell-gap: 12px;
+  --sori-shell-divider: color-mix(in srgb, var(--sori-border-default) 72%, transparent);
+  position: relative;
+  padding: var(--sori-shell-gap);
+  background: var(--sori-bg-canvas);
+}
+.sori-shell__titlebar {
+  position: absolute;
+  top: var(--sori-shell-gap);
+  right: var(--sori-shell-gap);
+  left: calc(var(--sori-sidebar-width-live, var(--sori-sidebar-width)) + var(--sori-shell-gap) + 8px);
+  height: var(--sori-titlebar-height);
+  min-height: var(--sori-titlebar-height);
+  border: 1px solid var(--sori-border-soft);
+  border-bottom-color: var(--sori-shell-divider);
+  border-radius: var(--sori-shell-radius) var(--sori-shell-radius) 0 0;
+  background: var(--sori-bg-app);
+}
+.sori-shell__body {
+  height: 100%;
+  padding-top: calc(var(--sori-titlebar-height) + var(--sori-shell-gap));
+  gap: 0;
+  border: 1px solid var(--sori-border-soft);
+  border-radius: var(--sori-shell-radius);
+  background: var(--sori-bg-sidebar);
+  overflow: hidden;
+}
+.sori-shell__sidebar {
+  border: 0;
+  border-radius: var(--sori-shell-radius) 0 0 var(--sori-shell-radius);
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__workspace {
+  border: 0;
+  border-left: 1px solid var(--sori-shell-divider);
+  border-radius: 0 var(--sori-shell-radius) var(--sori-shell-radius) 0;
+  background: var(--sori-bg-app);
+}
+.sori-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 18px 20px 10px;
+  color: var(--sori-text-primary);
+}
+.sori-sidebar-brand__mark { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--sori-border-default); border-radius: 9px; color: var(--sori-accent-primary); background: var(--sori-bg-panel); font-size: 19px; line-height: 1; }
+.sori-sidebar-brand strong, .sori-sidebar-brand small { display: block; }
+.sori-sidebar-brand strong { font-size: 14px; font-weight: 700; letter-spacing: -.02em; }
+.sori-sidebar-brand small { margin-top: 1px; color: var(--sori-text-tertiary); font-size: 10px; }
+.sori-titlebar__leading { flex: 1 1 auto; }
+.sori-titlebar__center-actions { margin-inline: auto; }
+.sori-titlebar__actions { flex: 0 0 auto; }
+.sori-window-controls { margin-left: 8px; border-left: 1px solid var(--sori-border-soft); }
+@media (max-width: 767px) {
+  .sori-shell { padding: 0; }
+  .sori-shell__titlebar { top: 0; right: 0; left: 0; border-radius: 0; border-inline: 0; }
+  .sori-shell__body { padding-top: var(--sori-titlebar-height); border: 0; border-radius: 0; }
+  .sori-shell__sidebar { border-radius: 0; }
+  .sori-shell__workspace { border-radius: 0; }
+  .sori-sidebar-brand { padding-top: 14px; }
+}
+.sori-shell__sidebar {
+  margin-top: calc(-1 * (var(--sori-titlebar-height) + var(--sori-shell-gap)));
+  height: calc(100% + var(--sori-titlebar-height) + var(--sori-shell-gap));
+}
+@media (max-width: 767px) {
+  .sori-shell__sidebar { margin-top: 0; height: auto; }
+}
+/* Shell acceptance guards: keep the frame connected while making the resize rail
+ * disappear entirely when the desktop sidebar is collapsed. */
+.sori-shell { isolation: isolate; }
+.sori-shell__body { grid-template-areas: 'sidebar divider workspace'; }
+.sori-shell__sidebar { grid-area: sidebar; }
+.sori-sidebar-divider { grid-area: divider; }
+.sori-shell__workspace { grid-area: workspace; }
+.sori-shell[data-sidebar-collapsed='true'] .sori-shell__body {
+  grid-template-columns: minmax(0, 0px) 0 minmax(0, 1fr);
+  grid-template-areas: 'workspace workspace workspace';
+}
+.sori-shell[data-sidebar-collapsed='true'] .sori-shell__sidebar,
+.sori-shell[data-sidebar-collapsed='true'] .sori-sidebar-divider { display: none; }
+.sori-shell[data-sidebar-collapsed='true'] .sori-shell__titlebar { left: var(--sori-shell-gap); }
+.sori-shell .sori-overlay { z-index: 100; }
+.sori-shell [role='dialog'] { max-width: min(32rem, calc(100vw - 2rem)); }
+@media (max-width: 767px) {
+  .sori-titlebar { min-width: 0; }
+  .sori-titlebar__leading,
+  .sori-titlebar__center-actions,
+  .sori-titlebar__actions { min-width: 0; gap: 2px; }
+  .sori-titlebar__leading { flex: 1 1 auto; overflow: hidden; }
+  .sori-titlebar__center-actions { flex: 0 1 auto; margin-inline: 0; }
+  .sori-titlebar__actions { flex: 0 1 auto; }
+  .sori-titlebar__brand { flex: 0 0 auto; }
+  .sori-capture-button,
+  .sori-titlebar__status-action,
+  .sori-runtime-affordance,
+  .sori-quick-controls,
+  .sori-titlebar__mobile-menu { width: 32px; min-width: 32px; min-height: 32px; height: 32px; }
+  .sori-titlebar__center-actions > button > span,
+  .sori-titlebar__actions > button > span { display: none; }
+  .sori-titlebar__brand-mark { width: 24px; height: 24px; }
+  .sori-titlebar__context { display: none; }
+  .sori-titlebar__brand { font-size: 13px; }
+  .sori-titlebar { padding-inline: 4px 0; }
+}

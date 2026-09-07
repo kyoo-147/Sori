@@ -32,8 +32,8 @@ export const TranscriptsScreen: React.FC<TranscriptsScreenProps> = ({ history, r
   const displayState: ViewState = loadState === 'error' && history.length === 0 ? 'error' : loadState === 'loading' && history.length === 0 ? (loadingTimedOut ? 'error' : 'loading') : history.length === 0 ? 'empty' : 'normal';
   const unavailableDetail = loadingTimedOut ? 'The local history service did not respond.' : 'Local history could not be read.';
 
-  return <main className="transcripts-screen mx-auto max-w-[1180px] space-y-6 p-1 sm:p-2 md:p-4" aria-busy={displayState === 'loading'}>
-    <header className="transcripts-screen__header"><div><p className="transcripts-screen__eyebrow">Review / local history</p><h1 className="sori-page-heading">Transcripts timeline</h1><p className="sori-body-text mt-1">Review captured audio, raw ASR, and processed output without losing the source.</p></div>{loadState === 'loading' && history.length > 0 && <span className="transcripts-screen__sync"><span className="transcripts-screen__sync-dot" />Refreshing history</span>}</header>
+  return <main className="transcripts-screen sori-page-layout space-y-6" aria-busy={displayState === 'loading'}>
+    <header className="transcripts-screen__header"><div><h1 className="sori-page-heading">Transcripts timeline</h1><p className="sori-body-text mt-1">Review captured audio, raw ASR, and processed output.</p></div>{loadState === 'loading' && history.length > 0 && <span className="transcripts-screen__sync"><span className="transcripts-screen__sync-dot" />Refreshing history</span>}</header>
     {displayState === 'loading' && <LoadingState />}
     {displayState === 'error' && <>{/* detail="Local history could not be read." */}<StatePanel icon={<AlertCircle />} title="History unavailable" detail={unavailableDetail} action={onRetry ? 'Retry' : undefined} onAction={retry} danger /></>}
     {displayState === 'empty' && <StatePanel icon={<Clock3 />} title="No transcripts yet" detail="Captured transcripts will appear here." action={onRetry ? 'Retry' : undefined} onAction={retry} />}

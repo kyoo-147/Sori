@@ -50,7 +50,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
   };
 
   return (
-    <div className="sori-screen sori-screen-home mx-auto max-w-[1180px] space-y-6 p-1 text-[var(--sori-text-primary)] sm:p-2 md:p-4">
+    <div className="sori-screen sori-page-layout sori-screen-home space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="sori-page-heading">Overview</h1>

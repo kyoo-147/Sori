@@ -34,3 +34,13 @@ describe('titlebar drag boundary', () => {
     expect(dragStarted).toBe(false);
   });
 });
+
+describe('sidebar titlebar control state', () => {
+  it('uses one open state across responsive layouts', async () => {
+    const { sidebarControlIsOpen } = await import('./DesktopTitleBar');
+    expect(sidebarControlIsOpen(false, false, false)).toBe(true);
+    expect(sidebarControlIsOpen(false, false, true)).toBe(false);
+    expect(sidebarControlIsOpen(true, true, false)).toBe(true);
+    expect(sidebarControlIsOpen(true, false, false)).toBe(false);
+  });
+});

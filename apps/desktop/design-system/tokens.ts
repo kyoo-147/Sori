@@ -11,7 +11,7 @@ export const systemDesignTokens = {
     border: { default: '#E2E4E8', soft: '#ECEDEE', strong: '#CDD1D5', focus: '#8DA4BC' },
     fill: { hover: '#F0F1F2', active: '#E9EBEE', selected: '#E8EDF4', disabled: '#F5F5F5' },
     accent: { primary: '#5C728A', primarySoft: '#E8EEF4', primaryBorder: '#C9D6E3', btnBg: '#EEF2F6', btnText: '#24384C', btnBorder: '#D5E0EA', btnHover: '#E1E8F0' },
-    settings: { modal: '#FFFFFF', surface: '#FAFAF9', sidebar: '#F7F7F6', hover: '#F2F3F3', active: '#ECEEEF', selected: '#EAF3F8', input: '#FFFFFF', border: '#E3E5E7', help: '#73777C' },
+    settings: { modal: '#FFFFFF', surface: 'var(--sori-bg-panel-subtle)', sidebar: 'var(--sori-bg-sidebar)', hover: 'var(--sori-fill-hover)', active: 'var(--sori-fill-active)', selected: 'var(--sori-fill-selected)', input: '#FFFFFF', border: 'var(--sori-border-default)', help: '#73777C' },
     semantic: {
       success: { text: '#1F6B43', bg: '#EAF6EE', border: '#CBE5D4' },
       warning: { text: '#8A5A16', bg: '#FBF3E3', border: '#EEDDB8' },
@@ -20,8 +20,8 @@ export const systemDesignTokens = {
     },
   },
   spacing: { 0: '0px', 1: '4px', 2: '8px', 3: '12px', 4: '16px', 5: '20px', 6: '24px', 7: '32px', 8: '40px', 9: '48px' },
-  radius: { xs: '6px', sm: '8px', md: '10px', lg: '14px', xl: '18px', pill: '999px' },
-  geometry: { controlHeight: '36px', controlRadius: '8px', cardRadius: '14px', overlayRadius: '18px', settingsRadius: '5px', settingsModalRadius: '7px' },
+  radius: { xs: '4px', sm: '5px', md: '5px', lg: '5px', xl: '7px', pill: '999px' },
+  geometry: { controlHeight: '36px', controlRadius: '5px', cardRadius: '5px', overlayRadius: '7px', settingsRadius: '5px', settingsModalRadius: '7px' },
   shadows: {
     none: '0 0 transparent',
     xs: '0 1px 2px rgba(26, 31, 36, 0.04)',

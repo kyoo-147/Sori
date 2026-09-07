@@ -92,6 +92,8 @@ export default function App() {
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const settingsDialogRef = useRef<HTMLDivElement>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
+  const runtimeRefreshPromise = useRef<Promise<void> | null>(null);
+  const runtimeRefreshPending = useRef(false);
   useEffect(() => {
     if (!isSettingsModalOpen) return;
     settingsTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -133,23 +135,41 @@ export default function App() {
     return true;
   }, [runtimeClient]);
 
-  const refreshRuntime = useCallback(async () => {
-    const historyGeneration = ++historyRequestGeneration.current;
-    setHistory([]); setHistoryError(null); setHistoryState('loading');
-    const generation = ++refreshGeneration.current;
-    const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
-    if (generation !== refreshGeneration.current || historyGeneration !== historyRequestGeneration.current) return;
-    setRuntimeStatus(statusResult.data);
-    setRuntimeSource(statusResult.source);
-    setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
-    setDoctorChecks(doctorResult.data);
-    if (!modelsResult.error && Array.isArray(modelsResult.data)) setModels(modelsResult.data);
-    if (!routeResult.error && routeResult.data && typeof routeResult.data.activeModelId === 'string') setActiveModelId(routeResult.data.activeModelId);
-    else if (!routeResult.error) setActiveModelId(null);
-    if (historyResult.error === null) {
-      setHistory(mapHistoryItems(historyResult.data)); setHistoryError(null);
-      setHistoryState('ready');
-    } else { setHistoryError(statusResult.source === 'unavailable' ? 'The local history service did not respond.' : 'History refresh failed; no current transcripts are available.'); setHistoryState('error'); }
+  const refreshRuntime = useCallback((ensureFresh = false) => {
+    if (runtimeRefreshPromise.current) {
+      // Polling shares the active read instead of extending the replay loop.
+      // Mutations request one coalesced authoritative read after that batch.
+      if (ensureFresh) runtimeRefreshPending.current = true;
+      return runtimeRefreshPromise.current;
+    }
+    runtimeRefreshPending.current = true;
+
+    const run = async () => {
+      while (runtimeRefreshPending.current) {
+        runtimeRefreshPending.current = false;
+        const historyGeneration = ++historyRequestGeneration.current;
+        setHistory([]); setHistoryError(null); setHistoryState('loading');
+        const generation = ++refreshGeneration.current;
+        const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
+        if (generation !== refreshGeneration.current || historyGeneration !== historyRequestGeneration.current) continue;
+        setRuntimeStatus(statusResult.data);
+        setRuntimeSource(statusResult.source);
+        setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
+        setDoctorChecks(doctorResult.data);
+        if (!modelsResult.error && Array.isArray(modelsResult.data)) setModels(modelsResult.data);
+        if (!routeResult.error && routeResult.data && typeof routeResult.data.activeModelId === 'string') setActiveModelId(routeResult.data.activeModelId);
+        else if (!routeResult.error) setActiveModelId(null);
+        if (historyResult.error === null) {
+          setHistory(mapHistoryItems(historyResult.data)); setHistoryError(null);
+          setHistoryState('ready');
+        } else { setHistoryError(statusResult.source === 'unavailable' ? 'The local history service did not respond.' : 'History refresh failed; no current transcripts are available.'); setHistoryState('error'); }
+      }
+    };
+    const pending = run().finally(() => {
+      if (runtimeRefreshPromise.current === pending) runtimeRefreshPromise.current = null;
+    });
+    runtimeRefreshPromise.current = pending;
+    return pending;
   }, [runtimeClient]);
 
   useEffect(() => {
@@ -311,7 +331,7 @@ export default function App() {
     setRuntimeStatus(result.data);
     setRuntimeSource(result.source);
     setRuntimeError(result.error);
-    if (!result.error) await refreshRuntime();
+    if (!result.error) await refreshRuntime(true);
   };
 
   const setPaused = async (paused: boolean) => {
@@ -362,7 +382,7 @@ export default function App() {
     setRuntimeError(failure);
     setIsListening(false);
     setInterimTranscript('');
-    if (!failure) await refreshRuntime();
+    if (!failure) await refreshRuntime(true);
   };
 
   const handleApplyRecommendedPolicy = async () => {
@@ -372,7 +392,7 @@ export default function App() {
     if (!result.error) {
       // The daemon owns the route. Re-read it rather than trusting the
       // mutation response or leaving other screens with stale state.
-      await refreshRuntime();
+      await refreshRuntime(true);
       if (typeof route?.activeModelId === 'string') setActiveModelId(route.activeModelId);
     }
   };
@@ -395,11 +415,11 @@ export default function App() {
     if (!benchmarkSessionId) return;
     const result = await runtimeClient.cancelBenchmark(benchmarkSessionId);
     setRuntimeError(result.error);
-    if (result.error) await refreshRuntime();
+    if (result.error) await refreshRuntime(true);
   };
 
   return (
-    <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 text-[#1C1B1A] flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sori-theme={theme} data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
+    <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sori-theme={theme} data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
       {/* Top Window Titlebar (Chrome Window Header) */}
       <div className="sori-shell__titlebar">
       <DesktopTitleBar

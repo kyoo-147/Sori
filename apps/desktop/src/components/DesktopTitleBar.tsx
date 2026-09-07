@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ActiveScreen, AppSettings } from '../types';
 import type { DaemonStatus, RuntimeSource } from '../runtime-client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Activity, Copy, Menu, Mic, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Settings2, Square, X } from 'lucide-react';
+import { Activity, Copy, Mic, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Settings2, Square, X } from 'lucide-react';
 import { performWindowAction, tauriWindowControls, type WindowAction } from '../window-controls';
 
 export const isTitlebarInteractiveTarget = (target: EventTarget | null) =>
@@ -11,6 +11,7 @@ export const titlebarRouteLabel = (runtimeSource: RuntimeSource, activeModelName
   runtimeSource === 'native' || runtimeSource === 'backend' ? `Route: ${activeModelName}` : 'Route: UNVERIFIED';
 export const titlebarCaptureLabel = (runtimeSource: RuntimeSource, isListening: boolean) => isListening ? 'Stop daemon dictation' : runtimeSource === 'native' || runtimeSource === 'backend' ? 'Start daemon dictation' : 'Dictation unavailable';
 export const titlebarCaptureDisabled = (runtimeSource: RuntimeSource) => runtimeSource === 'mock' || runtimeSource === 'unavailable';
+export const sidebarControlIsOpen = (isMobileViewport: boolean, sidebarOpen: boolean, sidebarCollapsed: boolean) => isMobileViewport ? sidebarOpen : !sidebarCollapsed;
 export const handleTitlebarMouseDownBoundary = (target: EventTarget | null, button: number, startDragging: () => void) => {
   if (button !== 0 || isTitlebarInteractiveTarget(target)) return;
   startDragging();
@@ -32,7 +33,16 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
 }) => {
   const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const isTauri = '__TAURI_INTERNALS__' in globalThis;
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobileViewport(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+  const sidebarIsOpen = sidebarControlIsOpen(isMobileViewport, sidebarOpen, sidebarCollapsed);
   const refreshMaximized = () => { if (isTauri) void getCurrentWindow().isMaximized().then(setIsMaximized).catch(() => undefined); };
   useEffect(() => {
     if (!isTauri) return;
@@ -51,7 +61,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   return (
     <div role="toolbar" aria-label="Sori window title bar" onMouseDown={handleMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar">
       <div className="sori-titlebar__leading" data-sori-no-drag>
-        <button type="button" onClick={onToggleSidebar} aria-label={sidebarCollapsed ? 'Expand sidebar' : sidebarOpen ? 'Close navigation' : 'Open navigation'} aria-pressed={sidebarCollapsed || sidebarOpen} title={sidebarCollapsed ? 'Expand sidebar' : sidebarOpen ? 'Close navigation' : 'Open navigation'} className="sori-titlebar__sidebar-control"><span className="sori-titlebar__mobile-icon" aria-hidden="true">{sidebarOpen ? <X /> : <Menu />}</span><span className="sori-titlebar__desktop-icon" aria-hidden="true">{sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</span></button>
+        <button type="button" onClick={onToggleSidebar} aria-label={sidebarIsOpen ? 'Close navigation' : 'Open navigation'} aria-pressed={sidebarIsOpen} title={sidebarIsOpen ? 'Close navigation' : 'Open navigation'} className="sori-titlebar__sidebar-control" aria-controls="sori-navigation"><span aria-hidden="true">{sidebarIsOpen ? <PanelLeftClose /> : <PanelLeftOpen />}</span></button>
         <span className="sori-titlebar__brand">Sori</span>
       </div>
       <div className="sori-titlebar__center-actions" data-sori-no-drag>

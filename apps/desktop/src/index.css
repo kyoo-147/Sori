@@ -1104,7 +1104,7 @@
 }
 .sori-shell__workspace {
   border: 0;
-  border-radius: 15px 0 var(--sori-shell-radius) 0;
+  border-radius: 15px 0 var(--sori-shell-radius) 15px;
   background: color-mix(in srgb, var(--sori-bg-app) 96%, var(--sori-bg-sidebar));
   box-shadow: none;
 }

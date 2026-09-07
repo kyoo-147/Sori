@@ -585,16 +585,14 @@ export default function App() {
           <div className="fixed inset-0 z-50 bg-[#1C1B1A]/20 backdrop-blur-xs flex items-center justify-center p-4" role="presentation">
             <div ref={settingsDialogRef} className="w-full max-w-3xl relative animate-in fade-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
               <div id="settings-dialog-title" className="sr-only">Sori settings</div>
-              <StudioSettingsScreen settings={settings} setSettings={setSettings} runtimeClient={runtimeClient} />
-              <button
-                type="button"
-                aria-label="Close settings"
-                onClick={() => setIsSettingsModalOpen(false)}
-                ref={settingsCloseRef}
-                className="absolute top-4 right-4 text-[#94928E] hover:text-[#1C1B1A] p-1"
-              >
-                ✕
-              </button>
+              <StudioSettingsScreen
+                settings={settings}
+                setSettings={setSettings}
+                runtimeClient={runtimeClient}
+                compact
+                onClose={() => setIsSettingsModalOpen(false)}
+                closeRef={settingsCloseRef}
+              />
             </div>
           </div>
       )}

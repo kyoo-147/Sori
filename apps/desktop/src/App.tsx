@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ActiveScreen,
   AppSettings,
@@ -50,6 +50,58 @@ type PersistedPreferences = {
   activeScreen: ActiveScreen;
 };
 
+export const createCoalescedRefresh = (run: () => Promise<boolean>) => {
+  let active: Promise<boolean> | null = null;
+  let pending = false;
+  let followUpReserved = false;
+  let followUpConsumed = false;
+  let disposed = false;
+
+  const refresh: ((ensureFresh?: boolean) => Promise<boolean>) & { dispose: () => void } = (ensureFresh = false): Promise<boolean> => {
+    if (disposed) return Promise.resolve(false);
+    if (active) {
+      // Routine polling shares the active read. Reserve at most one
+      // authoritative follow-up for the whole active batch; repeated retries
+      // during that follow-up must not create an unbounded replay loop.
+      if (ensureFresh && !followUpReserved && !followUpConsumed) followUpReserved = true;
+      return active;
+    }
+    pending = true;
+    followUpReserved = false;
+    followUpConsumed = false;
+
+    const execute = async () => {
+      let historyReady = false;
+      while (pending && !disposed) {
+        pending = false;
+        historyReady = await run();
+        if (followUpReserved && !followUpConsumed && !disposed) {
+          followUpConsumed = true;
+          pending = true;
+        }
+      }
+      return disposed ? false : historyReady;
+    };
+    const request = execute().finally(() => {
+      if (active === request) {
+        active = null;
+        pending = false;
+        followUpReserved = false;
+        followUpConsumed = false;
+      }
+    });
+    active = request;
+    return request;
+  };
+
+  refresh.dispose = () => {
+    disposed = true;
+    pending = false;
+    followUpReserved = false;
+  };
+  return refresh;
+};
+
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
   const [settings, setSettings] = useState<AppSettings>(() => ({ ...defaultSettings, theme: readShellPreferences().theme }));
@@ -87,13 +139,12 @@ export default function App() {
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const historyRequestGeneration = useRef(0);
   const refreshGeneration = useRef(0);
+  const runtimeDisposed = useRef(false);
   const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
   const [runtimeClient] = useState(() => new RuntimeClient());
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const settingsDialogRef = useRef<HTMLDivElement>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
-  const runtimeRefreshPromise = useRef<Promise<void> | null>(null);
-  const runtimeRefreshPending = useRef(false);
   useEffect(() => {
     if (!isSettingsModalOpen) return;
     settingsTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -124,62 +175,41 @@ export default function App() {
     modelUsed: typeof entry.route === 'object' && entry.route && 'model' in entry.route ? String((entry.route as { model?: unknown }).model) : 'Unknown model',
   }));
 
-  const refreshHistory = useCallback(async () => {
-    const requestGeneration = ++historyRequestGeneration.current;
+  const runRuntimeRefresh = useCallback(async () => {
+    if (runtimeDisposed.current) return false;
+    const historyGeneration = ++historyRequestGeneration.current;
     setHistory([]); setHistoryError(null); setHistoryState('loading');
-    const result = await runtimeClient.history(50);
-    if (requestGeneration !== historyRequestGeneration.current) return false;
-    if (result.error !== null) { setHistoryError('The local history service did not respond.'); setHistoryState('error'); return false; }
-    setHistory(mapHistoryItems(result.data));
-    setHistoryState('ready');
-    return true;
-  }, [runtimeClient]);
-
-  const refreshRuntime = useCallback((ensureFresh = false) => {
-    if (runtimeRefreshPromise.current) {
-      // Polling shares the active read instead of extending the replay loop.
-      // Mutations request one coalesced authoritative read after that batch.
-      if (ensureFresh) runtimeRefreshPending.current = true;
-      return runtimeRefreshPromise.current;
+    const generation = ++refreshGeneration.current;
+    const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
+    if (runtimeDisposed.current) return false;
+    if (generation !== refreshGeneration.current || historyGeneration !== historyRequestGeneration.current) return false;
+    setRuntimeStatus(statusResult.data);
+    setRuntimeSource(statusResult.source);
+    setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
+    setDoctorChecks(doctorResult.data);
+    if (!modelsResult.error && Array.isArray(modelsResult.data)) setModels(modelsResult.data);
+    if (!routeResult.error && routeResult.data && typeof routeResult.data.activeModelId === 'string') setActiveModelId(routeResult.data.activeModelId);
+    else if (!routeResult.error) setActiveModelId(null);
+    if (historyResult.error === null) {
+      setHistory(mapHistoryItems(historyResult.data)); setHistoryError(null);
+      setHistoryState('ready');
+      return true;
     }
-    runtimeRefreshPending.current = true;
-
-    const run = async () => {
-      while (runtimeRefreshPending.current) {
-        runtimeRefreshPending.current = false;
-        const historyGeneration = ++historyRequestGeneration.current;
-        setHistory([]); setHistoryError(null); setHistoryState('loading');
-        const generation = ++refreshGeneration.current;
-        const [statusResult, doctorResult, historyResult, modelsResult, routeResult] = await Promise.all([runtimeClient.status(), runtimeClient.doctor(), runtimeClient.history(50), runtimeClient.models(), runtimeClient.route<{ activeModelId: string | null }>()]);
-        if (generation !== refreshGeneration.current || historyGeneration !== historyRequestGeneration.current) continue;
-        setRuntimeStatus(statusResult.data);
-        setRuntimeSource(statusResult.source);
-        setRuntimeError(statusResult.error ?? doctorResult.error ?? historyResult.error);
-        setDoctorChecks(doctorResult.data);
-        if (!modelsResult.error && Array.isArray(modelsResult.data)) setModels(modelsResult.data);
-        if (!routeResult.error && routeResult.data && typeof routeResult.data.activeModelId === 'string') setActiveModelId(routeResult.data.activeModelId);
-        else if (!routeResult.error) setActiveModelId(null);
-        if (historyResult.error === null) {
-          setHistory(mapHistoryItems(historyResult.data)); setHistoryError(null);
-          setHistoryState('ready');
-        } else { setHistoryError(statusResult.source === 'unavailable' ? 'The local history service did not respond.' : 'History refresh failed; no current transcripts are available.'); setHistoryState('error'); }
-      }
-    };
-    const pending = run().finally(() => {
-      if (runtimeRefreshPromise.current === pending) runtimeRefreshPromise.current = null;
-    });
-    runtimeRefreshPromise.current = pending;
-    return pending;
+    setHistoryError('Check that Sori is running, then retry.');
+    setHistoryState('error');
+    return false;
   }, [runtimeClient]);
+  const refreshRuntime = useMemo(() => createCoalescedRefresh(runRuntimeRefresh), [runRuntimeRefresh]);
 
   useEffect(() => {
     let disposed = false;
+    runtimeDisposed.current = false;
     const refresh = () => { if (!disposed) refreshRuntime().catch(() => undefined); };
     // Reconnect after an independently restarted daemon through canonical
     // read operations only; destructive mutations are never retried.
     refresh();
     const timer = window.setInterval(refresh, 5_000);
-    return () => { disposed = true; window.clearInterval(timer); };
+    return () => { disposed = true; runtimeDisposed.current = true; refreshRuntime.dispose(); window.clearInterval(timer); };
   }, [refreshRuntime]);
   const refreshBenchmarks = useCallback(async () => {
     const result = await runtimeClient.recentBenchmarks(20);
@@ -529,7 +559,7 @@ export default function App() {
             )}
 
             {activeScreen === 'transcripts' && (
-              <TranscriptsScreen history={history} setHistory={setHistory} runtimeClient={runtimeClient} onRetry={refreshHistory} onRefreshAfterMutation={refreshHistory} loadState={historyState} loadError={historyError} />
+              <TranscriptsScreen history={history} runtimeClient={runtimeClient} onRetry={() => refreshRuntime(true)} onRefreshAfterMutation={() => refreshRuntime(true)} loadState={historyState} loadError={historyError} />
             )}
 
             {activeScreen === 'onboarding' && (
@@ -603,7 +633,7 @@ export default function App() {
                 runtimeSource={runtimeSource}
                 runtimeStatus={runtimeStatus}
                 runtimeError={runtimeError}
-                onRefresh={refreshRuntime}
+                onRefresh={async () => { await refreshRuntime(); }}
               />
             )}
           </main>

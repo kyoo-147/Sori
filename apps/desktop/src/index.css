@@ -886,8 +886,6 @@
   .sori-titlebar__mobile-menu { width: 32px; min-width: 32px; min-height: 32px; height: 32px; }
   .sori-titlebar__center-actions > button > span,
   .sori-titlebar__actions > button > span { display: none; }
-}
-+
   .sori-titlebar__brand-mark { width: 24px; height: 24px; }
   .sori-titlebar__context { display: none; }
   .sori-titlebar__brand { font-size: 13px; }

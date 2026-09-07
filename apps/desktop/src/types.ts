@@ -126,7 +126,7 @@ export interface AssistantVoiceSettings {
 
 export interface AppSettings {
   overlayStyle: OverlayStyle;
-  theme: 'dark-obsidian' | 'clean-light' | 'codex-emerald';
+  theme: 'clear' | 'brown' | 'green' | 'blue';
   activeProfile: 'Coding' | 'Writing' | 'Vietnamese' | 'General';
   hotkey: string;
   holdToSpeak: boolean;

@@ -52,13 +52,13 @@ describe('extensible shell foundation', () => {
 
   it('persists layout, theme, and density as one validated shell preference', () => {
     const storage = new MemoryStorage();
-    const preferences = { ...defaultShellPreferences, theme: 'clean-light' as const, density: 'compact' as const };
+    const preferences = { ...defaultShellPreferences, theme: 'brown' as const, density: 'compact' as const };
     writeShellPreferences(preferences, storage);
-    expect(storage.getItem(SHELL_PREFERENCES_KEY)).toContain('clean-light');
-    expect(readShellPreferences(defaultShellPreferences, storage)).toMatchObject({ theme: 'clean-light', density: 'compact' });
+    expect(storage.getItem(SHELL_PREFERENCES_KEY)).toContain('brown');
+    expect(readShellPreferences(defaultShellPreferences, storage)).toMatchObject({ theme: 'brown', density: 'compact' });
 
     storage.setItem(SHELL_PREFERENCES_KEY, '{"version":1,"theme":"unsafe","density":"huge","layout":{}}');
-    expect(readShellPreferences(defaultShellPreferences, storage)).toMatchObject({ theme: 'dark-obsidian', density: 'comfortable' });
+    expect(readShellPreferences(defaultShellPreferences, storage)).toMatchObject({ theme: 'clear', density: 'comfortable' });
   });
 
   it('accepts only host-rendered, namespaced extension UI descriptors', () => {

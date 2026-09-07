@@ -4,8 +4,9 @@ import { describe, expect, it } from 'vitest';
 const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const sidebar = readFileSync(new URL('./components/DesktopSidebar.tsx', import.meta.url), 'utf8');
 const overview = readFileSync(new URL('./components/screens/OverviewScreen.tsx', import.meta.url), 'utf8');
+const settings = readFileSync(new URL('./components/screens/StudioSettingsScreen.tsx', import.meta.url), 'utf8');
 
- describe('Wave 2 UI accessibility contracts', () => {
+describe('Wave 2 UI accessibility contracts', () => {
   it('exposes a keyboard-operable sidebar separator', () => {
     expect(app).toContain('aria-valuemin={180}');
     expect(app).toContain('aria-valuemax={360}');
@@ -21,5 +22,13 @@ const overview = readFileSync(new URL('./components/screens/OverviewScreen.tsx',
     expect(app).toContain('settingsTriggerRef.current?.focus()');
     expect(app).toContain("event.key !== 'Tab'");
     expect(app).not.toMatch(/refreshHistory[\s\S]{0,500}useRef/);
+  });
+
+  it('wires the four semantic palettes through settings and the root shell', () => {
+    expect(app).toContain('data-sori-theme={theme}');
+    expect(app).toContain('readShellPreferences()');
+    expect(app).toContain('writeShellPreferences');
+    expect(app).toContain("theme: readShellPreferences().theme");
+    expect(settings).toMatch(/\['clear', 'Clear'\].*\['brown', 'Brown'\].*\['green', 'Green'\].*\['blue', 'Blue'\]/s);
   });
 });

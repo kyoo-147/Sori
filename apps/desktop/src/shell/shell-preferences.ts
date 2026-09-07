@@ -21,11 +21,11 @@ export const SHELL_PREFERENCES_KEY = 'sori.desktop.shell';
 export const defaultShellPreferences: ShellPreferences = {
   version: 1,
   layout: defaultShellLayout,
-  theme: 'dark-obsidian',
+  theme: 'clear',
   density: 'comfortable',
 };
 
-const themes = new Set<ShellTheme>(['dark-obsidian', 'clean-light', 'codex-emerald']);
+const themes = new Set<ShellTheme>(['clear', 'brown', 'green', 'blue']);
 const densities = new Set<ShellDensity>(['compact', 'comfortable', 'spacious']);
 
 function browserStorage(): PreferenceStorage | undefined {
@@ -48,9 +48,17 @@ export function normalizeShellPreferences(value: unknown, fallback: ShellPrefere
   return {
     version: 1,
     layout: normalizeShellLayout(candidate.layout, fallback.layout),
-    theme: themes.has(candidate.theme as ShellTheme) ? candidate.theme as ShellTheme : fallback.theme,
+    theme: normalizeShellTheme(candidate.theme, fallback.theme),
     density: densities.has(candidate.density as ShellDensity) ? candidate.density as ShellDensity : fallback.density,
   };
+}
+
+/** Accept the pre-Wave 2 names while keeping the persisted shell contract stable. */
+export function normalizeShellTheme(value: unknown, fallback: ShellTheme = defaultShellPreferences.theme): ShellTheme {
+  if (themes.has(value as ShellTheme)) return value as ShellTheme;
+  if (value === 'dark-obsidian' || value === 'clean-light') return 'clear';
+  if (value === 'codex-emerald') return 'green';
+  return fallback;
 }
 
 export function readShellPreferences(

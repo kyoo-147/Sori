@@ -1,6 +1,4 @@
 import React from 'react';
-import { systemDesignTokens } from '../../system-design';
-import { Palette, Sparkles, Layers, Box, Check, Copy, Eye } from 'lucide-react';
 
 export const SystemDesignScreen: React.FC = () => {
   const colorSwatches = [
@@ -15,28 +13,15 @@ export const SystemDesignScreen: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto p-4 md:p-6 text-[#161616] font-sans">
-      {/* Header */}
-      <div className="sori-glass p-6 rounded-[16px] border border-[#E2E4E8] shadow-2xs space-y-2">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-[12px] bg-[#EEF2F6] text-[#24384C] border border-[#D5E0EA] shadow-2xs">
-            <Palette className="w-5 h-5 text-[#5C728A]" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-[#161616] tracking-tight">Sori System Design & Color Architecture</h1>
-            <p className="text-xs text-[#5F6368]">
-              Monochromatic neutral color system with soft blue-gray accents (#EEF2F6), translucent glass layers, and zero-saturation control components.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="sori-screen sori-page-layout space-y-6">
+      <header>
+        <h1 className="sori-page-heading">Design system</h1>
+        <p className="sori-body-text mt-1">Review Sori’s shared colors, surfaces, and controls.</p>
+      </header>
 
       {/* Color Palette Tokens */}
       <div className="bg-white border border-[#E2E4E8] rounded-[16px] p-6 shadow-2xs space-y-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-[#5F6368] flex items-center gap-2">
-          <Layers className="w-4 h-4 text-[#5C728A]" />
-          Sori Neutral & Soft Accent Color Tokens
-        </h2>
+        <h2 className="sori-section-heading">Colors</h2>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {colorSwatches.map((swatch, i) => (
@@ -55,29 +40,26 @@ export const SystemDesignScreen: React.FC = () => {
 
       {/* Glass Interface Specimens */}
       <div className="bg-white border border-[#E2E4E8] rounded-[16px] p-6 shadow-2xs space-y-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-[#5F6368] flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[#5C728A]" />
-          Frosted Glass UI Components
-        </h2>
+        <h2 className="sori-section-heading">Elevated surfaces</h2>
 
         <div className="grid md:grid-cols-2 gap-4">
           {/* Glass Card Specimen */}
           <div className="sori-glass p-5 rounded-[16px] space-y-3 border border-[#E2E4E8]">
             <div className="flex items-center justify-between text-xs font-semibold text-[#161616]">
-              <span>sori-glass Container</span>
+              <span>Glass container</span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-[6px] bg-[#EEF2F6] border border-[#D5E0EA] text-[#24384C]">
                 blur(16px)
               </span>
             </div>
             <p className="text-xs text-[#5F6368] leading-relaxed">
-              Translucent light background with smooth backdrop filter and soft neutral highlight border.
+              A translucent surface for temporary, elevated content.
             </p>
             <div className="flex items-center gap-2 pt-2">
               <button className="px-3.5 py-1.5 rounded-[10px] bg-[#EEF2F6] hover:bg-[#E1E8F0] text-[#24384C] border border-[#D5E0EA] text-xs font-semibold transition shadow-2xs">
-                Accent Action
+                Accent action
               </button>
               <button className="px-3.5 py-1.5 rounded-[10px] bg-white hover:bg-[#F0F1F2] text-[#2B2F33] text-xs font-medium border border-[#E2E4E8] transition shadow-2xs">
-                Neutral Action
+                Neutral action
               </button>
             </div>
           </div>
@@ -85,16 +67,16 @@ export const SystemDesignScreen: React.FC = () => {
           {/* Glass Overlay Popover Specimen */}
           <div className="sori-overlay p-5 rounded-[16px] space-y-3 border border-[#D0D4DC]">
             <div className="flex items-center justify-between text-xs font-semibold text-[#161616]">
-              <span>sori-overlay Quick Controls</span>
+              <span>Quick controls overlay</span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-[6px] bg-[#EEF2F6] text-[#24384C] border border-[#D5E0EA]">
                 blur(24px)
               </span>
             </div>
             <p className="text-xs text-[#5F6368] leading-relaxed">
-              High-depth in-app panel for runtime controls, warm model indicators, and hotkey status. This is not an OS notification-area tray.
+              An in-app panel for runtime controls, model status, and hotkey state.
             </p>
             <div className="p-3 bg-white rounded-[10px] border border-[#E2E4E8] text-xs font-mono text-[#161616]">
-              Active Context: Monochromatic Glass Layer
+              Active context: elevated surface
             </div>
           </div>
         </div>
@@ -102,30 +84,27 @@ export const SystemDesignScreen: React.FC = () => {
 
       {/* Button Variants Specimen */}
       <div className="bg-white border border-[#E2E4E8] rounded-[16px] p-6 shadow-2xs space-y-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-[#5F6368] flex items-center gap-2">
-          <Box className="w-4 h-4 text-[#5C728A]" />
-          Sori Button Variants (Brand Neutral)
-        </h2>
+        <h2 className="sori-section-heading">Buttons</h2>
 
         <div className="flex flex-wrap items-center gap-3">
           <button className="px-4 py-2 rounded-[10px] bg-[#EEF2F6] hover:bg-[#E1E8F0] text-[#24384C] border border-[#D5E0EA] font-semibold text-xs shadow-2xs transition">
-            Soft Accent (#EEF2F6)
+            Accent
           </button>
 
           <button className="px-4 py-2 rounded-[10px] bg-[#F0F1F2] hover:bg-[#E5E7EB] text-[#2B2F33] border border-[#E2E4E8] font-medium text-xs transition">
-            Neutral Secondary (#F0F1F2)
+            Secondary
           </button>
 
           <button className="px-4 py-2 rounded-[10px] sori-glass hover:bg-white text-[#161616] border border-[#E2E4E8] font-medium text-xs shadow-2xs transition">
-            Frosted Glass Button
+            Glass
           </button>
 
           <button className="px-4 py-2 rounded-[10px] bg-white hover:bg-[#F8F8F7] text-[#161616] border border-[#E2E4E8] font-medium text-xs transition">
-            Outline Neutral
+            Outline
           </button>
 
           <button className="px-4 py-2 rounded-[10px] bg-[#FDF2F2] hover:bg-[#FCE8E8] text-[#A33A3A] border border-[#F8D2D2] font-medium text-xs transition">
-            Functional Danger
+            Danger
           </button>
         </div>
       </div>

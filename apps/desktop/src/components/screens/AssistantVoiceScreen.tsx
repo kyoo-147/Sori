@@ -1,13 +1,5 @@
 import React from 'react';
 import { AssistantVoiceSettings } from '../../types';
-import {
-  Volume2,
-  Play,
-  Sliders,
-  CheckCircle2,
-  Sparkles,
-  Zap,
-} from 'lucide-react';
 
 interface AssistantVoiceScreenProps {
   assistantVoice: AssistantVoiceSettings;
@@ -30,26 +22,16 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
     setSaving(false);
   };
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-3 text-[var(--sori-text-primary)] sm:p-4 md:p-6">
-      {/* Header */}
-      <div className="sori-pane space-y-2 p-4 sm:p-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-zinc-900 text-white shadow-xs">
-            <Volume2 className="w-5 h-5" />
-          </div>
-          <div>
-            <h1 className="text-sm font-bold text-zinc-900">Settings / Labs — Spoken Replies</h1>
-            <p className="text-xs text-zinc-500">
-              Optional speech synthesis when interacting with LLMs / conversational agents. Does not affect fast text dictation.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="sori-screen sori-page-layout space-y-6">
+      <header>
+        <h1 className="sori-page-heading">Spoken replies</h1>
+        <p className="sori-body-text mt-1">Choose when Sori speaks and which voice it uses.</p>
+      </header>
 
       <div className="grid md:grid-cols-2 gap-6">
         {/* Voice Library */}
         <div className="sori-pane space-y-4 p-4 sm:p-6">
-          <div className="font-bold text-xs text-zinc-900">Spoken Voice Library</div>
+          <h2 className="sori-section-heading">Voice</h2>
 
           <div className="space-y-2.5 text-xs">
             {[
@@ -89,7 +71,7 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
           <div className="space-y-3 pt-2 text-xs">
             <div>
               <div className="flex justify-between text-zinc-700 font-medium mb-1.5">
-                <span>Speed Rate: {assistantVoice.speed}x</span>
+                <span>Speed: {assistantVoice.speed}x</span>
               </div>
               <input
                 type="range"
@@ -107,14 +89,14 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
 
         {/* Reply Policies */}
         <div className="sori-pane space-y-4 p-4 sm:p-6">
-          <div className="font-bold text-xs text-zinc-900">Spoken Reply Policy</div>
+          <h2 className="sori-section-heading">When to speak</h2>
 
           <div className="space-y-2.5 text-xs">
             {[
-              { id: 'never', label: 'Never Speak (Text output only)' },
-              { id: 'conversation_only', label: 'Conversation Mode Only (Default)' },
-              { id: 'short_confirmations', label: 'Short Audio Confirmations' },
-              { id: 'full_answers', label: 'Speak Full Answers' },
+              { id: 'never', label: 'Never — text only' },
+              { id: 'conversation_only', label: 'Conversations only (default)' },
+              { id: 'short_confirmations', label: 'Short confirmations' },
+              { id: 'full_answers', label: 'Full answers' },
             ].map((pol) => (
               <label
                 key={pol.id}

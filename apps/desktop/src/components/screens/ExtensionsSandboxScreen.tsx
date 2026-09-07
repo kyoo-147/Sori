@@ -38,10 +38,10 @@ export const ExtensionsSandboxScreen: React.FC<Props> = ({ runtimeClient }) => {
   };
 
   return <div className="sori-screen sori-page-layout space-y-6">
-    <header><h1 className="sori-page-heading">Integrations &amp; Extensions</h1><p className="sori-body-text mt-1">Connect tools and control the permissions Sori would need.</p></header>
-    <div role="status" className="rounded-xl border border-[var(--sori-warning-border)] bg-[var(--sori-warning-bg)] p-3 text-xs text-[var(--sori-warning-text)]">{error ? `Extension runtime unavailable: ${error}` : `Canonical extension state from ${source}. Install, account authentication, and command execution are Unavailable.`}</div>
+    <header><h1 className="sori-page-heading">Integrations &amp; extensions</h1><p className="sori-body-text mt-1">Review connected tools and their permissions.</p></header>
+    <div role="status" className="rounded-xl border border-[var(--sori-warning-border)] bg-[var(--sori-warning-bg)] p-3 text-xs text-[var(--sori-warning-text)]">{error ? `Extension runtime unavailable: ${error}` : `Runtime source: ${source}. Installation, sign-in, and commands are unavailable.`}</div>
     {loading && <div role="status" className="sori-meta-text">Loading canonical extension state…</div>}
-    <section className="sori-pane space-y-3 p-5" aria-labelledby="extension-catalog-heading"><h2 id="extension-catalog-heading" className="sori-section-heading">Extension catalog</h2><div className="rounded-xl border border-[var(--sori-warning-border)] bg-[var(--sori-warning-bg)] p-4"><p className="text-sm font-medium text-[var(--sori-warning-text)]">Catalog unavailable</p><p className="sori-meta-text mt-1">This build does not expose a trusted extension catalog or installation flow. No extensions are presented as available.</p></div></section>
+    <section className="sori-pane space-y-3 p-5" aria-labelledby="extension-catalog-heading"><h2 id="extension-catalog-heading" className="sori-section-heading">Extension catalog</h2><div className="rounded-xl border border-[var(--sori-warning-border)] bg-[var(--sori-warning-bg)] p-4"><p className="text-sm font-medium text-[var(--sori-warning-text)]">Catalog unavailable</p><p className="sori-meta-text mt-1">No extensions are presented as available. This build has no trusted catalog or installation flow.</p></div></section>
     {(notice) && <p className="text-xs text-[var(--sori-warning-text)]" role="status">{notice}</p>}
   </div>;
 };

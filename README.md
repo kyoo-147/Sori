@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/assets/sori-familiar.png" alt="Serpentine Sori familiar" width="180">
+  <img src="docs/assets/sori-logo-wordmark.png" alt="Sori aquatic familiar wordmark" width="520">
 </p>
 
-<p align="center"><sub><a href="docs/assets/sori-familiar.provenance.md">Asset provenance and usage notice</a></sub></p>
+<p align="center"><sub><a href="docs/assets/sori-logo-wordmark.provenance.md">Asset provenance and usage notice</a></sub></p>
 
 <h1 align="center">Sori</h1>
 

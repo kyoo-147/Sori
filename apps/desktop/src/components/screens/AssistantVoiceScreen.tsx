@@ -25,13 +25,14 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
     <div className="sori-screen sori-page-layout space-y-6">
       <header>
         <h1 className="sori-page-heading">Spoken replies</h1>
-        <p className="sori-body-text mt-1">Choose when Sori speaks and which voice it uses.</p>
+        <p className="sori-body-text mt-1">Saved preferences; spoken output is unavailable until a voice runtime is connected.</p>
       </header>
 
       <div className="grid md:grid-cols-2 gap-6">
         {/* Voice Library */}
         <div className="sori-pane space-y-4 p-4 sm:p-6">
           <h2 className="sori-section-heading">Voice</h2>
+          <p className="sori-meta-text">Voice preview is unavailable in this runtime.</p>
 
           <div className="space-y-2.5 text-xs">
             {[

@@ -25,7 +25,7 @@ describe('benchmark evidence mapping and rendering', () => {
   });
   it('contains narrow-width panels and keeps populated evidence in a scrollable table', () => {
     const html = renderToStaticMarkup(<BenchmarkScreen benchmarkResults={[{ modelId: 'model', modelName: 'Readable model', runId: 'run', startedAt: null, completedAt: null, provider: 'local', samples: null, attempts: null, coldStartMs: null, warmLatencyMs: null, p50Ms: null, p95Ms: null, rtf: null, ramMb: null, vramMb: null, werPercent: null, cerPercent: null, failureRate: null, fallbackRate: null }]} activeModelId={null} onApplyPolicy={async () => {}} onRun={async () => 'unavailable'} />);
-    expect(html).toContain('mx-auto min-w-0 max-w-6xl');
+    expect(html).toContain('sori-page-layout min-w-0');
     expect(html).toContain('grid min-w-0 gap-5');
     expect(html).toContain('min-w-0 max-w-full overflow-x-auto');
     expect(html).toContain('w-full min-w-[700px]');

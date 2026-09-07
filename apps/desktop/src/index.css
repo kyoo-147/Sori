@@ -1041,3 +1041,9 @@
   .sori-shell__sidebar,
   .sori-shell__workspace { border-radius: 0; }
 }
+
+/* Shared page frame: Overview is the alignment baseline for production screens. */
+.sori-page-layout { width: 100%; max-width: 1180px; margin-inline: auto; padding: 16px; color: var(--sori-text-primary); }
+.sori-page-layout > header { margin: 0; }
+.sori-page-layout > header .sori-page-heading { margin: 0; }
+.sori-page-layout > header .sori-body-text { margin-top: 4px; max-width: 44rem; }

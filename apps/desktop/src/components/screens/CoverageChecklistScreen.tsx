@@ -34,7 +34,7 @@ export const CoverageChecklistScreen: React.FC<Props> = ({ checks = [], runtimeS
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
     a.download = 'sori-doctor.log'; a.click(); URL.revokeObjectURL(a.href); setLog('Doctor log exported.');
   };
-  return <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-8">
+  return <div className="sori-screen sori-page-layout space-y-6">
     <header className="flex flex-wrap items-end justify-between gap-4"><div>
       <h1 className="sori-page-heading">System diagnostics</h1>
       <p className="sori-body-text mt-1">Check runtime health and dictation readiness.</p>

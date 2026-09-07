@@ -37,7 +37,7 @@ export const ExtensionsSandboxScreen: React.FC<Props> = ({ runtimeClient }) => {
     else { setNotice('Extension state updated by sorid.'); await refresh(); }
   };
 
-  return <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-8">
+  return <div className="sori-screen sori-page-layout space-y-6">
     <header><h1 className="sori-page-heading">Integrations &amp; Extensions</h1><p className="sori-body-text mt-1">Connect tools and control the permissions Sori would need.</p></header>
     <div role="status" className="rounded-xl border border-[var(--sori-warning-border)] bg-[var(--sori-warning-bg)] p-3 text-xs text-[var(--sori-warning-text)]">{error ? `Extension runtime unavailable: ${error}` : `Canonical extension state from ${source}. Install, account authentication, and command execution are Unavailable.`}</div>
     {loading && <div role="status" className="sori-meta-text">Loading canonical extension state…</div>}

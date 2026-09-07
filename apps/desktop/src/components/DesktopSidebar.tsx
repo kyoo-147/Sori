@@ -1,247 +1,29 @@
 import React from 'react';
 import { ActiveScreen, AppSettings } from '../types';
-import {
-  Home,
-  Clock,
-  BookOpen,
-  Sparkles,
-  Cpu,
-  Zap,
-  Puzzle,
-  Shield,
-  Activity,
-  PlayCircle,
-  Settings,
-  Search,
-} from 'lucide-react';
+import { Activity, BookOpen, Clock, Cpu, Home, PlayCircle, Puzzle, Search, Settings, Shield, Sparkles, Zap } from 'lucide-react';
 
-interface DesktopSidebarProps {
-  activeScreen: ActiveScreen;
-  setActiveScreen: (screen: ActiveScreen) => void;
-  settings: AppSettings;
-  setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
-  openSettingsModal: () => void;
-  isOpen?: boolean;
-  onClose?: () => void;
-  collapsed?: boolean;
-}
+interface DesktopSidebarProps { activeScreen: ActiveScreen; setActiveScreen: (screen: ActiveScreen) => void; settings: AppSettings; setSettings: React.Dispatch<React.SetStateAction<AppSettings>>; openSettingsModal: () => void; isOpen?: boolean; onClose?: () => void; collapsed?: boolean; }
+type NavItem = { id: ActiveScreen; label: string; icon: React.ReactNode };
 
-export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
-  activeScreen,
-  setActiveScreen,
-  openSettingsModal,
-  isOpen = true,
-  onClose,
-  collapsed = false,
-}) => {
+export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({ activeScreen, setActiveScreen, openSettingsModal, isOpen = true, onClose, collapsed = false }) => {
   const searchRef = React.useRef<HTMLInputElement>(null);
   const [search, setSearch] = React.useState('');
-  const searchItems = [{ id: 'home' as ActiveScreen, label: 'Home' }, { id: 'transcripts' as ActiveScreen, label: 'Transcripts' }, { id: 'vocabulary' as ActiveScreen, label: 'Vocabulary' }, { id: 'voice-edit' as ActiveScreen, label: 'Voice Edit' }, { id: 'models' as ActiveScreen, label: 'Models & Routing' }, { id: 'benchmarks' as ActiveScreen, label: 'Benchmarks' }, { id: 'extensions' as ActiveScreen, label: 'Extensions' }, { id: 'privacy' as ActiveScreen, label: 'Privacy' }, { id: 'diagnostics' as ActiveScreen, label: 'Diagnostics' }, { id: 'settings' as ActiveScreen, label: 'Settings' }];
+  const groups: { label: string; items: NavItem[] }[] = [
+    { label: 'Workspace', items: [{ id: 'home', label: 'Home', icon: <Home /> }, { id: 'transcripts', label: 'Transcripts', icon: <Clock /> }, { id: 'vocabulary', label: 'Vocabulary', icon: <BookOpen /> }, { id: 'voice-edit', label: 'Voice Edit', icon: <Sparkles /> }] },
+    { label: 'Engine', items: [{ id: 'models', label: 'Models & Routing', icon: <Cpu /> }, { id: 'benchmarks', label: 'Benchmarks', icon: <Zap /> }] },
+    { label: 'Extensions', items: [{ id: 'extensions', label: 'Extensions', icon: <Puzzle /> }] },
+    { label: 'System', items: [{ id: 'privacy', label: 'Privacy', icon: <Shield /> }, { id: 'diagnostics', label: 'Diagnostics', icon: <Activity /> }] },
+  ];
+  const searchItems = groups.flatMap((group) => group.items).concat({ id: 'settings', label: 'Settings', icon: <Settings /> });
   React.useEffect(() => { const onKeyDown = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); } }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown); }, []);
   const navigate = (screen: ActiveScreen) => { setActiveScreen(screen); setSearch(''); onClose?.(); };
-
-  const coreNav: { id: ActiveScreen; label: string; icon: React.ReactNode }[] = [
-    { id: 'home', label: 'Home', icon: <Home className="w-4 h-4" /> },
-    { id: 'transcripts', label: 'Transcripts', icon: <Clock className="w-4 h-4" /> },
-    { id: 'vocabulary', label: 'Vocabulary', icon: <BookOpen className="w-4 h-4" /> },
-    { id: 'voice-edit', label: 'Voice Edit', icon: <Sparkles className="w-4 h-4" /> },
-  ];
-
-  const engineNav: { id: ActiveScreen; label: string; icon: React.ReactNode }[] = [
-    { id: 'models', label: 'Models & Routing', icon: <Cpu className="w-4 h-4" /> },
-    { id: 'benchmarks', label: 'Benchmarks', icon: <Zap className="w-4 h-4" /> },
-  ];
-
-  const programmableNav: { id: ActiveScreen; label: string; icon: React.ReactNode }[] = [
-    { id: 'extensions', label: 'Extensions', icon: <Puzzle className="w-4 h-4" /> },
-  ];
-
-  const systemNav: { id: ActiveScreen; label: string; icon: React.ReactNode }[] = [
-    { id: 'privacy', label: 'Privacy', icon: <Shield className="w-4 h-4" /> },
-    { id: 'diagnostics', label: 'Diagnostics', icon: <Activity className="w-4 h-4" /> },
-  ];
-
-  return (
-    <aside className={`${isOpen && !collapsed ? 'flex' : 'hidden'} sori-shell__sidebar md:flex max-md:fixed max-md:top-10 max-md:inset-y-0 max-md:left-0 max-md:z-40 flex-col justify-between select-none`} data-open={isOpen && !collapsed} data-collapsed={collapsed}>
-      <button type="button" aria-label="Close navigation" onClick={onClose} className="sori-sidebar-mobile-close md:hidden absolute top-3 right-3 p-2 rounded-md" />
-      {/* Top Search & Nav */}
-      <div className="sori-shell__sidebar-nav p-3 space-y-3.5 custom-scrollbar" role="navigation" aria-label="Primary Sori navigation">
-        {/* Search Input Box */}
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[#98928A]" />
-          <input
-            ref={searchRef}
-            type="text"
-            aria-label="Search Sori"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search Sori..."
-            className="sori-focus-ring sori-sidebar-search w-full bg-[rgba(255,253,249,0.76)] border border-[rgba(92,84,75,0.12)] rounded-[10px] pl-8 pr-12 py-1.5 text-[12.5px] text-[#1C1B19] placeholder-[#B2AEA8] focus:outline-none focus:bg-white focus:border-[rgba(92,84,75,0.25)] transition-all shadow-2xs"
-          />
-          <span className="absolute right-2.5 top-2 text-[10px] text-[#98928A] font-mono bg-white/70 px-1 rounded border border-[rgba(92,84,75,0.12)]">
-            Ctrl+K
-          </span>
-           {search.trim() && <div role="listbox" aria-label="Search results" className="absolute left-0 right-0 top-10 z-20 rounded-xl border border-[rgba(92,84,75,0.12)] bg-[#FFFDF9] p-1 shadow-lg">{searchItems.filter((item) => item.label.toLowerCase().includes(search.trim().toLowerCase())).map((item) => <button type="button" role="option" key={item.id} onClick={() => navigate(item.id)} className="w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-[#F2EEE8]">{item.label}</button>)}{!searchItems.some((item) => item.label.toLowerCase().includes(search.trim().toLowerCase())) && <div className="px-3 py-2 text-xs text-[#98928A]">No matching Sori destinations</div>}</div>}
-        </div>
-
-        {/* Core Navigation Section */}
-        <div className="space-y-0.5">
-          {coreNav.map((item) => {
-            const isActive = activeScreen === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => navigate(item.id)}
-                aria-label={item.label}
-                aria-current={isActive ? 'page' : undefined}
-                className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
-                  isActive
-                    ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
-                    : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
-                }`}
-              >
-                <span className={isActive ? 'text-[#1C1B19]' : 'text-[#68635D]'}>{item.icon}</span>
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Engine Section */}
-        <div className="sori-sidebar-section pt-2 border-t border-[rgba(92,84,75,0.06)]">
-          <div className="sori-sidebar-section-label px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
-            Engine
-          </div>
-          <div className="space-y-0.5">
-            {engineNav.map((item) => {
-              const isActive = activeScreen === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => navigate(item.id)}
-                  aria-label={item.label}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
-                    isActive
-                      ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
-                      : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
-                  }`}
-                >
-                  <span className={isActive ? 'text-[#1C1B19]' : 'text-[#68635D]'}>{item.icon}</span>
-                  <span className="truncate">{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Programmable Section */}
-        <div className="sori-sidebar-section pt-2 border-t border-[rgba(92,84,75,0.06)]">
-          <div className="sori-sidebar-section-label px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
-            Programmable
-          </div>
-          <div className="space-y-0.5">
-            {programmableNav.map((item) => {
-              const isActive = activeScreen === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => navigate(item.id)}
-                  aria-label={item.label}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
-                    isActive
-                      ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
-                      : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
-                  }`}
-                >
-                  <span className={isActive ? 'text-[#1C1B19]' : 'text-[#68635D]'}>{item.icon}</span>
-                  <span className="truncate">{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* System Section */}
-        <div className="sori-sidebar-section pt-2 border-t border-[rgba(92,84,75,0.06)]">
-          <div className="sori-sidebar-section-label px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
-            System
-          </div>
-          <div className="space-y-0.5">
-            {systemNav.map((item) => {
-              const isActive = activeScreen === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => navigate(item.id)}
-                  aria-label={item.label}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
-                    isActive
-                      ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
-                      : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
-                  }`}
-                >
-                  <span className={isActive ? 'text-[#1C1B19]' : 'text-[#68635D]'}>{item.icon}</span>
-                  <span className="truncate">{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Prototype Flows Section */}
-        <div className="sori-sidebar-section pt-2 border-t border-[rgba(92,84,75,0.06)]">
-          <div className="sori-sidebar-section-label px-3 pb-1 text-[10.5px] font-semibold text-[#98928A] uppercase tracking-[0.03em]">
-            Setup
-          </div>
-          <button
-            onClick={() => navigate('onboarding')}
-            aria-current={activeScreen === 'onboarding' ? 'page' : undefined}
-            className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-1.5 rounded-[10px] text-[13.5px] leading-[20px] font-medium transition-all ${
-              activeScreen === 'onboarding'
-                ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
-                : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
-            }`}
-          >
-            <PlayCircle className="w-4 h-4 text-[#68635D]" />
-            <span className="truncate">First-Run Setup</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Bottom Profile & Settings Section */}
-      <div className="sori-shell__sidebar-footer p-3 space-y-1">
-        <button
-          onClick={() => {
-            navigate('settings');
-            openSettingsModal();
-          }}
-          aria-current={activeScreen === 'settings' ? 'page' : undefined}
-          className={`sori-sidebar-item w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-[13px] font-medium transition-all ${
-            activeScreen === 'settings'
-              ? 'bg-[rgba(214,209,201,0.48)] text-[#1C1B19] font-semibold border border-[rgba(91,84,77,0.12)] shadow-2xs'
-              : 'text-[#68635D] hover:bg-[rgba(225,220,212,0.4)] hover:text-[#1C1B19]'
-          }`}
-        >
-          <Settings className="w-4 h-4 text-[#68635D]" />
-          <span>Settings</span>
-        </button>
-
-        {/* User Account Tile */}
-        <div className="sori-sidebar-account flex items-center gap-2.5 px-2.5 py-2 rounded-[12px] bg-[rgba(255,253,249,0.7)] border border-[rgba(92,84,75,0.1)] shadow-2xs">
-          <div className="w-7 h-7 rounded-full bg-[#68635D] text-white font-semibold flex items-center justify-center text-xs shadow-2xs">
-            A
-          </div>
-          <div className="truncate text-left leading-tight">
-            <div className="font-semibold text-[#1C1B19] text-[12px] truncate">Alex Chen</div>
-            <div className="text-[11px] text-[#98928A] truncate">alex@company.com</div>
-          </div>
-        </div>
-      </div>
-    </aside>
-  );
+  const itemButton = (item: NavItem) => { const active = activeScreen === item.id; return <button key={item.id} type="button" onClick={() => navigate(item.id)} aria-label={item.label} aria-current={active ? 'page' : undefined} className="sori-sidebar-item"><span className="sori-sidebar-item__icon">{item.icon}</span><span className="truncate">{item.label}</span></button>; };
+  return <aside className={`${isOpen && !collapsed ? 'flex' : 'hidden'} sori-shell__sidebar md:flex max-md:fixed max-md:top-10 max-md:inset-y-0 max-md:left-0 max-md:z-40`} data-open={isOpen && !collapsed} data-collapsed={collapsed}>
+    <div className="sori-shell__sidebar-nav" role="navigation" aria-label="Primary Sori navigation">
+      <div className="sori-sidebar-search-wrap"><Search /><input ref={searchRef} type="search" aria-label="Search Sori" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search workspace" className="sori-focus-ring" /><kbd>⌘ K</kbd>{search.trim() && <div role="listbox" aria-label="Search results" className="sori-sidebar-search-results">{searchItems.filter((item) => item.label.toLowerCase().includes(search.trim().toLowerCase())).map((item) => <button type="button" role="option" key={item.id} onClick={() => navigate(item.id)}>{item.label}</button>)}{!searchItems.some((item) => item.label.toLowerCase().includes(search.trim().toLowerCase())) && <span>No matching destinations</span>}</div>}</div>
+      {groups.map((group) => <section className="sori-sidebar-section" key={group.label}><h2>{group.label}</h2>{group.items.map(itemButton)}</section>)}
+      <section className="sori-sidebar-section"><h2>Setup</h2>{itemButton({ id: 'onboarding', label: 'First-run setup', icon: <PlayCircle /> })}</section>
+    </div>
+    <div className="sori-shell__sidebar-footer"><button type="button" onClick={() => { navigate('settings'); openSettingsModal(); }} aria-current={activeScreen === 'settings' ? 'page' : undefined} className="sori-sidebar-item"><span className="sori-sidebar-item__icon"><Settings /></span><span>Settings</span></button><div className="sori-sidebar-account"><span className="sori-sidebar-avatar">A</span><span><strong>Alex Chen</strong><small>Local workspace</small></span></div></div>
+  </aside>;
 };
-
-

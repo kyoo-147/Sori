@@ -80,13 +80,18 @@
   --sori-space-0: 0px;
   --sori-space-1: 4px;
   /* Settings semantic roles keep the modal consistent across persisted palettes. */
-  --sori-settings-modal-bg: var(--sori-bg-panel);
-  --sori-settings-surface: var(--sori-bg-panel-subtle);
-  --sori-settings-sidebar: var(--sori-bg-sidebar);
-  --sori-settings-border: var(--sori-border-soft);
-  --sori-settings-selected: var(--sori-fill-selected);
-  --sori-settings-input: var(--sori-input-bg);
-  --sori-settings-muted: var(--sori-text-tertiary);
+  --sori-settings-modal-bg: #FFFFFF;
+  --sori-settings-surface: #FAFAF9;
+  --sori-settings-sidebar: #F7F7F6;
+  --sori-settings-hover: #F2F3F3;
+  --sori-settings-active: #ECEEEF;
+  --sori-settings-border: #E3E5E7;
+  --sori-settings-selected: #EAF3F8;
+  --sori-settings-input: #FFFFFF;
+  --sori-settings-muted: #73777C;
+  --sori-settings-focus: var(--sori-primary);
+  --sori-settings-radius: 5px;
+  --sori-settings-modal-radius: 7px;
   --sori-settings-accent: var(--sori-primary);
   --sori-space-2: 8px;
   --sori-space-3: 12px;

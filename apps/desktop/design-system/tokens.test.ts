@@ -26,4 +26,18 @@ describe('shared palette tokens', () => {
     expect(css).toContain('--sori-card-radius: var(--sori-radius-lg)');
     for (const token of ['--sori-settings-modal-bg', '--sori-settings-surface', '--sori-settings-sidebar', '--sori-settings-border', '--sori-settings-selected', '--sori-settings-input', '--sori-settings-muted', '--sori-settings-accent']) expect(css).toContain(token);
   });
+
+  it('locks the compact four-theme palette values and settings geometry', () => {
+    expect(themePalettes).toEqual({
+      clear: { primary: '#3B6F8F', accent: '#3B6F8F' },
+      brown: { primary: '#A35C2D', accent: '#A35C2D' },
+      green: { primary: '#159466', accent: '#159466' },
+      blue: { primary: '#2563EB', accent: '#2563EB' },
+    });
+    expect(css).toContain('--sori-settings-modal-bg: #FFFFFF');
+    expect(css).toContain('--sori-settings-sidebar: #F7F7F6');
+    expect(css).toContain('--sori-settings-radius: 5px');
+    expect(css).toContain('--sori-settings-modal-radius: 7px');
+  });
+
 });

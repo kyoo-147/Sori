@@ -44,11 +44,12 @@
   --sori-primary: #5C728A;
   --sori-accent: #A45F35;
   --sori-button-bg: var(--sori-primary);
-  --sori-button-text: #FFFFFF;
+  --sori-filled-control-foreground: #FFFFFF;
+  --sori-button-text: var(--sori-filled-control-foreground);
   --sori-button-hover: color-mix(in srgb, var(--sori-primary) 88%, #000000);
   --sori-button-border: var(--sori-primary);
   --sori-badge-bg: var(--sori-accent);
-  --sori-badge-text: #FFFFFF;
+  --sori-badge-text: var(--sori-filled-control-foreground);
   --sori-badge-border: var(--sori-accent);
   --sori-input-bg: var(--sori-bg-panel);
   --sori-input-border: var(--sori-border-default);
@@ -165,61 +166,61 @@
 
 /* User-adjustable palettes. Theme names are stable API values mirrored in tokens.ts. */
 [data-sori-theme='clear'], [data-sori-theme='light'] {
-  --sori-primary: #2F6F91; --sori-accent: #2F6F91; --sori-primary-hover: #245A78; --sori-primary-pressed: #1B475F; --sori-accent-soft: #EAF4FA;
+  --sori-primary: #2F6F91; --sori-accent: #2F6F91; --sori-filled-control-foreground: #FFFFFF; --sori-primary-hover: #245A78; --sori-primary-pressed: #1B475F; --sori-accent-soft: #EAF4FA;
   --sori-bg-canvas: #FCFDFE; --sori-bg-app: #FCFDFE; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FCFDFE; --sori-bg-sidebar: #F5F8FA;
   --sori-text-primary: #17202A; --sori-text-secondary: #66717D; --sori-text-tertiary: #66717D; --sori-border-default: #E1E7EC; --sori-border-soft: #E1E7EC; --sori-border-strong: #E1E7EC; --sori-border-focus: #2F6F91;
   --sori-fill-hover: #EAF4FA; --sori-fill-active: #EAF4FA; --sori-fill-selected: #EAF4FA; --sori-button-hover: #245A78; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #EAF4FA; --sori-accent-primary-border: #E1E7EC;
 }
 [data-sori-theme='blue'] {
-  --sori-primary: #2563EB; --sori-accent: #2563EB; --sori-primary-hover: #1D4ED8; --sori-primary-pressed: #1E40AF; --sori-accent-soft: #EAF2FF;
+  --sori-primary: #2563EB; --sori-accent: #2563EB; --sori-filled-control-foreground: #FFFFFF; --sori-primary-hover: #1D4ED8; --sori-primary-pressed: #1E40AF; --sori-accent-soft: #EAF2FF;
   --sori-bg-canvas: #FCFDFF; --sori-bg-app: #FCFDFF; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FCFDFF; --sori-bg-sidebar: #F5F8FC;
   --sori-text-primary: #18212B; --sori-text-secondary: #5E6975; --sori-text-tertiary: #5E6975; --sori-border-default: #DDE4EC; --sori-border-soft: #DDE4EC; --sori-border-strong: #DDE4EC; --sori-border-focus: #2563EB;
   --sori-fill-hover: #EAF2FF; --sori-fill-active: #EAF2FF; --sori-fill-selected: #EAF2FF; --sori-button-hover: #1D4ED8; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #EAF2FF; --sori-accent-primary-border: #DDE4EC;
 }
 [data-sori-theme='azure'] {
-  --sori-primary: #0787D1; --sori-accent: #0787D1; --sori-primary-hover: #006FAE; --sori-primary-pressed: #005A8E; --sori-accent-soft: #E5F5FF;
+  --sori-primary: #0787D1; --sori-accent: #0787D1; --sori-filled-control-foreground: #071117; --sori-primary-hover: #006FAE; --sori-primary-pressed: #005A8E; --sori-accent-soft: #E5F5FF;
   --sori-bg-canvas: #FCFEFF; --sori-bg-app: #FCFEFF; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FCFEFF; --sori-bg-sidebar: #F3F9FC;
   --sori-text-primary: #13232D; --sori-text-secondary: #60717B; --sori-text-tertiary: #60717B; --sori-border-default: #D9E8F0; --sori-border-soft: #D9E8F0; --sori-border-strong: #D9E8F0; --sori-border-focus: #0787D1;
   --sori-fill-hover: #E5F5FF; --sori-fill-active: #E5F5FF; --sori-fill-selected: #E5F5FF; --sori-button-hover: #006FAE; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #E5F5FF; --sori-accent-primary-border: #D9E8F0;
 }
 [data-sori-theme='green'] {
-  --sori-primary: #159466; --sori-accent: #159466; --sori-primary-hover: #0C7C55; --sori-primary-pressed: #086445; --sori-accent-soft: #E7F7F0;
+  --sori-primary: #159466; --sori-accent: #159466; --sori-filled-control-foreground: #07140D; --sori-primary-hover: #0C7C55; --sori-primary-pressed: #086445; --sori-accent-soft: #E7F7F0;
   --sori-bg-canvas: #FCFEFD; --sori-bg-app: #FCFEFD; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FCFEFD; --sori-bg-sidebar: #F3F8F5;
   --sori-text-primary: #18231E; --sori-text-secondary: #606B65; --sori-text-tertiary: #606B65; --sori-border-default: #DAE5DF; --sori-border-soft: #DAE5DF; --sori-border-strong: #DAE5DF; --sori-border-focus: #159466;
   --sori-fill-hover: #E7F7F0; --sori-fill-active: #E7F7F0; --sori-fill-selected: #E7F7F0; --sori-button-hover: #0C7C55; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #E7F7F0; --sori-accent-primary-border: #DAE5DF;
 }
 [data-sori-theme='forest'] {
-  --sori-primary: #167A4A; --sori-accent: #167A4A; --sori-primary-hover: #0E623B; --sori-primary-pressed: #0A4F2F; --sori-accent-soft: #E8F5EC;
+  --sori-primary: #167A4A; --sori-accent: #167A4A; --sori-filled-control-foreground: #FFFFFF; --sori-primary-hover: #0E623B; --sori-primary-pressed: #0A4F2F; --sori-accent-soft: #E8F5EC;
   --sori-bg-canvas: #FCFEFC; --sori-bg-app: #FCFEFC; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FCFEFC; --sori-bg-sidebar: #F4F8F4;
   --sori-text-primary: #172219; --sori-text-secondary: #626E65; --sori-text-tertiary: #626E65; --sori-border-default: #DCE7DE; --sori-border-soft: #DCE7DE; --sori-border-strong: #DCE7DE; --sori-border-focus: #167A4A;
   --sori-fill-hover: #E8F5EC; --sori-fill-active: #E8F5EC; --sori-fill-selected: #E8F5EC; --sori-button-hover: #0E623B; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #E8F5EC; --sori-accent-primary-border: #DCE7DE;
 }
 [data-sori-theme='brown'] {
-  --sori-primary: #A35C2D; --sori-accent: #A35C2D; --sori-primary-hover: #884820; --sori-primary-pressed: #713A1A; --sori-accent-soft: #FAEEE5;
+  --sori-primary: #A35C2D; --sori-accent: #A35C2D; --sori-filled-control-foreground: #FFFFFF; --sori-primary-hover: #884820; --sori-primary-pressed: #713A1A; --sori-accent-soft: #FAEEE5;
   --sori-bg-canvas: #FFFDFC; --sori-bg-app: #FFFDFC; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FFFDFC; --sori-bg-sidebar: #F8F4F0;
   --sori-text-primary: #241D19; --sori-text-secondary: #70655E; --sori-text-tertiary: #70655E; --sori-border-default: #E8DED6; --sori-border-soft: #E8DED6; --sori-border-strong: #E8DED6; --sori-border-focus: #A35C2D;
   --sori-fill-hover: #FAEEE5; --sori-fill-active: #FAEEE5; --sori-fill-selected: #FAEEE5; --sori-button-hover: #884820; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #FAEEE5; --sori-accent-primary-border: #E8DED6;
 }
 [data-sori-theme='golden'] {
-  --sori-primary: #B78331; --sori-accent: #B78331; --sori-primary-hover: #936821; --sori-primary-pressed: #765117; --sori-accent-soft: #FBF3E3;
+  --sori-primary: #B78331; --sori-accent: #B78331; --sori-filled-control-foreground: #26221B; --sori-primary-hover: #936821; --sori-primary-pressed: #765117; --sori-accent-soft: #FBF3E3;
   --sori-bg-canvas: #FFFDF9; --sori-bg-app: #FFFDF9; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FFFDF9; --sori-bg-sidebar: #F9F6EF;
   --sori-text-primary: #26221B; --sori-text-secondary: #746D61; --sori-text-tertiary: #746D61; --sori-border-default: #E9E1D4; --sori-border-soft: #E9E1D4; --sori-border-strong: #E9E1D4; --sori-border-focus: #B78331;
   --sori-fill-hover: #FBF3E3; --sori-fill-active: #FBF3E3; --sori-fill-selected: #FBF3E3; --sori-button-hover: #936821; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #FBF3E3; --sori-accent-primary-border: #E9E1D4;
 }
 [data-sori-theme='terracotta'] {
-  --sori-primary: #D45B38; --sori-accent: #D45B38; --sori-primary-hover: #B74728; --sori-primary-pressed: #94361D; --sori-accent-soft: #FDEDE8;
+  --sori-primary: #D45B38; --sori-accent: #D45B38; --sori-filled-control-foreground: #1A100C; --sori-primary-hover: #B74728; --sori-primary-pressed: #94361D; --sori-accent-soft: #FDEDE8;
   --sori-bg-canvas: #FFFDFC; --sori-bg-app: #FFFDFC; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FFFDFC; --sori-bg-sidebar: #FAF5F2;
   --sori-text-primary: #281C18; --sori-text-secondary: #75645E; --sori-text-tertiary: #75645E; --sori-border-default: #ECDDD7; --sori-border-soft: #ECDDD7; --sori-border-strong: #ECDDD7; --sori-border-focus: #D45B38;
   --sori-fill-hover: #FDEDE8; --sori-fill-active: #FDEDE8; --sori-fill-selected: #FDEDE8; --sori-button-hover: #B74728; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #FDEDE8; --sori-accent-primary-border: #ECDDD7;
 }
 [data-sori-theme='wisteria'] {
-  --sori-primary: #6D5CE7; --sori-accent: #6D5CE7; --sori-primary-hover: #5748C8; --sori-primary-pressed: #4437A8; --sori-accent-soft: #F0EEFF;
+  --sori-primary: #6D5CE7; --sori-accent: #6D5CE7; --sori-filled-control-foreground: #FFFFFF; --sori-primary-hover: #5748C8; --sori-primary-pressed: #4437A8; --sori-accent-soft: #F0EEFF;
   --sori-bg-canvas: #FDFCFF; --sori-bg-app: #FDFCFF; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FDFCFF; --sori-bg-sidebar: #F7F5FC;
   --sori-text-primary: #211D2B; --sori-text-secondary: #696476; --sori-text-tertiary: #696476; --sori-border-default: #E4E0F1; --sori-border-soft: #E4E0F1; --sori-border-strong: #E4E0F1; --sori-border-focus: #6D5CE7;
   --sori-fill-hover: #F0EEFF; --sori-fill-active: #F0EEFF; --sori-fill-selected: #F0EEFF; --sori-button-hover: #5748C8; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #F0EEFF; --sori-accent-primary-border: #E4E0F1;
 }
 [data-sori-theme='ink'] {
-  --sori-primary: #262B33; --sori-accent: #262B33; --sori-primary-hover: #11151B; --sori-primary-pressed: #05070A; --sori-accent-soft: #EEF0F2;
+  --sori-primary: #262B33; --sori-accent: #262B33; --sori-filled-control-foreground: #FFFFFF; --sori-primary-hover: #11151B; --sori-primary-pressed: #05070A; --sori-accent-soft: #EEF0F2;
   --sori-bg-canvas: #FDFDFD; --sori-bg-app: #FDFDFD; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FDFDFD; --sori-bg-sidebar: #F6F6F6;
   --sori-text-primary: #15171A; --sori-text-secondary: #656A70; --sori-text-tertiary: #656A70; --sori-border-default: #DFE1E4; --sori-border-soft: #DFE1E4; --sori-border-strong: #DFE1E4; --sori-border-focus: #262B33;
   --sori-fill-hover: #EEF0F2; --sori-fill-active: #EEF0F2; --sori-fill-selected: #EEF0F2; --sori-button-hover: #11151B; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #EEF0F2; --sori-accent-primary-border: #DFE1E4;

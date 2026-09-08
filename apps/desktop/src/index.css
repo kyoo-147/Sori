@@ -1342,6 +1342,8 @@
 .sori-shell textarea,
 .sori-shell [role='button'],
 .sori-shell [role='menuitem'] { font-family: var(--sori-font-sans); }
+.sori-shell input.settings-input--mono,
+.sori-shell textarea.settings-input--mono { font-family: var(--sori-font-mono); }
 .sori-page-heading { font-weight: var(--sori-type-weight-semibold); letter-spacing: -0.015em; }
 .sori-section-heading { font-weight: var(--sori-type-weight-semibold); letter-spacing: -0.008em; }
 .sori-body-text { font-weight: var(--sori-type-weight-regular); }

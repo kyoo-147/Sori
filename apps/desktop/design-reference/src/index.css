@@ -8,5 +8,5 @@
 .sori-button-text { font: 500 13px/18px var(--sori-font-sans); }
 .sori-meta-text { font: 400 12px/18px var(--sori-font-sans); color: var(--sori-text-tertiary); }
 
-body { margin: 0; background: var(--sori-bg-canvas); color: var(--sori-text-primary); font-family: var(--sori-font-sans); -webkit-font-smoothing: antialiased; }
+body { margin: 0; background: var(--sori-bg-canvas); color: var(--sori-text-primary); font-family: var(--sori-font-sans); font-size: var(--sori-type-body-size); -webkit-font-smoothing: antialiased; }
 code, pre, kbd { font-family: var(--sori-font-mono); }

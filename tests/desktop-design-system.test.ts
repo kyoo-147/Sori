@@ -20,7 +20,7 @@ describe('desktop visual architecture contracts', () => {
       '--sori-radius-xl: 10px',
       '--sori-shadow-xs:',
       '--sori-shadow-lg:',
-      '--sori-type-page-size: 26px',
+      '--sori-type-page-size: var(--sori-type-xl-size)',
       '--sori-sidebar-width: 248px',
       '--sori-shell-radius: 15px',
     ]) {
@@ -97,6 +97,13 @@ describe('desktop visual architecture contracts', () => {
     expect(css).toContain("[aria-expanded='true']");
     expect(css).toContain("[aria-invalid='true']");
     expect(css).toContain('.sori-error-state');
+  });
+
+  it('keeps technical settings inputs on the mono token over shell input defaults', () => {
+    const css = readDesktop('src/index.css');
+
+    expect(css).toContain('.sori-shell input.settings-input--mono,');
+    expect(css).toContain('.sori-shell textarea.settings-input--mono { font-family: var(--sori-font-mono); }');
   });
 
   it('documents the presentational boundary and customization knobs', () => {

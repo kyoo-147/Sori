@@ -8,7 +8,7 @@ values are mirrored in `apps/desktop/design-system/tokens.css` and
 
 ## Typography
 
-Use Geist first, then the platform equivalents (`SF Pro Text`, `SF Pro Display`,
+Use the bundled Instrument Sans first, then the platform equivalents (`SF Pro Text`, `SF Pro Display`,
 `Avenir Next`, `Inter`, and system UI). Use Geist Mono for code and diagnostic
 values.
 
@@ -16,7 +16,7 @@ values.
 | --- | --- | --- |
 | Page heading | 26 / 32, semibold, -2% tracking | `.sori-page-heading` |
 | Section heading | 18 / 26, semibold, -1% tracking | `.sori-section-heading` |
-| Body | 14.5 / 22, regular | `.sori-body-text` |
+| Body | 14 / 22, regular | `.sori-body-text` |
 | Sidebar | 13.5 / 20, medium | `.sori-sidebar-text` |
 | Button | 13 / 18, medium | `.sori-button-text` |
 | Meta | 12 / 18, regular | `.sori-meta-text` |

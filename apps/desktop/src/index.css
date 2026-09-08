@@ -550,7 +550,7 @@
 .sori-sidebar-item {
   min-height: 32px;
   border: 1px solid transparent;
-  border-radius: 8px !important;
+  border-radius: var(--sori-radius-md) !important;
   color: var(--sori-text-secondary);
   transition: background-color 120ms ease, color 120ms ease;
 }
@@ -711,7 +711,7 @@
 /* Wave 1 screen polish: calm hierarchy without changing shared tokens. */
 .sori-screen { animation: sori-screen-in 180ms ease-out both; }
 .sori-eyebrow { margin: 0 0 8px; color: var(--sori-text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
-.sori-screen .sori-pane { border-radius: 16px; box-shadow: var(--sori-shadow-xs); }
+.sori-screen .sori-pane { border-radius: var(--sori-radius-md); box-shadow: var(--sori-shadow-xs); }
 .sori-screen h1 { letter-spacing: -.025em; }
 .sori-empty-state { padding: 18px 8px; text-align: center; color: var(--sori-text-secondary); font-size: 12px; }
 .sori-empty-state svg { color: var(--sori-text-tertiary); }
@@ -731,14 +731,14 @@
 .sori-titlebar__leading { gap: 10px; flex: 1 1 33%; }
 .sori-titlebar__center-actions { justify-content: center; gap: 8px; flex: 0 1 auto; }
 .sori-titlebar__actions { justify-content: flex-end; gap: 8px; flex: 1 1 33%; }
-.sori-titlebar__brand-mark { display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid var(--sori-border-default); border-radius: 8px; color: var(--sori-accent-primary); background: var(--sori-bg-panel-subtle); }
+.sori-titlebar__brand-mark { display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid var(--sori-border-default); border-radius: var(--sori-radius-md); color: var(--sori-accent-primary); background: var(--sori-bg-panel-subtle); }
 .sori-titlebar__brand-mark svg { width: 14px; height: 14px; }
 .sori-titlebar__brand { color: var(--sori-text-primary); font-size: 14px; font-weight: 650; letter-spacing: -0.01em; }
 .sori-titlebar__context { padding-left: 10px; border-left: 1px solid var(--sori-border-soft); color: var(--sori-text-tertiary); font-size: 12px; }
-.sori-titlebar__mobile-menu, .sori-titlebar__sidebar-toggle { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 0; border-radius: 7px; color: var(--sori-text-secondary); background: transparent; }
+.sori-titlebar__mobile-menu, .sori-titlebar__sidebar-toggle { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 0; border-radius: var(--sori-radius-md); color: var(--sori-text-secondary); background: transparent; }
 .sori-titlebar__mobile-menu svg, .sori-titlebar__sidebar-toggle svg { width: 16px; height: 16px; }
 .sori-titlebar__mobile-menu:hover, .sori-titlebar__sidebar-toggle:hover { background: var(--sori-fill-hover); color: var(--sori-text-primary); }
-.sori-capture-button, .sori-titlebar__status-action, .sori-runtime-affordance, .sori-quick-controls { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; border: 1px solid var(--sori-border-default); border-radius: 8px; padding: 0 10px; color: var(--sori-text-secondary); background: var(--sori-bg-panel); font-size: 12px; font-weight: 550; }
+.sori-capture-button, .sori-titlebar__status-action, .sori-runtime-affordance, .sori-quick-controls { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; border: 1px solid var(--sori-border-default); border-radius: var(--sori-radius-md); padding: 0 10px; color: var(--sori-text-secondary); background: var(--sori-bg-panel); font-size: 12px; font-weight: 550; }
 .sori-capture-button svg, .sori-titlebar__status-action svg, .sori-runtime-affordance svg, .sori-quick-controls svg { width: 14px; height: 14px; }
 .sori-capture-button:hover:not(:disabled), .sori-titlebar__status-action:hover:not(:disabled), .sori-runtime-affordance:hover, .sori-quick-controls:hover { border-color: var(--sori-border-strong); background: var(--sori-fill-hover); color: var(--sori-text-primary); }
 .sori-capture-button.is-listening { border-color: var(--sori-error-text); color: var(--sori-error-text); background: var(--sori-error-bg); }
@@ -756,24 +756,24 @@
 .sori-shell__sidebar-nav { padding: 18px 12px; }
 .sori-sidebar-search-wrap { position: relative; display: flex; align-items: center; margin-bottom: 18px; }
 .sori-sidebar-search-wrap > svg { position: absolute; left: 10px; width: 14px; height: 14px; color: var(--sori-text-tertiary); }
-.sori-sidebar-search-wrap input { width: 100%; height: 34px; border: 1px solid var(--sori-border-default); border-radius: 8px; padding: 0 42px 0 31px; color: var(--sori-text-primary); background: var(--sori-bg-panel); font-size: 12.5px; outline: none; }
+.sori-sidebar-search-wrap input { width: 100%; height: 34px; border: 1px solid var(--sori-border-default); border-radius: var(--sori-radius-md); padding: 0 42px 0 31px; color: var(--sori-text-primary); background: var(--sori-bg-panel); font-size: 12.5px; outline: none; }
 .sori-sidebar-search-wrap input:focus { border-color: var(--sori-border-focus); box-shadow: 0 0 0 2px color-mix(in srgb, var(--sori-border-focus) 18%, transparent); }
 .sori-sidebar-search-wrap kbd { position: absolute; right: 8px; border: 1px solid var(--sori-border-soft); border-radius: 4px; padding: 2px 4px; color: var(--sori-text-tertiary); background: var(--sori-bg-canvas); font-size: 10px; }
-.sori-sidebar-search-results { position: absolute; z-index: 20; top: 40px; right: 0; left: 0; display: grid; gap: 2px; padding: 5px; border: 1px solid var(--sori-border-default); border-radius: 9px; background: var(--sori-bg-panel); box-shadow: var(--sori-shadow-md); }
-.sori-sidebar-search-results button { border: 0; border-radius: 6px; padding: 7px 8px; text-align: left; color: var(--sori-text-secondary); background: transparent; font-size: 12px; }
+.sori-sidebar-search-results { position: absolute; z-index: 20; top: 40px; right: 0; left: 0; display: grid; gap: 2px; padding: 5px; border: 1px solid var(--sori-border-default); border-radius: var(--sori-radius-md); background: var(--sori-bg-panel); box-shadow: var(--sori-shadow-md); }
+.sori-sidebar-search-results button { border: 0; border-radius: var(--sori-radius-md); padding: 7px 8px; text-align: left; color: var(--sori-text-secondary); background: transparent; font-size: 12px; }
 .sori-sidebar-search-results button:hover { background: var(--sori-fill-hover); color: var(--sori-text-primary); }
 .sori-sidebar-search-results span { padding: 7px 8px; color: var(--sori-text-tertiary); font-size: 12px; }
 .sori-sidebar-section { display: grid; gap: 3px; margin-top: 20px; padding-top: 0 !important; border: 0 !important; }
 .sori-sidebar-section:first-of-type { margin-top: 0; }
 .sori-sidebar-section h2 { margin: 0 8px 5px; color: var(--sori-text-tertiary); font-size: 10px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
-.sori-sidebar-item { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 10px; border: 1px solid transparent; border-radius: 8px; padding: 0 9px; color: var(--sori-text-secondary); background: transparent; font-size: 13.5px; text-align: left; }
+.sori-sidebar-item { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 10px; border: 1px solid transparent; border-radius: var(--sori-radius-md); padding: 0 9px; color: var(--sori-text-secondary); background: transparent; font-size: 13.5px; text-align: left; }
 .sori-sidebar-item:hover { color: var(--sori-text-primary); background: var(--sori-fill-hover); }
 .sori-sidebar-item[aria-current='page'] { border-color: var(--sori-border-soft); color: var(--sori-text-primary); background: var(--sori-bg-panel-subtle); font-weight: 600; box-shadow: none !important; }
 .sori-sidebar-item__icon { display: inline-flex; color: var(--sori-text-tertiary); }
 .sori-sidebar-item__icon svg { width: 16px; height: 16px; }
 .sori-sidebar-item[aria-current='page'] .sori-sidebar-item__icon { color: var(--sori-accent-primary); }
 .sori-shell__sidebar-footer { display: grid; gap: 8px; padding: 12px; border-top: 1px solid var(--sori-border-soft); }
-.sori-sidebar-account { display: flex; align-items: center; gap: 9px; padding: 8px; border: 1px solid var(--sori-border-soft); border-radius: 9px; background: var(--sori-bg-panel); }
+.sori-sidebar-account { display: flex; align-items: center; gap: 9px; padding: 8px; border: 1px solid var(--sori-border-soft); border-radius: var(--sori-radius-md); background: var(--sori-bg-panel); }
 .sori-sidebar-avatar { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 50%; color: white; background: var(--sori-accent-primary); font-size: 12px; font-weight: 650; }
 .sori-sidebar-account strong, .sori-sidebar-account small { display: block; overflow: hidden; max-width: 155px; text-overflow: ellipsis; white-space: nowrap; }
 .sori-sidebar-account strong { color: var(--sori-text-primary); font-size: 12px; }
@@ -831,7 +831,7 @@
   padding: 18px 20px 10px;
   color: var(--sori-text-primary);
 }
-.sori-sidebar-brand__mark { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--sori-border-default); border-radius: 9px; color: var(--sori-accent-primary); background: var(--sori-bg-panel); font-size: 19px; line-height: 1; }
+.sori-sidebar-brand__mark { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--sori-border-default); border-radius: var(--sori-radius-md); color: var(--sori-accent-primary); background: var(--sori-bg-panel); font-size: 19px; line-height: 1; }
 .sori-sidebar-brand strong, .sori-sidebar-brand small { display: block; }
 .sori-sidebar-brand strong { font-size: 14px; font-weight: 700; letter-spacing: -.02em; }
 .sori-sidebar-brand small { margin-top: 1px; color: var(--sori-text-tertiary); font-size: 10px; }
@@ -977,7 +977,7 @@
 .sori-quick-controls {
   min-height: 32px;
   border-color: transparent;
-  border-radius: 7px;
+  border-radius: var(--sori-radius-md);
   background: transparent;
   padding-inline: 9px;
   font-size: 12px;
@@ -1001,7 +1001,7 @@
 .sori-sidebar-search-wrap input { height: 32px; border-color: transparent; background: color-mix(in srgb, var(--sori-bg-panel) 72%, transparent); }
 .sori-sidebar-section { margin-top: 18px; }
 .sori-sidebar-section h2 { margin-bottom: 4px; font-size: 10px; letter-spacing: .1em; }
-.sori-sidebar-item { min-height: 33px; border-radius: 7px; gap: 9px; padding-inline: 8px; }
+.sori-sidebar-item { min-height: 33px; border-radius: var(--sori-radius-md); gap: 9px; padding-inline: 8px; }
 .sori-sidebar-item[aria-current='page'] { border-color: transparent; background: var(--sori-fill-selected); }
 .sori-shell__sidebar-footer { gap: 6px; padding: 10px 12px 12px; }
 .sori-sidebar-account { border-color: transparent; background: transparent; padding: 7px 8px; }
@@ -1020,7 +1020,7 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--sori-radius-md);
   color: var(--sori-text-secondary);
   background: transparent;
 }
@@ -1029,9 +1029,9 @@
 .sori-shell__titlebar { border-bottom: 0; }
 .sori-shell__sidebar-footer { border-top: 0; }
 .sori-shell { --sori-shell-radius: 5px; }
-.sori-shell__titlebar { border-radius: 5px 5px 0 0; }
-.sori-shell__sidebar { border-radius: 0 0 0 5px; }
-.sori-shell__workspace { border-radius: 0 0 5px 0; }
+.sori-shell__titlebar { border-radius: var(--sori-radius-md) var(--sori-radius-md) 0 0; }
+.sori-shell__sidebar { border-radius: 0 0 0 var(--sori-radius-md); }
+.sori-shell__workspace { border-radius: 0 0 var(--sori-radius-md) 0; }
 @media (max-width: 767px) {
   .sori-shell__titlebar,
   .sori-shell__sidebar,
@@ -1100,10 +1100,10 @@
 :where(.sori-card, .sori-pane, .sori-control, .sori-input, .sori-button, .sori-tactile-btn,
   button:not([class*='rounded-full']), input, select, textarea,
   section[class*='rounded-']:not([class*='rounded-full']), div[class*='rounded-']:not([class*='rounded-full'])) {
-  border-radius: 5px !important;
+  border-radius: var(--sori-radius-md) !important;
 }
 :where([role='dialog']) {
-  border-radius: 7px !important;
+  border-radius: var(--sori-radius-md) !important;
 }
 
 /* Captain-approved app shell refinement: keep the titlebar and navigation as
@@ -1132,7 +1132,7 @@
 }
 .sori-shell__workspace {
   border: 0;
-  border-radius: 15px 0 var(--sori-shell-radius) 15px;
+  border-radius: var(--sori-radius-md) 0 var(--sori-shell-radius) var(--sori-radius-md);
   background: color-mix(in srgb, var(--sori-bg-app) 96%, var(--sori-bg-sidebar));
   box-shadow: none;
 }
@@ -1149,3 +1149,25 @@
   .sori-shell__workspace { border-radius: 0; }
   .sori-shell__workspace { background: var(--sori-bg-app); }
 }
+
+/* Global polish contract: one 10px surface geometry and borderless selection.
+ * Focus remains visible through the shared :focus-visible rules above. */
+.sori-shell { --sori-card-radius: 10px; }
+:where(.sori-card, .sori-pane, .sori-layout-pane, .sori-control, .sori-input,
+  .sori-button, .sori-tactile-btn, button:not([class*='rounded-full']), input,
+  select, textarea, section[class*='rounded-']:not([class*='rounded-full']),
+  div[class*='rounded-']:not([class*='rounded-full'])) {
+  border-radius: var(--sori-card-radius) !important;
+}
+:where(.sori-shell, .sori-shell__titlebar, .sori-shell__body, .sori-shell__sidebar,
+  .sori-shell__workspace) { border-radius: var(--sori-card-radius); }
+.sori-sidebar-item[aria-current='page'],
+.sori-sidebar-item-active,
+.sori-selected-neutral,
+.settings-tab--active,
+[aria-pressed='true'] {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.sori-sidebar-item[aria-current='page'] { background: var(--sori-fill-selected) !important; }
+.settings-tab--active { border-color:transparent; background: var(--sori-settings-active); }

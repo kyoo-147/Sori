@@ -18,6 +18,13 @@ const expected = {
 } as const;
 
 describe('shared palette tokens', () => {
+  it('uses one 10px geometry for cards, controls, overlays, and settings', () => {
+    expect(css).toContain('--sori-card-radius: 10px;');
+    expect(css).toContain('--sori-control-radius: 10px;');
+    expect(css).toContain('--sori-overlay-radius: 10px;');
+    expect(css).toContain('--sori-settings-radius: 10px;');
+    expect(css).toContain('--sori-settings-modal-radius: 10px;');
+  });
   it('locks the ten stable IDs, short labels, and captain palette values', () => {
     expect(soriThemes).toEqual(['clear', 'blue', 'azure', 'green', 'forest', 'brown', 'golden', 'terracotta', 'wisteria', 'ink']);
     expect(themeLabels).toEqual({ clear: 'Clear', blue: 'Cobalt', azure: 'Azure', green: 'Emerald', forest: 'Forest', brown: 'Cognac', golden: 'Golden', terracotta: 'Terracotta', wisteria: 'Wisteria', ink: 'Ink' });

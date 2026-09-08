@@ -1234,14 +1234,11 @@
   box-shadow: none;
 }
 .sori-shell__titlebar {
-  left: var(--sori-sidebar-width-live, var(--sori-sidebar-width));
   border: 0;
   box-shadow: none;
 }
-.sori-shell[data-sidebar-collapsed='true'] .sori-shell__titlebar { left: 0; }
 @media (max-width: 767px) {
   .sori-shell__body { display: block; }
   .sori-sidebar-divider { display: none; }
-  .sori-shell__titlebar { left: 0; }
   .sori-shell__workspace { border-radius: 0; }
 }

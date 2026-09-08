@@ -1127,11 +1127,14 @@
   background: color-mix(in srgb, var(--sori-bg-app) 96%, var(--sori-bg-sidebar));
   box-shadow: none;
 }
-.sori-sidebar-divider,
+.sori-sidebar-divider { background: transparent; }
 .sori-sidebar-divider::after,
 .sori-sidebar-divider:hover::after,
 .sori-sidebar-divider:active::after {
-  background: transparent;
+  left: 4px;
+  width: 1px;
+  height: 100%;
+  background: var(--sori-shell-divider);
 }
 @media (max-width: 767px) {
   .sori-shell__titlebar,

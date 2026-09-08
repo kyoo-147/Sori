@@ -1,111 +1,115 @@
 <p align="center">
-  <img src="docs/assets/sori-logo-wordmark.png" alt="Sori aquatic familiar wordmark" width="520">
+  <img src="docs/assets/sori-logo-wordmark.png" alt="Sori aquatic familiar wordmark" width="560">
 </p>
 
 <p align="center"><sub><a href="docs/assets/sori-logo-wordmark.provenance.md">Asset provenance and usage notice</a></sub></p>
 
-<h1 align="center">Sori</h1>
+<p align="center"><strong>A local first programmable voice runtime for the desktop.</strong></p>
 
-<p align="center"><strong>A local-first programmable voice runtime for the desktop.</strong></p>
+> Sori is an early Windows first desktop foundation. It is not yet a verified end to end voice typing product.
 
-> Sori is an early Windows-first desktop MVP foundation. It is not yet a verified, end-to-end voice-typing product.
+## Why Sori
 
-## Why Sori exists
+Voice software should work close to the person using it. Sori is being built around a short path:
 
-Voice software should be useful without requiring a cloud account, an opaque hosted workflow, or an always-open application. Sori is being built around a short hot path—**hold a key, speak, produce useful text**—with deeper controls available to people who want them.
+```text
+hold a key → speak → produce useful text
+```
 
-The project currently prioritizes a trustworthy foundation over a polished promise:
-
-- **Local first:** the active runtime, loopback transport, and SQLite state are designed to run on the user's machine.
-- **Fast path first:** ordinary dictation should not depend on an agent or an LLM.
-- **Progressive disclosure:** a small desktop surface for everyday use; diagnostics, models, profiles, and extensions for advanced users.
-- **Fail honestly:** a contract, mock, fixture, or rendered screen is not proof of a physical microphone, model inference, or focused-app insertion.
+The project is deliberately honest about the distance between a contract and a working physical voice session. A mock, fixture, rendered screen, or configured model path is not proof of microphone capture, speech inference, or insertion into a focused application.
 
 ## What works today
 
-The following repository capabilities are implemented and covered by code-level tests:
+The repository currently provides:
 
-- Rust `sorid` daemon with lifecycle state and diagnostics.
-- Local-only HTTP/JSON IPC on `127.0.0.1:17373`.
-- SQLite migration and persistence for lifecycle/recent-event data.
-- React/Tauri desktop shell and native bridge, with browser development fallbacks.
-- CLI status/doctor controls (`sori-cli`).
-- Capability-aware diagnostics that expose unavailable prerequisites instead of claiming success.
+- a Rust `sorid` daemon with lifecycle state and diagnostics
+- local HTTP and JSON IPC on `127.0.0.1:17373`
+- SQLite migrations and persistence for runtime data
+- a React and Tauri desktop shell with a native bridge
+- `sori-cli` status and Doctor controls
+- capability aware diagnostics that expose unavailable prerequisites
+- a Whisper provider boundary that validates executable and model paths
 
-The voice path is deliberately not overstated. Hotkey capture, physical microphone/VAD, executing Whisper inference, and focused-application text injection remain scaffolds or environment-dependent seams. A complete **hotkey → microphone → ASR → injection → history** session is still `UNVERIFIED`; see the [capability matrix](docs/mvp-capability-matrix.md) and [native voice evidence](docs/e2e/native-voice-e2e-2026-08-13.md).
+The complete path from hotkey to microphone to ASR to focused app insertion remains `UNVERIFIED` and machine dependent. The [MVP capability matrix](docs/mvp-capability-matrix.md) records the current evidence boundary.
 
 ## How it works
 
-The flow below shows the implemented control/runtime boundaries; physical hotkey delivery, microphone capture, real ASR, and focused-app insertion remain `UNVERIFIED`.
-
 ```mermaid
 flowchart LR
-    U["User / hotkey or capture entry"] --> D["Tauri desktop shell / control surface"]
-    D -->|local IPC| S["sorid daemon / authoritative runtime"]
-    S --> A["Audio / capture pipeline"]
-    A --> R{"Configured provider?"}
-    R -->|yes| P["Whisper.cpp provider / external model"]
-    R -->|no| X["Unavailable / no dictation claim"]
-    P --> T["Transcript / history / text-injection boundary"]
-    T --> O["Focused target app output"]
+    U["User or capture entry"] --> D["Tauri desktop shell"]
+    D -->|local IPC| S["sorid daemon"]
+    S --> A["Audio and capture boundary"]
+    A --> R{"Provider configured?"}
+    R -->|yes| P["Whisper provider boundary"]
+    R -->|no| X["Unavailable and reported"]
+    P --> T["Transcript and history boundary"]
+    T --> O["Focused app output"]
 ```
 
-The workspace is split into small boundaries:
+The diagram describes software boundaries. It does not claim that physical hotkey delivery, microphone capture, speech recognition, or focused app insertion has passed native acceptance.
 
-- `crates/sori-core` — domain contracts and runtime abstractions.
-- `crates/sori-ipc` — the canonical local request/response transport.
-- `crates/sori-persistence` — SQLite schema and store.
-- `crates/sori-provider-whisper` — the Whisper command/provider boundary.
-- `crates/sori-audio` — audio contracts and capture boundary.
-- `crates/sorid` — daemon runtime.
-- `crates/sori-cli` — command-line diagnostics and controls.
-- `apps/desktop` — React/Tauri client.
+## Architecture
 
-The daemon is authoritative for runtime state. The desktop client does not turn simulated UI state into runtime evidence.
+The active runtime is split into small boundaries:
 
-## Prerequisites
+| Area | Responsibility |
+| --- | --- |
+| `crates/sori-core` | Runtime contracts and domain abstractions |
+| `crates/sori-ipc` | Local request and response transport |
+| `crates/sori-persistence` | SQLite schema and store |
+| `crates/sori-provider-whisper` | Whisper command and model boundary |
+| `crates/sori-audio` | Audio contracts and capture boundary |
+| `crates/sorid` | Authoritative daemon runtime |
+| `crates/sori-cli` | Diagnostics and operator controls |
+| `apps/desktop` | React and Tauri client |
 
-The supported development target is Windows 10 1809+ (Windows 11 recommended).
-
-- Node.js 22+ and npm.
-- Rust 1.85+ with the MSVC toolchain, `rustfmt`, and `clippy`.
-- Microsoft C++ Build Tools and the Windows SDK for native builds.
-- WebView2 Runtime for the Tauri shell.
-- For a real Whisper-provider attempt: a separately installed `whisper.cpp` executable and compatible model. Sori does not download or vendor these artifacts.
-
-The current repository can be built and tested on other hosts where the Rust/Node dependencies support them, but Windows-only hotkey, audio, and input behavior is not thereby verified.
+The daemon owns runtime state. The desktop client is a control surface, not a substitute for runtime evidence.
 
 ## Quickstart
 
-From the repository root, install the desktop dependencies and build the workspace:
+### Prerequisites
+
+The primary development target is Windows 10 version 1809 or later. Windows 11 is recommended.
+
+Install:
+
+- Node.js 22 or later and npm
+- Rust 1.85 or later with the MSVC toolchain, `rustfmt`, and `clippy`
+- Microsoft C++ Build Tools and the Windows SDK
+- WebView2 Runtime for the Tauri shell
+
+### Run the daemon
+
+From the repository root:
 
 ```powershell
 npm ci --prefix apps/desktop
 cargo build --workspace
-```
-
-Start the local daemon:
-
-```powershell
 cargo run -p sorid
 ```
 
-In a second terminal, inspect its local health and capability state:
+In a second terminal:
 
 ```powershell
 cargo run -p sori-cli -- doctor
 cargo run -p sori-cli -- status
 ```
 
-The daemon owns only `127.0.0.1:17373`. If startup reports that the endpoint is occupied, inspect it with `Get-NetTCPConnection -LocalPort 17373` and stop only a known stale `sorid` process. Never kill an unknown owner.
+The daemon listens only on `127.0.0.1:17373`. If the port is occupied, inspect the owner before stopping anything:
 
-To run the frontend development shell separately:
+```powershell
+Get-NetTCPConnection -LocalPort 17373
+```
+
+Run the desktop development shell separately:
 
 ```powershell
 npm run desktop:dev
 ```
 
-A real Whisper configuration uses explicit paths (PowerShell):
+### Configure the Whisper boundary
+
+A real provider attempt requires an existing `whisper.cpp` executable and compatible model. Sori does not download or vendor those artifacts.
 
 ```powershell
 $env:SORI_WHISPER_CPP_BIN = 'C:\tools\whisper.cpp\whisper-cli.exe'
@@ -113,21 +117,20 @@ $env:SORI_WHISPER_MODEL_DIR = 'C:\models\whisper'
 $env:SORI_WHISPER_MODEL = 'ggml-base.en.bin'
 ```
 
-Missing executable/model paths should remain `unavailable` in Doctor. Configuration alone is not physical microphone or dictation proof.
+Configuration is not physical microphone or dictation proof. Missing paths should remain `unavailable` in Doctor.
 
-## Verification
+## Verify changes
 
-Inspect scripts before running them; the repository's CI-equivalent checks are:
+Inspect package scripts before running them. The main local checks are:
 
 ```powershell
 npm ci
 npm run check
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-The focused backend and desktop checks are also available:
+Additional contract checks are available:
 
 ```powershell
 npm run e2e:backend-ipc
@@ -135,23 +138,36 @@ npm run e2e:desktop-backend
 npm run e2e:product
 ```
 
-The E2E harnesses provide deterministic or daemon-backed contract evidence. Hardware-dependent results must still be recorded as `UNVERIFIED` or `SKIP` unless a real Windows session observes them.
+Hardware dependent outcomes must be reported as `UNVERIFIED` or `SKIP` unless a real Windows session observes them.
 
 ## Platform boundaries
 
-Sori is Windows-first. The current repository contains portable Rust and web contracts, but does not claim production support for macOS or Linux. The following remain incomplete or require machine-level validation:
+Sori is Windows first. Portable Rust and web contracts exist, but production support for macOS and Linux is not claimed.
 
-- global hold-to-talk hotkey;
-- microphone capture, permissions, and VAD;
-- packaged/executing Whisper model path;
-- focused-app text injection;
-- production packaging, signing, and permission recovery;
-- routing, benchmark, voice edit, extensions, and TTS as complete product features.
+The following areas still require machine level validation or further implementation:
 
-For implementation detail, see the [architecture notes](docs/architecture.md), [backend setup](docs/backend/setup.md), and [dictation pipeline](docs/dictation-pipeline.md).
+- global hold to talk hotkey
+- microphone permissions, capture, and VAD
+- packaged Whisper model execution
+- focused app text insertion
+- packaging, signing, and permission recovery
+- complete routing, benchmark, voice edit, extensions, and TTS features
 
-## Contributing and security
+For deeper implementation notes, see the [architecture notes](docs/architecture.md), [backend setup](docs/backend/setup.md), and [dictation pipeline](docs/dictation-pipeline.md).
 
-This repository is in an early MVP phase. Start with the issue tracker and the existing tests, and keep claims aligned with the [capability matrix](docs/mvp-capability-matrix.md). Do not submit credentials, model files, recordings, or local databases.
+## Contributing
 
-There is currently no tracked `LICENSE`, `SECURITY.md`, or `CONTRIBUTING.md` file in this checkout; no license or security contact is asserted here. The Rust workspace declares MIT metadata, but that metadata is not a substitute for a repository license file.
+Start with the issue tracker and existing tests. Keep README claims aligned with the [capability matrix](docs/mvp-capability-matrix.md). Do not commit credentials, model files, recordings, or local databases.
+
+There is no tracked `LICENSE`, `SECURITY.md`, or `CONTRIBUTING.md` file in this checkout. No repository license or security contact is asserted here. Rust workspace metadata is not a substitute for a repository license file.
+
+## Status vocabulary
+
+Sori uses explicit evidence boundaries:
+
+- `VERIFIED` means repository or test evidence supports the claim
+- `UNVERIFIED` means the required native or physical observation has not been completed
+- `SKIP` means the environment did not permit a meaningful check
+- `BLOCKED` means a required dependency or gate prevented the check
+
+The project prefers a precise limitation over a confident claim without evidence.

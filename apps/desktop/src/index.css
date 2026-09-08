@@ -15,10 +15,12 @@
   html,
   body,
   #root {
-    min-width: 320px;
+    width: 100%;
     height: 100%;
-    min-height: 100%;
+    min-width: 320px;
+    min-height: 0;
     margin: 0;
+    overflow: hidden;
   }
 
   body {
@@ -74,7 +76,7 @@
   --sori-window-line-soft: rgba(70, 62, 55, 0.07);
   display: flex;
   height: 100%;
-  min-height: 100dvh;
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   isolation: isolate;
@@ -440,7 +442,7 @@
   .sori-shell__workspace {
     height: 100%;
     max-height: 100%;
-    min-height: calc(100dvh - var(--sori-titlebar-height));
+    min-height: 0;
     padding: var(--sori-space-4);
   }
 
@@ -846,13 +848,6 @@
   .sori-shell__workspace { border-radius: 0; }
   .sori-sidebar-brand { padding-top: 14px; }
 }
-.sori-shell__sidebar {
-  margin-top: calc(-1 * (var(--sori-titlebar-height) + var(--sori-shell-gap)));
-  height: calc(100% + var(--sori-titlebar-height) + var(--sori-shell-gap));
-}
-@media (max-width: 767px) {
-  .sori-shell__sidebar { margin-top: 0; height: auto; }
-}
 /* Shell acceptance guards: keep the frame connected while making the resize rail
  * disappear entirely when the desktop sidebar is collapsed. */
 .sori-shell { isolation: isolate; }
@@ -1071,11 +1066,11 @@
 /* Final shell feedback pass: the resize rail is a transparent hit target;
  * its pseudo-element owns exactly one persistent one-pixel seam. */
 .sori-shell__body {
-  grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) 1px minmax(0, 1fr);
+  grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) 9px minmax(0, 1fr);
 }
 .sori-sidebar-divider {
   width: 9px;
-  margin-left: -4px;
+  margin-left: 0;
   background: transparent;
   z-index: 2;
 }
@@ -1132,11 +1127,14 @@
   background: color-mix(in srgb, var(--sori-bg-app) 96%, var(--sori-bg-sidebar));
   box-shadow: none;
 }
-.sori-sidebar-divider,
+.sori-sidebar-divider { background: transparent; }
 .sori-sidebar-divider::after,
 .sori-sidebar-divider:hover::after,
 .sori-sidebar-divider:active::after {
-  background: transparent;
+  left: 4px;
+  width: 1px;
+  height: 100%;
+  background: var(--sori-shell-divider);
 }
 @media (max-width: 767px) {
   .sori-shell__titlebar,
@@ -1172,35 +1170,36 @@
  * Windowed mode keeps a 12px breathing edge; maximized mode is explicitly
  * edge-to-edge so no stale inset, offset, or radius survives restoration. */
 .sori-shell {
-  --sori-shell-gap: 12px;
+  --sori-shell-gap: 0px;
+  width: 100%;
+  height: 100%;
+  padding: 0;
   overflow: hidden;
-  padding: var(--sori-shell-gap);
   border: 0;
   border-radius: var(--sori-shell-radius);
 }
-.sori-shell__titlebar,
-.sori-shell__body,
-.sori-shell__sidebar,
-.sori-shell__workspace {
-  border-radius: 0;
+.sori-shell__titlebar {
+  overflow: visible;
+  border-radius: var(--sori-shell-radius) var(--sori-shell-radius) 0 0;
 }
-.sori-shell__titlebar { overflow: visible; }
+.sori-shell__body {
+  grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) 9px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 0 0 var(--sori-shell-radius) var(--sori-shell-radius);
+}
+.sori-shell__sidebar { border-radius: 0 0 0 var(--sori-shell-radius); }
+.sori-shell__workspace { border-radius: 0 0 var(--sori-shell-radius) 0; }
 .sori-shell[data-window-maximized='true'] {
-  --sori-shell-gap: 0px;
-  padding: 0;
-  border: 0;
   border-radius: 0;
 }
 .sori-shell[data-window-maximized='true'] .sori-shell__titlebar,
 .sori-shell[data-window-maximized='true'] .sori-shell__body,
 .sori-shell[data-window-maximized='true'] .sori-shell__sidebar,
 .sori-shell[data-window-maximized='true'] .sori-shell__workspace {
-  inset: auto;
-  margin: 0;
-  padding-top: 0;
-  border: 0;
   border-radius: 0;
 }
 @media (max-width: 767px) {
-  .sori-shell { --sori-shell-gap: 0px; padding: 0; border-radius: 0; }
+  .sori-shell { border-radius: 0; }
+  .sori-shell__titlebar, .sori-shell__body, .sori-shell__sidebar, .sori-shell__workspace { border-radius: 0; }
 }

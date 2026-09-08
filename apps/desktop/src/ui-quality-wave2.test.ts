@@ -39,12 +39,26 @@ describe('Wave 2 UI accessibility contracts', () => {
     expect(css).toContain('.sori-empty-state');
   });
 
-  it('keeps the refined shell connected without a painted divider', () => {
+  it('keeps the app root and workspace as the only scroll owners', () => {
+    const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8');
+    expect(css).toContain('#root {');
+    expect(css).toContain('width: 100%;');
+    expect(css).toContain('height: 100%;');
+    expect(css).toContain('overflow: hidden;');
+    expect(css).toContain('padding: 0;');
+    expect(css).toContain('overflow-y: auto;');
+    expect(css).not.toContain('margin-top: calc(-1 *');
+    expect(css).not.toContain('min-height: calc(100dvh - var(--sori-titlebar-height))');
+  });
+
+  it('keeps the refined shell connected with a subtle content seam and resize track', () => {
     const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8');
     expect(readFileSync(new URL('../design-system/tokens.css', import.meta.url), 'utf8')).toContain('--sori-shell-radius: 15px;');
     expect(css).toMatch(/\.sori-shell__titlebar \{\s*border: 0;/);
     expect(css).toMatch(/\.sori-shell__workspace \{\s*border: 0;\s*border-radius: var\(--sori-radius-md\) 0 var\(--sori-shell-radius\) var\(--sori-radius-md\);/);
     expect(css).toMatch(/\.sori-sidebar-divider::after,\s*\.sori-sidebar-divider:hover::after/);
-    expect(css).toMatch(/background: transparent;\s*\}\s*@media \(max-width: 767px\)/);
+    expect(css).toContain('grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) 9px minmax(0, 1fr);');
+    expect(css).toMatch(/\.sori-sidebar-divider \{ background: transparent; \}/);
+    expect(css).toMatch(/\.sori-sidebar-divider::after,\s*\.sori-sidebar-divider:hover::after,\s*\.sori-sidebar-divider:active::after \{[\s\S]*?width: 1px;[\s\S]*?background: var\(--sori-shell-divider\);/);
   });
 });

@@ -41,10 +41,11 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.2",
+    "chrome-devtools-mcp": "1.7.0",
+    "happy-dom": "^20.14.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14",
-    "chrome-devtools-mcp": "1.7.0"
+    "vitest": "^4.0.14"
   },
   "overrides": {
     "fast-uri": "^4.1.4",

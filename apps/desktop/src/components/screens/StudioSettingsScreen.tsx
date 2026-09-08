@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { themePickerFocusIndex, shouldRestoreThemeTriggerFocus, type ThemePickerCloseReason } from './theme-picker-behavior';
 import { AppSettings } from '../../types';
 import type { RuntimeClient } from '../../runtime-client';
 import { soriThemes, themeLabels, themePalettes } from '../../../design-system/tokens';
 import './StudioSettingsScreen.css';
-import { Sliders, Mic, Shield, X, CheckCircle2, Keyboard, Layers, Sparkles, Terminal, Power, Cpu } from 'lucide-react';
+import { Sliders, Mic, Shield, X, Check, CheckCircle2, ChevronDown, Keyboard, Layers, Sparkles, Terminal, Power, Cpu } from 'lucide-react';
 
 interface StudioSettingsScreenProps {
   settings: AppSettings;
@@ -42,7 +43,10 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({ sett
   const [micReadiness, setMicReadiness] = useState<'checking' | 'ready' | 'attention' | 'unverified'>('unverified');
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
+  const themePickerRef = useRef<HTMLDivElement>(null);
+  const themeTriggerRef = useRef<HTMLButtonElement>(null);
   const themeOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -77,17 +81,37 @@ export const StudioSettingsScreen: React.FC<StudioSettingsScreenProps> = ({ sett
   const handleTestMic = async () => { setMicTestMsg('Checking configured device and permission…'); await checkMicrophone(); setMicTestMsg('Readiness checked without recording.'); };
   const tabs = [...coreTabs, ...systemTabs];
   const themeIndex = Math.max(0, soriThemes.indexOf(settings.theme));
-  const selectTheme = (index: number) => {
+  const closeThemePicker = (reason: ThemePickerCloseReason) => {
+    if (shouldRestoreThemeTriggerFocus(reason)) themeTriggerRef.current?.focus();
+    setThemePickerOpen(false);
+  };
+  const openThemePicker = () => setThemePickerOpen(true);
+  const selectTheme = (index: number, close = true) => {
     const next = (index + soriThemes.length) % soriThemes.length;
     setSettings((current) => ({ ...current, theme: soriThemes[next] }));
-    themeOptionRefs.current[next]?.focus();
+    if (close) closeThemePicker('selection');
+    else themeOptionRefs.current[next]?.focus();
   };
-  const moveTheme = (offset: number) => selectTheme(themeIndex + offset);
+  useEffect(() => {
+    if (!themePickerOpen) return;
+    const focusIndex = themePickerFocusIndex(themeIndex, soriThemes.length);
+    if (focusIndex >= 0) themeOptionRefs.current[focusIndex]?.focus();
+    const onPointerDown = (event: PointerEvent) => {
+      if (themePickerRef.current && !themePickerRef.current.contains(event.target as Node)) closeThemePicker('outside');
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeThemePicker('escape'); }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('pointerdown', onPointerDown); document.removeEventListener('keydown', onKeyDown); };
+  }, [themePickerOpen, themeIndex]);
+  const moveTheme = (offset: number) => selectTheme(themeIndex + offset, false);
 
   const renderContent = () => {
     if (activeTab === 'Microphone') return <section className="space-y-4" aria-labelledby="settings-section-title"><p className="settings-copy">Check microphone access before dictation.</p><div className={`settings-status ${micReadiness === 'ready' ? 'settings-status--ready' : 'settings-status--attention'}`} role="status"><span className="settings-status__dot" />{micCheck}</div>{micTestMsg && <div className="settings-note" role="status">{micTestMsg}</div>}<button type="button" onClick={() => void handleTestMic()} disabled={micReadiness === 'checking'} className="settings-button settings-button--primary">{micReadiness === 'checking' ? 'Checking…' : 'Check microphone'}</button><p className="settings-help">Checks software status only; it does not record audio.</p></section>;
     if (activeTab === 'Hotkey') return <section className="space-y-4"><p className="settings-copy">Choose the shortcut that starts and stops dictation.</p><div className="settings-group"><label htmlFor="push-hotkey" className="settings-label">Push-to-talk shortcut</label><input id="push-hotkey" type="text" value={hotkeyDraft} onChange={(e) => setHotkeyDraft(e.target.value)} onBlur={() => void saveHotkey()} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveHotkey(); } }} aria-describedby="hotkey-help" disabled={savingHotkey} className="settings-input settings-input--mono" /><div id="hotkey-help" className="settings-help">Use Alt, Ctrl, Shift, or Win plus one key. Conflicts keep the previous shortcut.</div><button type="button" onClick={() => void saveHotkey()} disabled={savingHotkey} className="settings-button">{savingHotkey ? 'Registering…' : 'Register shortcut'}</button></div><div className="settings-group"><div className="settings-label">Selection voice edit</div><div className="settings-input settings-input--mono settings-input--readonly">Ctrl + Alt + Space</div><div className="settings-help">Shortcut for transforming selected text.</div></div></section>;
-    if (activeTab === 'General') return <section className="settings-section"><p className="settings-copy">Choose a workspace palette. Changes apply immediately and remain selected after restart.</p><div className="settings-group"><span className="settings-label" id="theme-label">Workspace palette</span><div className="theme-picker" role="radiogroup" aria-labelledby="theme-label" onKeyDown={(event) => { if (event.key === 'ArrowRight' || event.key === 'ArrowDown') { event.preventDefault(); moveTheme(1); } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') { event.preventDefault(); moveTheme(-1); } else if (event.key === 'Home') { event.preventDefault(); selectTheme(0); } else if (event.key === 'End') { event.preventDefault(); selectTheme(soriThemes.length - 1); } }}>{soriThemes.map((id, index) => <button key={id} ref={(element) => { themeOptionRefs.current[index] = element; }} type="button" role="radio" aria-checked={settings.theme === id} aria-label={`${themeLabels[id]} palette`} tabIndex={settings.theme === id ? 0 : -1} className={'theme-picker__option' + (settings.theme === id ? ' is-selected' : '')} onClick={() => selectTheme(index)}><span className="theme-picker__swatches" aria-hidden="true"><span className="theme-picker__swatch" style={{ backgroundColor: themePalettes[id].primary }} /><span className="theme-picker__swatch theme-picker__swatch--neutral" style={{ backgroundColor: themePalettes[id].sidebar }} /></span><span className="theme-picker__name">{themeLabels[id]}</span><CheckCircle2 className="theme-picker__check" aria-hidden="true" /></button>)}</div></div><div className="settings-group"><label htmlFor="language-region" className="settings-label">Language &amp; region</label><select id="language-region" disabled aria-label="Language and region preview" className="settings-input"><option>English (US)</option><option>Vietnamese (Tiếng Việt)</option><option>Bilingual Auto-Detect (EN / VI)</option></select><p className="settings-help">Additional languages are not yet available.</p></div></section>;
+    if (activeTab === 'General') return <section className="settings-section"><p className="settings-copy">Choose a workspace palette. Changes apply immediately and remain selected after restart.</p><div className="settings-group"><span className="settings-label" id="theme-label">Workspace palette</span><div className="theme-picker" ref={themePickerRef}><button type="button" ref={themeTriggerRef} className="theme-picker__trigger" aria-haspopup="listbox" aria-expanded={themePickerOpen} aria-labelledby="theme-label theme-picker-value" onClick={() => themePickerOpen ? closeThemePicker('trigger') : openThemePicker()} onKeyDown={(event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); openThemePicker(); } }}><span className="theme-picker__swatch" style={{ backgroundColor: themePalettes[settings.theme].primary }} aria-hidden="true" /><span id="theme-picker-value" className="theme-picker__name">{themeLabels[settings.theme]}</span><ChevronDown className="theme-picker__chevron" aria-hidden="true" /></button>{themePickerOpen && <div className="theme-picker__menu" role="listbox" aria-labelledby="theme-label">{soriThemes.map((id, index) => <button key={id} ref={(element) => { themeOptionRefs.current[index] = element; }} type="button" role="option" aria-selected={settings.theme === id} tabIndex={settings.theme === id ? 0 : -1} className={'theme-picker__option' + (settings.theme === id ? ' is-selected' : '')} onClick={() => selectTheme(index)} onKeyDown={(event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowRight') { event.preventDefault(); moveTheme(1); } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') { event.preventDefault(); moveTheme(-1); } else if (event.key === 'Home') { event.preventDefault(); selectTheme(0); } else if (event.key === 'End') { event.preventDefault(); selectTheme(soriThemes.length - 1); } else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectTheme(index); } }}><span className="theme-picker__swatch" style={{ backgroundColor: themePalettes[id].primary }} aria-hidden="true" /><span className="theme-picker__name">{themeLabels[id]}</span>{settings.theme === id && <Check className="theme-picker__check" aria-hidden="true" />}</button>)}</div>}</div></div><div className="settings-group"><label htmlFor="language-region" className="settings-label">Language &amp; region</label><select id="language-region" disabled aria-label="Language and region preview" className="settings-input"><option>English (US)</option><option>Vietnamese (Tiếng Việt)</option><option>Bilingual Auto-Detect (EN / VI)</option></select><p className="settings-help">Additional languages are not yet available.</p></div></section>;
     if (activeTab === 'Overlay') return <section className="space-y-4"><p className="settings-copy">Choose how Sori appears while the dictation shortcut is held.</p><div className="settings-note">The compact overlay is currently the only available option.</div></section>;
     if (activeTab === 'Text Injection') return <section className="space-y-4"><p className="settings-copy">How dictated text reaches the focused application.</p><div className="settings-status settings-status--attention" role="status">Unavailable: text injection is not connected. No focused-app success is claimed.</div></section>;
     if (activeTab === 'Startup & Runtime') return <section className="space-y-4"><p className="settings-copy">Startup and background runtime behavior.</p><div className="settings-status settings-status--attention" role="status">Unavailable: startup persistence and a notification-area icon are not connected.</div></section>;

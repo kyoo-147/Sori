@@ -33,6 +33,13 @@ describe('titlebar drag boundary', () => {
     handleTitlebarMouseDownBoundary(null, 2, () => { dragStarted = true; });
     expect(dragStarted).toBe(false);
   });
+
+  it('starts native dragging from a blank primary-button titlebar target', async () => {
+    const { handleTitlebarMouseDownBoundary } = await import('./DesktopTitleBar');
+    let dragStarted = false;
+    handleTitlebarMouseDownBoundary(null, 0, () => { dragStarted = true; });
+    expect(dragStarted).toBe(true);
+  });
 });
 
 describe('sidebar titlebar control state', () => {

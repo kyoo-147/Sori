@@ -22,6 +22,7 @@ describe('desktop visual architecture contracts', () => {
       '--sori-shadow-lg:',
       '--sori-type-page-size: 26px',
       '--sori-sidebar-width: 248px',
+      '--sori-shell-radius: 15px',
     ]) {
       expect(css).toContain(token);
     }
@@ -79,6 +80,11 @@ describe('desktop visual architecture contracts', () => {
     expect(css).toContain(".sori-shell[data-sidebar-collapsed='true'] .sori-sidebar-divider");
     expect(css).toContain('.sori-shell .sori-overlay { z-index: 100; }');
     expect(css).toContain('min-width: 32px;');
+    expect(css).toContain('--sori-shell-gap: 12px;');
+    expect(css).not.toMatch(/--sori-shell-radius\s*:/);
+    expect(css).toContain(".sori-shell[data-window-maximized='true']");
+    expect(css).toContain('padding: 0;');
+    expect(css).toContain('inset: auto;');
   });
 
   it('covers keyboard, hover, disabled, pressed, and error states', () => {

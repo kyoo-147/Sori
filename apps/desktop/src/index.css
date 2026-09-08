@@ -784,7 +784,6 @@
 /* Wave 2: one continuous native application frame. The titlebar is visually
  * owned by the right pane while the rail runs uninterrupted from top to bottom. */
 .sori-shell {
-  --sori-shell-radius: 18px;
   --sori-shell-gap: 12px;
   --sori-shell-divider: color-mix(in srgb, var(--sori-border-default) 72%, transparent);
   position: relative;
@@ -956,7 +955,6 @@
 /* Shell polish: one quiet frame, one content seam, and a restrained control rhythm. */
 .sori-shell {
   --sori-shell-gap: 0px;
-  --sori-shell-radius: 12px;
   background: var(--sori-bg-canvas);
 }
 .sori-shell__titlebar {
@@ -1028,7 +1026,6 @@
 .sori-titlebar__sidebar-control:hover { color: var(--sori-text-primary); background: var(--sori-fill-hover); }
 .sori-shell__titlebar { border-bottom: 0; }
 .sori-shell__sidebar-footer { border-top: 0; }
-.sori-shell { --sori-shell-radius: 5px; }
 .sori-shell__titlebar { border-radius: var(--sori-radius-md) var(--sori-radius-md) 0 0; }
 .sori-shell__sidebar { border-radius: 0 0 0 var(--sori-radius-md); }
 .sori-shell__workspace { border-radius: 0 0 var(--sori-radius-md) 0; }
@@ -1110,7 +1107,6 @@
    one uninterrupted surface, with a quiet rounded workspace transition. The
    resize rail remains a keyboard/pointer hit target but never paints a seam. */
 .sori-shell {
-  --sori-shell-radius: 15px;
   background: var(--sori-bg-sidebar);
   border-radius: var(--sori-shell-radius);
 }
@@ -1171,3 +1167,40 @@
 }
 .sori-sidebar-item[aria-current='page'] { background: var(--sori-fill-selected) !important; }
 .settings-tab--active { border-color:transparent; background: var(--sori-settings-active); }
+
+/* Window silhouette ownership: only the shell clips the native window shape.
+ * Windowed mode keeps a 12px breathing edge; maximized mode is explicitly
+ * edge-to-edge so no stale inset, offset, or radius survives restoration. */
+.sori-shell {
+  --sori-shell-gap: 12px;
+  overflow: hidden;
+  padding: var(--sori-shell-gap);
+  border: 0;
+  border-radius: var(--sori-shell-radius);
+}
+.sori-shell__titlebar,
+.sori-shell__body,
+.sori-shell__sidebar,
+.sori-shell__workspace {
+  border-radius: 0;
+}
+.sori-shell__titlebar { overflow: visible; }
+.sori-shell[data-window-maximized='true'] {
+  --sori-shell-gap: 0px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+.sori-shell[data-window-maximized='true'] .sori-shell__titlebar,
+.sori-shell[data-window-maximized='true'] .sori-shell__body,
+.sori-shell[data-window-maximized='true'] .sori-shell__sidebar,
+.sori-shell[data-window-maximized='true'] .sori-shell__workspace {
+  inset: auto;
+  margin: 0;
+  padding-top: 0;
+  border: 0;
+  border-radius: 0;
+}
+@media (max-width: 767px) {
+  .sori-shell { --sori-shell-gap: 0px; padding: 0; border-radius: 0; }
+}

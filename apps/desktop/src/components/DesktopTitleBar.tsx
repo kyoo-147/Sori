@@ -24,12 +24,13 @@ interface DesktopTitleBarProps {
   onWindowError: (message: string) => void; onTogglePaused: () => void; onReconnect: () => void;
   sidebarOpen: boolean; onToggleSidebar: () => void;
   sidebarCollapsed: boolean; onNavigate: (screen: ActiveScreen) => void;
+  onMaximizedChange?: (isMaximized: boolean) => void;
 }
 
 export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   isListening, toggleListening, trayOpen, setTrayOpen, runtimeSource, runtimeStatus, runtimeError,
   onWindowError, onTogglePaused, onReconnect, sidebarOpen, onToggleSidebar,
-  sidebarCollapsed, onNavigate, activeModelName,
+  sidebarCollapsed, onNavigate, activeModelName, onMaximizedChange,
 }) => {
   const runtimeConnected = runtimeSource === 'native' || runtimeSource === 'backend';
   const [isMaximized, setIsMaximized] = useState(false);
@@ -43,7 +44,13 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
     return () => query.removeEventListener('change', update);
   }, []);
   const sidebarIsOpen = sidebarControlIsOpen(isMobileViewport, sidebarOpen, sidebarCollapsed);
-  const refreshMaximized = () => { if (isTauri) void getCurrentWindow().isMaximized().then(setIsMaximized).catch(() => undefined); };
+  const refreshMaximized = () => {
+    if (!isTauri) return;
+    void getCurrentWindow().isMaximized().then((next) => {
+      setIsMaximized(next);
+      onMaximizedChange?.(next);
+    }).catch(() => undefined);
+  };
   useEffect(() => {
     if (!isTauri) return;
     const win = getCurrentWindow(); let disposed = false; refreshMaximized();
@@ -60,18 +67,18 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({
   const handleTitlebarDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => { if (!isTitlebarInteractiveTarget(event.target)) void runWindowAction('toggle-maximize'); };
   return (
     <div role="toolbar" aria-label="Sori window title bar" onMouseDown={handleMouseDown} onDoubleClick={handleTitlebarDoubleClick} className="sori-titlebar">
-      <div className="sori-titlebar__leading" data-sori-no-drag>
+      <div className="sori-titlebar__leading">
         <button type="button" onClick={onToggleSidebar} aria-label={sidebarIsOpen ? 'Close navigation' : 'Open navigation'} aria-pressed={sidebarIsOpen} title={sidebarIsOpen ? 'Close navigation' : 'Open navigation'} className="sori-titlebar__sidebar-control" aria-controls="sori-navigation"><span aria-hidden="true">{sidebarIsOpen ? <PanelLeftClose /> : <PanelLeftOpen />}</span></button>
         <span className="sori-titlebar__brand">Sori</span>
       </div>
-      <div className="sori-titlebar__center-actions" data-sori-no-drag>
+      <div className="sori-titlebar__center-actions">
         <button type="button" onClick={toggleListening} disabled={titlebarCaptureDisabled(runtimeSource)} title={titlebarCaptureDisabled(runtimeSource) ? 'Unavailable until the canonical sorid runtime is connected' : 'Uses canonical DictationStart/DictationStop IPC'} aria-label={titlebarCaptureLabel(runtimeSource, isListening)} className={`sori-capture-button ${isListening ? 'is-listening' : ''}`}><Mic /><span>{isListening ? 'Stop daemon dictation' : 'Dictate'}</span></button>
         <button type="button" onClick={onTogglePaused} disabled={!runtimeConnected} aria-label={runtimeStatus.paused ? 'Resume Sori daemon' : 'Pause Sori daemon'} title={!runtimeConnected ? 'Unavailable until the canonical sorid runtime is connected' : undefined} className="sori-titlebar__status-action">{runtimeStatus.paused ? <Play /> : <Pause />}<span className="hidden lg:inline">{runtimeStatus.paused ? 'Resume' : 'Pause'}</span></button>
       </div>
-      <div className="sori-titlebar__actions" data-sori-no-drag>
+      <div className="sori-titlebar__actions">
         <button type="button" className={`sori-runtime-affordance ${runtimeConnected ? 'is-connected' : 'is-unavailable'}`} onClick={runtimeConnected ? () => onNavigate('models') : onReconnect} title={runtimeError ?? (runtimeConnected ? titlebarRouteLabel(runtimeSource, activeModelName) : 'Runtime unavailable. Reconnect to try again.')} aria-label={runtimeConnected ? titlebarRouteLabel(runtimeSource, activeModelName) : 'Runtime unavailable; reconnect'}><Activity /><span className="hidden sm:inline">{runtimeConnected ? 'Ready' : 'Unavailable'}</span></button>
         <button type="button" onClick={() => setTrayOpen(!trayOpen)} aria-expanded={trayOpen} aria-controls="tray-quick-controls" aria-label={trayOpen ? 'Close quick controls' : 'Open quick controls'} className={`sori-quick-controls ${trayOpen ? 'is-open' : ''}`}><Settings2 /><span className="hidden sm:inline">Controls</span></button>
-        <div className="sori-window-controls" role="group" aria-label="Window controls"><button type="button" aria-label="Minimize window" title="Minimize" onClick={() => void runWindowAction('minimize')}><Minus /></button><button type="button" aria-label={isMaximized ? 'Restore window' : 'Maximize window'} onClick={() => void runWindowAction('toggle-maximize')}><>{isMaximized ? <Copy /> : <Square />}</></button><button type="button" aria-label="Close window" title="Close" onClick={() => void runWindowAction('close')} className="is-close"><X /></button></div>
+        <div className="sori-window-controls" role="group" aria-label="Window controls"><button type="button" aria-label="Minimize window" title="Minimize" onClick={() => void runWindowAction('minimize')}><Minus /></button><button type="button" aria-label={isMaximized ? 'Restore window' : 'Maximize window'} title={isMaximized ? 'Restore' : 'Maximize'} onClick={() => void runWindowAction('toggle-maximize')}><>{isMaximized ? <Copy /> : <Square />}</></button><button type="button" aria-label="Close window" title="Close" onClick={() => void runWindowAction('close')} className="is-close"><X /></button></div>
       </div>
     </div>
   );

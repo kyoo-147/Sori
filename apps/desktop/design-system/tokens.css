@@ -142,6 +142,7 @@
 
   /* Shell and layout defaults; override per window or pane when needed. */
   --sori-titlebar-height: 40px;
+  --sori-shell-radius: 15px;
   --sori-sidebar-width: 248px;
   --sori-rail-width: 248px;
   --sori-inspector-width: 320px;

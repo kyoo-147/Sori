@@ -41,7 +41,7 @@ describe('Wave 2 UI accessibility contracts', () => {
 
   it('keeps the refined shell connected without a painted divider', () => {
     const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8');
-    expect(css).toContain('--sori-shell-radius: 15px;');
+    expect(readFileSync(new URL('../design-system/tokens.css', import.meta.url), 'utf8')).toContain('--sori-shell-radius: 15px;');
     expect(css).toMatch(/\.sori-shell__titlebar \{\s*border: 0;/);
     expect(css).toMatch(/\.sori-shell__workspace \{\s*border: 0;\s*border-radius: var\(--sori-radius-md\) 0 var\(--sori-shell-radius\) var\(--sori-radius-md\);/);
     expect(css).toMatch(/\.sori-sidebar-divider::after,\s*\.sori-sidebar-divider:hover::after/);

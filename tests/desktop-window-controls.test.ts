@@ -63,6 +63,7 @@ describe('desktop window controls', () => {
     expect(titlebarSource).toContain('role="toolbar"');
     expect(titlebarSource).toContain('aria-label="Minimize window"');
     expect(titlebarSource).toContain('aria-label={isMaximized ? \'Restore window\' : \'Maximize window\'}');
+    expect(titlebarSource).toContain("title={isMaximized ? 'Restore' : 'Maximize'}");
     expect(titlebarSource).toContain('aria-label="Close window"');
     expect(titlebarSource).not.toContain('data-tauri-drag-region="false"');
     expect(titlebarSource).toContain('onDoubleClick={handleTitlebarDoubleClick}');

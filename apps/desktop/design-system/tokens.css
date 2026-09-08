@@ -1,4 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;450;500;600;700&display=swap');
+/* Bundled from https://github.com/Instrument/instrument-sans (OFL-1.1). */
+@font-face {
+  font-family: 'Instrument Sans';
+  src: url('../src/assets/fonts/InstrumentSans[wdth,wght].woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
 
 /*
  * Sori desktop design tokens.
@@ -120,24 +127,32 @@
   --sori-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 
   /* Type */
-  --sori-font-sans: "Geist", "SF Pro Text", "SF Pro Display", "Avenir Next", "Inter", system-ui, -apple-system, sans-serif;
+  --sori-font-sans: "Instrument Sans", system-ui, sans-serif;
   /* Shared geometry aliases keep controls, cards, and overlays on one scale. */
   --sori-control-height: 36px;
   --sori-card-radius: 10px;
   --sori-control-radius: 10px;
   --sori-overlay-radius: 10px;
   --sori-font-mono: "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
-  --sori-type-page-size: 26px;
+  --sori-type-xs-size: 11px;
+  --sori-type-sm-size: 12px;
+  --sori-type-md-size: 14px;
+  --sori-type-lg-size: 18px;
+  --sori-type-xl-size: 26px;
+  --sori-type-weight-regular: 400;
+  --sori-type-weight-medium: 500;
+  --sori-type-weight-semibold: 600;
+  --sori-type-page-size: var(--sori-type-xl-size);
   --sori-type-page-leading: 32px;
-  --sori-type-section-size: 18px;
+  --sori-type-section-size: var(--sori-type-lg-size);
   --sori-type-section-leading: 26px;
-  --sori-type-body-size: 14.5px;
+  --sori-type-body-size: var(--sori-type-md-size);
   --sori-type-body-leading: 22px;
   --sori-type-sidebar-size: 13.5px;
   --sori-type-sidebar-leading: 20px;
   --sori-type-control-size: 13px;
   --sori-type-control-leading: 18px;
-  --sori-type-meta-size: 12px;
+  --sori-type-meta-size: var(--sori-type-sm-size);
   --sori-type-meta-leading: 18px;
 
   /* Shell and layout defaults; override per window or pane when needed. */

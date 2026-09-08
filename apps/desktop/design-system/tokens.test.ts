@@ -18,6 +18,14 @@ const expected = {
 } as const;
 
 describe('shared palette tokens', () => {
+  it('bundles Instrument Sans for offline UI and preserves mono exceptions', () => {
+    expect(css).toContain("font-family: 'Instrument Sans';");
+    expect(css).toContain("url('../src/assets/fonts/InstrumentSans[wdth,wght].woff2') format('woff2')");
+    expect(css).toContain('font-weight: 400 700;');
+    expect(css).not.toContain('fonts.googleapis.com');
+    expect(css).toContain('--sori-font-sans: "Instrument Sans", system-ui, sans-serif;');
+    expect(css).toContain('--sori-font-mono: "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;');
+  });
   it('uses one 10px geometry for cards, controls, overlays, and settings', () => {
     expect(css).toContain('--sori-card-radius: 10px;');
     expect(css).toContain('--sori-control-radius: 10px;');

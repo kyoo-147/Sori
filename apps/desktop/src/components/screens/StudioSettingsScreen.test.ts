@@ -13,16 +13,22 @@ describe('Studio Settings presentation contract', () => {
     expect(styles).not.toMatch(/\.settings-group\s*\{[^}]*border:\s*1px/s);
   });
 
-  it('renders a responsive compact two/three-column radio picker with two swatches', () => {
-    expect(screen).toContain('role="radiogroup"');
-    expect(screen).toContain('role="radio"');
-    expect(screen).toContain('theme-picker__swatch--neutral');
-    expect(styles).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
-    expect(styles).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+  it('renders one compact accessible listbox with true theme swatches and checks', () => {
+    expect(screen).toContain('aria-haspopup="listbox"');
+    expect(screen).toContain('role="listbox"');
+    expect(screen).toContain('role="option"');
+    expect(screen).toContain('themePalettes[settings.theme].primary');
+    expect(screen).toContain('<Check className="theme-picker__check"');
+    expect(styles).toContain('.theme-picker__menu');
+    expect(styles).toContain('max-height:248px');
+    expect(screen).not.toContain('role="radiogroup"');
+    expect(screen).not.toContain('theme-picker__swatch--neutral');
   });
 
-  it('preserves roving focus for arrows, Home, and End', () => {
-    for (const key of ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End']) expect(screen).toContain(`event.key === '${key}'`);
+  it('preserves keyboard navigation, Escape, outside click, and authoritative settings updates', () => {
+    for (const key of ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End', 'Escape']) expect(screen).toContain(key);
+    expect(screen).toContain('setSettings((current) => ({ ...current, theme: soriThemes[next] }))');
+    expect(screen).toContain('document.addEventListener(\'pointerdown\', onPointerDown)');
     expect(screen).toContain('tabIndex={settings.theme === id ? 0 : -1}');
     expect(screen).toContain('themeOptionRefs.current[next]?.focus()');
   });

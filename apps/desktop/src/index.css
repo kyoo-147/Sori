@@ -1203,3 +1203,42 @@
   .sori-shell { border-radius: 0; }
   .sori-shell__titlebar, .sori-shell__body, .sori-shell__sidebar, .sori-shell__workspace { border-radius: 0; }
 }
+
+/* Seam ownership: the shell body owns the sidebar/workspace junction. The
+ * resize rail remains a transparent hit target, while the workspace clips its
+ * own inner corners without painting a second panel edge. */
+.sori-shell__body {
+  grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) minmax(0, 1fr);
+  grid-template-areas: 'sidebar workspace';
+}
+.sori-shell[data-sidebar-collapsed='true'] .sori-shell__body {
+  grid-template-columns: 0 minmax(0, 1fr);
+  grid-template-areas: 'workspace workspace';
+}
+.sori-sidebar-divider {
+  position: absolute;
+  inset-block: 0;
+  left: var(--sori-sidebar-width-live, var(--sori-sidebar-width));
+  width: 9px;
+  background: transparent;
+  z-index: 3;
+}
+.sori-sidebar-divider::after,
+.sori-sidebar-divider:hover::after,
+.sori-sidebar-divider:active::after {
+  display: none;
+}
+.sori-shell__workspace {
+  border: 0;
+  border-radius: 14px 0 0 14px;
+  box-shadow: none;
+}
+.sori-shell__titlebar {
+  border: 0;
+  box-shadow: none;
+}
+@media (max-width: 767px) {
+  .sori-shell__body { display: block; }
+  .sori-sidebar-divider { display: none; }
+  .sori-shell__workspace { border-radius: 0; }
+}

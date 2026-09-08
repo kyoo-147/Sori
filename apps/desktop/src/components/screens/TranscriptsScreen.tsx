@@ -34,7 +34,7 @@ export const TranscriptsScreen: React.FC<TranscriptsScreenProps> = ({ history, r
   const displayState = resolveTranscriptViewState(history.length, loadState);
   const unavailableDetail = loadError ?? 'Check that Sori is running, then retry.';
 
-  return <main className="transcripts-screen sori-page-layout space-y-6" aria-busy={displayState === 'loading'}>
+  return <main className="transcripts-screen sori-page-layout" aria-busy={displayState === 'loading'}>
     <header className="transcripts-screen__header"><div><h1 className="sori-page-heading">Transcripts timeline</h1><p className="sori-body-text mt-1">Review captured audio, raw ASR, and processed output.</p></div>{loadState === 'loading' && history.length > 0 && <span className="transcripts-screen__sync"><span className="transcripts-screen__sync-dot" />Refreshing history</span>}</header>
     {displayState === 'loading' && <LoadingState />}
     {displayState === 'error' && <StatePanel icon={<AlertCircle />} title="History couldn't load" detail={unavailableDetail} action={onRetry ? 'Retry' : undefined} onAction={retry} danger />}

@@ -110,7 +110,7 @@ export const FirstRunOnboardingScreen: React.FC<FirstRunOnboardingScreenProps> =
   };
 
   return (
-    <div className="sori-screen sori-page-layout space-y-6" data-testid="first-run-setup">
+    <div className="sori-screen sori-page-layout" data-testid="first-run-setup">
       <header>
         <h1 className="sori-page-heading">Get ready to speak into any window</h1>
         <p className="sori-body-text mt-1">Check the daemon, microphone, permissions, and hotkey.</p>

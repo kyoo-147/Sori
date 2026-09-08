@@ -97,7 +97,7 @@ export const VoiceIdentityScreen: React.FC<Props> = ({ voiceProfile, setVoicePro
     setMsg('Export downloaded from authoritative persisted history.');
   };
   const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => <button type="button" role="switch" aria-checked={value} onClick={() => onChange(!value)} className={`h-6 w-11 rounded-full p-1 ${value ? 'bg-[var(--sori-accent-primary)]' : 'bg-[var(--sori-fill-disabled)]'}`}><span className={`block h-4 w-4 rounded-full bg-[var(--sori-bg-panel)] transition-transform ${value ? 'translate-x-5' : ''}`} /></button>;
-  return <div className="sori-screen sori-page-layout space-y-6">
+  return <div className="sori-screen sori-page-layout">
     <header><h1 className="sori-page-heading">Privacy &amp; data</h1><p className="sori-body-text mt-1">Control local history, retention, and access.</p></header>
     {configState === 'loading' && <div role="status" className="rounded-xl border border-[var(--sori-border-soft)] bg-[var(--sori-bg-panel-subtle)] p-3 text-xs text-[var(--sori-text-secondary)]">Loading persisted privacy settings…</div>}
     {msg && <div role="status" className="rounded-xl border border-[var(--sori-success-border)] bg-[var(--sori-success-bg)] p-3 text-xs text-[var(--sori-success-text)]">{msg}</div>}

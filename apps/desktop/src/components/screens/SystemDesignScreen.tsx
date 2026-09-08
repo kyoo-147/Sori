@@ -13,7 +13,7 @@ export const SystemDesignScreen: React.FC = () => {
   ];
 
   return (
-    <div className="sori-screen sori-page-layout space-y-6">
+    <div className="sori-screen sori-page-layout">
       <header>
         <h1 className="sori-page-heading">Design system</h1>
         <p className="sori-body-text mt-1">Review Sori’s shared colors, surfaces, and controls.</p>

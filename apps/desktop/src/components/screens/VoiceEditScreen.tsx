@@ -41,7 +41,7 @@ export const VoiceEditScreen: React.FC<Props> = ({ runtimeSource = 'unavailable'
     setState('applied'); setDetail('Replacement accepted by canonical text injection.');
   };
 
-  return <div className="sori-screen sori-page-layout space-y-6">
+  return <div className="sori-screen sori-page-layout">
     <header><h1 className="sori-page-heading">Voice selection edit</h1><p className="sori-body-text mt-1">Preview an edit from selected browser text.</p></header>
     <div role="status" aria-live="polite" className="rounded-xl border border-[var(--sori-border-soft)] bg-[var(--sori-bg-panel-subtle)] p-3 text-xs">{detail}</div>
     <div className="grid gap-5 lg:grid-cols-[minmax(340px,0.85fr)_minmax(0,1.35fr)]">

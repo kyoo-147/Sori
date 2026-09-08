@@ -38,6 +38,6 @@ describe('transcript timeline states', () => {
     expect(styles).toContain('grid-template-columns:minmax(0,1fr)');
     expect(styles).toContain('max-height:min(720px, calc(100vh - 220px))');
     expect(styles).toContain('max-height:min(720px, calc(100vh - 220px))');
-    expect(styles).toContain('.transcripts-screen__state { min-height:180px;');
+    expect(styles).toContain('.transcripts-screen__state { width:100%; min-height:220px;');
   });
 });

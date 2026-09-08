@@ -1039,20 +1039,37 @@
 }
 /* Shared page frame: Overview is the alignment baseline for production screens. */
 .sori-page-layout {
+  display: flex;
   width: 100%;
   min-width: 0;
   max-width: 1180px;
+  flex-direction: column;
+  gap: var(--sori-section-gap);
   margin-inline: auto;
-  padding: 16px;
+  padding: var(--sori-page-top) var(--sori-page-horizontal-padding);
   color: var(--sori-text-primary);
 }
-.sori-page-layout > header { margin: 0; }
-.sori-page-layout > header .sori-page-heading { margin: 0; }
+.sori-page-layout > header {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sori-card-gap);
+  margin: 0;
+}
+.sori-page-layout > header > div:first-child { min-width: 0; }
+.sori-page-layout > header .sori-page-heading { margin: var(--sori-header-title-gap) 0 0; }
 .sori-page-layout > header .sori-body-text {
   max-width: 44rem;
-  margin-top: 4px;
+  margin-top: var(--sori-title-description-gap);
   color: var(--sori-text-secondary);
 }
+/* Tailwind utility classes on legacy screens must not reintroduce competing
+ * vertical margins around the shared frame. */
+.sori-page-layout > * { margin-block-start: 0 !important; }
+.sori-page-layout > header + * { margin-block-start: var(--sori-header-content-gap) !important; }
+
 
 /* Final shell feedback pass: the resize rail is a transparent hit target;
  * its pseudo-element owns exactly one persistent one-pixel seam. */

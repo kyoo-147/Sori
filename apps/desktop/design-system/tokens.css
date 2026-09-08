@@ -149,6 +149,16 @@
   --sori-workspace-padding: 24px;
   --sori-pane-gap: 16px;
 
+  /* Shared production page rhythm. Screens consume these tokens through the
+   * page frame instead of inventing per-screen margin values. */
+  --sori-page-top: 16px;
+  --sori-page-horizontal-padding: 16px;
+  --sori-header-title-gap: 0px;
+  --sori-title-description-gap: 4px;
+  --sori-header-content-gap: 28px;
+  --sori-section-gap: 20px;
+  --sori-card-gap: 12px;
+
   /* Motion */
   --sori-motion-fast: 120ms;
   --sori-motion-standard: 180ms;

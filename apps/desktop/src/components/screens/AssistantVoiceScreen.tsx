@@ -22,7 +22,7 @@ export const AssistantVoiceScreen: React.FC<AssistantVoiceScreenProps> = ({
     setSaving(false);
   };
   return (
-    <div className="sori-screen sori-page-layout space-y-6">
+    <div className="sori-screen sori-page-layout">
       <header>
         <h1 className="sori-page-heading">Spoken replies</h1>
         <p className="sori-body-text mt-1">Saved preferences; spoken output is unavailable until a voice runtime is connected.</p>

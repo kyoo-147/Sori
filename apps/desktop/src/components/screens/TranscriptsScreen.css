@@ -57,7 +57,7 @@
 .transcripts-screen__next { justify-content:space-between; }
 .transcripts-screen__next button { display:inline-flex; align-items:center; padding:7px 9px; font-size:11px; }
 .transcripts-screen__detail-empty,.transcripts-screen__state { display:flex; min-height:360px; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:28px; border:1px dashed var(--sori-border-strong); border-radius:var(--sori-radius-lg); color:var(--sori-text-secondary); text-align:center; }
-.transcripts-screen__state { min-height:180px; max-width:520px; margin:0 auto; border-style:solid; }
+.transcripts-screen__state { width:100%; min-height:220px; max-width:none; margin:0; border-style:solid; }
 .transcripts-screen__state > div { display:grid; place-items:center; width:44px; height:44px; border-radius:50%; background:var(--sori-fill-selected); color:var(--sori-accent-primary); }
 .transcripts-screen__state > div.is-danger { background:var(--sori-error-bg); color:var(--sori-error-text); }
 .transcripts-screen__state p { max-width:360px; margin:0; }

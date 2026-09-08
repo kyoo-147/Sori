@@ -91,7 +91,7 @@ export const BenchmarkScreen: React.FC<Props> = ({ benchmarkResults, onApplyPoli
     URL.revokeObjectURL(url);
   };
   return (
-    <main className="sori-screen sori-page-layout min-w-0 space-y-6" aria-busy={running}>
+    <main className="sori-screen sori-page-layout min-w-0" aria-busy={running}>
       <header><h1 className="sori-page-heading">Benchmarks</h1><p className="sori-body-text mt-1">Measure a model with a real WAV file.</p></header>
       <div className="grid min-w-0 gap-5 lg:grid-cols-[0.9fr_1.1fr]">
         <section className="sori-pane min-w-0 space-y-5 p-5" aria-labelledby="benchmark-execution-heading">

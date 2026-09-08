@@ -9,7 +9,7 @@ Quiet desktop utility: warm near-white canvas, slate primary, restrained terraco
 - Selected navigation and settings tabs use fill-only states with no painted border.
 
 ## Type and hierarchy
-Geist / Geist Mono. Page titles lead, short supporting copy follows, and metadata stays quiet. Screens share the `sori-page-layout` frame and semantic spacing tokens.
+Instrument Sans / Geist Mono. Body typography uses Instrument Sans at 14px / 22px. Page titles lead, short supporting copy follows, and metadata stays quiet. Screens share the `sori-page-layout` frame and semantic spacing tokens.
 
 ## Theme checks
 Each theme must preserve contrast, one primary action color, one accent, tokenized surfaces, visible keyboard focus, and readable selected states across Home, Transcripts, Vocabulary, Models, Benchmarks, Extensions, Diagnostics, and Settings.

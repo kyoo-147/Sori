@@ -834,7 +834,7 @@
 }
 .sori-sidebar-brand__mark { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--sori-border-default); border-radius: var(--sori-radius-md); color: var(--sori-accent-primary); background: var(--sori-bg-panel); font-size: 19px; line-height: 1; }
 .sori-sidebar-brand strong, .sori-sidebar-brand small { display: block; }
-.sori-sidebar-brand strong { font-size: 14px; font-weight: 700; letter-spacing: -.02em; }
+.sori-sidebar-brand strong { font-size: 14px; font-weight: 600; letter-spacing: -.02em; }
 .sori-sidebar-brand small { margin-top: 1px; color: var(--sori-text-tertiary); font-size: 10px; }
 .sori-titlebar__leading { flex: 1 1 auto; }
 .sori-titlebar__center-actions { margin-inline: auto; }
@@ -1332,3 +1332,23 @@
   .sori-sidebar-divider { display: none; }
   .sori-shell__workspace { padding: 0; }
 }
+
+/* Instrument Sans contract: keep product UI on the bundled face while
+ * technical values continue to opt into the mono token above. */
+.sori-shell,
+.sori-shell button,
+.sori-shell input,
+.sori-shell select,
+.sori-shell textarea,
+.sori-shell [role='button'],
+.sori-shell [role='menuitem'] { font-family: var(--sori-font-sans); }
+.sori-shell input.settings-input--mono,
+.sori-shell textarea.settings-input--mono { font-family: var(--sori-font-mono); }
+.sori-page-heading { font-weight: var(--sori-type-weight-semibold); letter-spacing: -0.015em; }
+.sori-section-heading { font-weight: var(--sori-type-weight-semibold); letter-spacing: -0.008em; }
+.sori-body-text { font-weight: var(--sori-type-weight-regular); }
+.sori-sidebar-text { font-weight: var(--sori-type-weight-medium); }
+.sori-button-text { font-weight: var(--sori-type-weight-medium); }
+.sori-meta-text { font-weight: var(--sori-type-weight-regular); }
+.sori-titlebar__brand,
+.sori-sidebar-brand strong { font-weight: var(--sori-type-weight-semibold); }

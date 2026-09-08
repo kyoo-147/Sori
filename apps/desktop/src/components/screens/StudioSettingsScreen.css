@@ -24,7 +24,7 @@
 }
 .settings-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:4px 0 20px; border-bottom:1px solid color-mix(in srgb, var(--sori-settings-border) 58%, transparent); }
 .settings-panel--modal .settings-header { padding:24px 28px 18px; }
-.settings-title { margin:0; font-size:clamp(1.4rem,2vw,1.75rem); font-weight:750; letter-spacing:-.035em; }
+.settings-title { margin:0; font-size:clamp(1.4rem,2vw,1.75rem); font-weight:600; line-height:1.2; letter-spacing:-.02em; }
 .settings-subtitle { margin:5px 0 0; color:var(--sori-text-secondary); font-size:.82rem; }
 .settings-close { display:grid; place-items:center; flex:0 0 auto; width:36px; height:36px; border:1px solid var(--sori-settings-border); border-radius:var(--sori-settings-radius); background:var(--sori-settings-modal-bg); color:var(--sori-text-secondary); cursor:pointer; transition:background-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease, border-color var(--sori-motion-fast) ease; }
 .settings-close:hover { background:var(--sori-settings-hover); color:var(--sori-text-primary); border-color:var(--sori-border-strong); }
@@ -33,11 +33,11 @@
 .settings-layout { display:grid; grid-template-columns: 196px minmax(0, 1fr); margin-top:20px; border:1px solid var(--sori-settings-border); border-radius:var(--sori-settings-radius); overflow:hidden; background:var(--sori-settings-surface); }
 .settings-panel--modal .settings-layout { margin:0; border:0; border-radius:0; }
 .settings-nav { padding:13px 10px; background:var(--sori-settings-sidebar); border-right: 1px solid var(--sori-settings-border); }
-.settings-nav__label { padding:5px 9px 7px; color:var(--sori-settings-muted); font-size:.65rem; font-weight:750; letter-spacing:.1em; text-transform:uppercase; }
+.settings-nav__label { padding:5px 9px 7px; color:var(--sori-settings-muted); font-size:.65rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
 .settings-nav__label--spaced { margin-top:13px; padding-top:16px; border-top:1px solid var(--sori-border-soft); }
 .settings-tab { display:flex; align-items:center; gap:9px; width:100%; min-height:36px; padding:7px 9px; border:1px solid transparent; border-radius:var(--sori-settings-radius); background:transparent; color:var(--sori-text-secondary); text-align:left; font-size:.77rem; font-weight:550; cursor:pointer; transition:background-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease, border-color var(--sori-motion-fast) ease; }
 .settings-tab:hover { background:var(--sori-settings-hover); color:var(--sori-text-primary); }
-.settings-tab--active { border-color:transparent; background:var(--sori-settings-active); color:var(--sori-text-primary); box-shadow:none; font-weight:700; }
+.settings-tab--active { border-color:transparent; background:var(--sori-settings-active); color:var(--sori-text-primary); box-shadow:none; font-weight:600; }
 .settings-tab__icon { display:grid; place-items:center; flex:none; color:var(--sori-text-tertiary); }
 .settings-tab svg { width:15px; height:15px; }
 .settings-tab--active .settings-tab__icon { color:var(--sori-accent-primary); }
@@ -45,16 +45,16 @@
 .settings-content__heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:22px; padding-bottom:15px; border-bottom:1px solid var(--sori-border-soft); }
 .settings-content__heading h2 { margin:0; font-size:1.08rem; letter-spacing:-.02em; }
 .settings-content__meta { display:block; margin-top:4px; color:var(--sori-text-tertiary); font-size:.68rem; }
-.settings-chip { display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border-radius:var(--sori-radius-pill); background:var(--sori-success-bg); color:var(--sori-success-text); font-size:.68rem; font-weight:700; }
+.settings-chip { display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border-radius:var(--sori-radius-pill); background:var(--sori-success-bg); color:var(--sori-success-text); font-size:.68rem; font-weight:500; }
 .settings-chip svg { width:13px; }
 .settings-copy { max-width:62ch; margin:0; color:var(--sori-text-secondary); font-size:.8rem; line-height:1.55; }
 .settings-group { padding:14px; border-radius:var(--sori-settings-radius); background:var(--sori-settings-surface); }
-.settings-label { display:block; margin-bottom:8px; color:var(--sori-text-primary); font-size:.78rem; font-weight:700; }
+.settings-label { display:block; margin-bottom:8px; color:var(--sori-text-primary); font-size:.78rem; font-weight:600; }
 .settings-input { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--sori-settings-border); border-radius:var(--sori-settings-radius); background:var(--sori-settings-input); color:var(--sori-text-primary); font-size:.8rem; transition:border-color var(--sori-motion-fast) ease, box-shadow var(--sori-motion-fast) ease; }
 .settings-input:disabled { background:var(--sori-fill-disabled); color:var(--sori-text-quiet); }
-.settings-input--mono { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-weight:650; }
+.settings-input--mono { font-family:var(--sori-font-mono); font-weight:500; }
 .settings-input--readonly { display:flex; align-items:center; color:var(--sori-text-secondary); }
-.settings-button { min-height:36px; padding:7px 12px; border:1px solid var(--sori-border-strong); border-radius:var(--sori-control-radius); background:var(--sori-bg-panel); color:var(--sori-text-primary); font-size:.77rem; font-weight:700; cursor:pointer; transition:background-color var(--sori-motion-fast) ease, border-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease, transform var(--sori-motion-fast) ease; }
+.settings-button { min-height:36px; padding:7px 12px; border:1px solid var(--sori-border-strong); border-radius:var(--sori-control-radius); background:var(--sori-bg-panel); color:var(--sori-text-primary); font-size:.77rem; font-weight:500; cursor:pointer; transition:background-color var(--sori-motion-fast) ease, border-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease, transform var(--sori-motion-fast) ease; }
 .settings-button:hover:not(:disabled) { background:var(--sori-settings-hover); }
 .settings-button--primary { border-color:var(--sori-button-border); background:var(--sori-button-bg); color:var(--sori-button-text); }
 .settings-button--primary:hover:not(:disabled) { background:var(--sori-button-hover); }

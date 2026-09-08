@@ -1171,3 +1171,23 @@
 }
 .sori-sidebar-item[aria-current='page'] { background: var(--sori-fill-selected) !important; }
 .settings-tab--active { border-color:transparent; background: var(--sori-settings-active); }
+
+/* Window silhouette ownership: only the shell clips the native window shape.
+ * Child panes deliberately have square outer edges so nested radii cannot
+ * create a second corner, halo, or white-over-color seam. */
+.sori-shell {
+  overflow: hidden;
+  border: 0;
+  border-radius: 15px;
+}
+.sori-shell__titlebar,
+.sori-shell__body,
+.sori-shell__sidebar,
+.sori-shell__workspace {
+  border-radius: 0;
+}
+.sori-shell__titlebar { overflow: visible; }
+.sori-shell[data-window-maximized='true'] { border-radius: 0; }
+@media (max-width: 767px) {
+  .sori-shell { border-radius: 0; }
+}

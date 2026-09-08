@@ -134,6 +134,7 @@ export default function App() {
   const shellRef = useRef<HTMLDivElement>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState<DaemonStatus>({ daemon: 'unavailable', activity: 'error', paused: false, hotkey: 'Alt+Space', route: { prefer_local: true, allow_cloud: true, prefer_warm_runtime: false, optimize_battery: false }, profile: 'Basic', privacy: 'LocalOnly', version: null });
   const [runtimeSource, setRuntimeSource] = useState<RuntimeSource>('unavailable');
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
@@ -449,7 +450,7 @@ export default function App() {
   };
 
   return (
-    <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sori-theme={theme} data-sidebar-collapsed={sidebarCollapsed} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
+    <div ref={shellRef} className="sori-shell select-none sori-app-shell h-full min-h-0 flex flex-col font-sans overflow-hidden antialiased" data-sori-layout="shell" data-sori-theme={theme} data-sidebar-collapsed={sidebarCollapsed} data-window-maximized={isWindowMaximized} style={{ '--sori-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`, '--sori-sidebar-width-live': sidebarCollapsed ? '0px' : `${sidebarWidth}px` } as React.CSSProperties}>
       {/* Top Window Titlebar (Chrome Window Header) */}
       <div className="sori-shell__titlebar">
       <DesktopTitleBar
@@ -476,6 +477,7 @@ export default function App() {
           }}
           sidebarCollapsed={sidebarCollapsed}
           onNavigate={(screen) => setActiveScreen(screen)}
+          onMaximizedChange={setIsWindowMaximized}
       />
       </div>
 

@@ -1242,3 +1242,93 @@
   .sori-sidebar-divider { display: none; }
   .sori-shell__workspace { border-radius: 0; }
 }
+
+/* Final shell contract: the outer shell is the only clipping owner. The
+ * divider remains a transparent resize hit-area; it never paints a seam. */
+.sori-shell {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--sori-shell-radius);
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__titlebar {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  overflow: visible;
+  flex: 0 0 var(--sori-titlebar-height);
+  border: 0;
+  border-radius: var(--sori-shell-radius) var(--sori-shell-radius) 0 0;
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__body {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) minmax(0, 1fr);
+  grid-template-areas: 'sidebar workspace';
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0 0 var(--sori-shell-radius) var(--sori-shell-radius);
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__sidebar {
+  grid-area: sidebar;
+  border: 0;
+  border-radius: 0 0 0 var(--sori-shell-radius);
+  background: var(--sori-bg-sidebar);
+}
+.sori-shell__workspace {
+  grid-area: workspace;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 12px 0 0 12px;
+  background: var(--sori-bg-app);
+  box-shadow: none;
+}
+.sori-sidebar-divider {
+  position: absolute;
+  inset-block: 0;
+  left: var(--sori-sidebar-width-live, var(--sori-sidebar-width));
+  z-index: 3;
+  width: 10px;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sori-sidebar-divider::after,
+.sori-sidebar-divider:hover::after,
+.sori-sidebar-divider:active::after { display: none; }
+.sori-shell__sidebar button[aria-current='page'],
+.sori-sidebar-item[aria-current='page'],
+.sori-sidebar-item-active,
+.sori-selected-neutral,
+.settings-tab--active {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  background: var(--sori-fill-selected) !important;
+}
+
+/* Overview establishes the page rhythm; every screen consumes the same frame. */
+.sori-page-layout {
+  gap: var(--sori-section-gap);
+  padding: var(--sori-page-top) var(--sori-page-horizontal-padding);
+}
+.sori-page-layout > header + * { margin-block-start: var(--sori-header-content-gap) !important; }
+
+@media (max-width: 767px) {
+  .sori-shell { border-radius: 0; }
+  .sori-shell__titlebar,
+  .sori-shell__body,
+  .sori-shell__sidebar,
+  .sori-shell__workspace { border-radius: 0; }
+  .sori-shell__body { display: block; }
+  .sori-sidebar-divider { display: none; }
+  .sori-shell__workspace { padding: 0; }
+}

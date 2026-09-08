@@ -16,8 +16,8 @@ describe('desktop visual architecture contracts', () => {
     for (const token of [
       '--sori-space-1: 4px',
       '--sori-space-6: 24px',
-      '--sori-radius-md: 5px',
-      '--sori-radius-xl: 7px',
+      '--sori-radius-md: 10px',
+      '--sori-radius-xl: 10px',
       '--sori-shadow-xs:',
       '--sori-shadow-lg:',
       '--sori-type-page-size: 26px',

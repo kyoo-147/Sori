@@ -91,8 +91,8 @@
   --sori-settings-input: #FFFFFF;
   --sori-settings-muted: var(--sori-text-secondary);
   --sori-settings-focus: var(--sori-primary);
-  --sori-settings-radius: 5px;
-  --sori-settings-modal-radius: 7px;
+  --sori-settings-radius: 10px;
+  --sori-settings-modal-radius: 10px;
   --sori-settings-accent: var(--sori-primary);
   --sori-space-2: 8px;
   --sori-space-3: 12px;
@@ -105,10 +105,10 @@
 
   /* Shape */
   --sori-radius-xs: 4px;
-  --sori-radius-sm: 5px;
-  --sori-radius-md: 5px;
-  --sori-radius-lg: 5px;
-  --sori-radius-xl: 7px;
+  --sori-radius-sm: 10px;
+  --sori-radius-md: 10px;
+  --sori-radius-lg: 10px;
+  --sori-radius-xl: 10px;
   --sori-radius-pill: 999px;
 
   /* Quiet, low-contrast elevation */
@@ -123,9 +123,9 @@
   --sori-font-sans: "Geist", "SF Pro Text", "SF Pro Display", "Avenir Next", "Inter", system-ui, -apple-system, sans-serif;
   /* Shared geometry aliases keep controls, cards, and overlays on one scale. */
   --sori-control-height: 36px;
-  --sori-card-radius: var(--sori-radius-lg);
-  --sori-control-radius: var(--sori-radius-sm);
-  --sori-overlay-radius: var(--sori-radius-xl);
+  --sori-card-radius: 10px;
+  --sori-control-radius: 10px;
+  --sori-overlay-radius: 10px;
   --sori-font-mono: "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
   --sori-type-page-size: 26px;
   --sori-type-page-leading: 32px;
@@ -170,7 +170,7 @@
   --sori-glass-strong-bg: rgba(255, 255, 255, 0.76);
   --sori-glass-strong-filter: blur(24px) saturate(130%);
   --sori-glass-overlay-bg: rgba(255, 255, 255, 0.82);
-  --sori-glass-overlay-radius: 18px;
+  --sori-glass-overlay-radius: 10px;
 }
 
 

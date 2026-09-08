@@ -20,8 +20,8 @@ export const systemDesignTokens = {
     },
   },
   spacing: { 0: '0px', 1: '4px', 2: '8px', 3: '12px', 4: '16px', 5: '20px', 6: '24px', 7: '32px', 8: '40px', 9: '48px' },
-  radius: { xs: '4px', sm: '5px', md: '5px', lg: '5px', xl: '7px', pill: '999px' },
-  geometry: { controlHeight: '36px', controlRadius: '5px', cardRadius: '5px', overlayRadius: '7px', settingsRadius: '5px', settingsModalRadius: '7px' },
+  radius: { xs: '4px', sm: '10px', md: '10px', lg: '10px', xl: '10px', pill: '999px' },
+  geometry: { controlHeight: '36px', controlRadius: '10px', cardRadius: '10px', overlayRadius: '10px', settingsRadius: '10px', settingsModalRadius: '10px' },
   shadows: {
     none: '0 0 transparent',
     xs: '0 1px 2px rgba(26, 31, 36, 0.04)',
@@ -44,7 +44,7 @@ export const systemDesignTokens = {
   glass: {
     light: { bg: 'rgba(255, 255, 255, 0.68)', backdropFilter: 'blur(18px) saturate(120%)', border: '1px solid rgba(210, 214, 220, 0.72)', boxShadow: '0 4px 12px rgba(26, 31, 36, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.72)' },
     strong: { bg: 'rgba(255, 255, 255, 0.76)', backdropFilter: 'blur(24px) saturate(130%)', border: '1px solid rgba(203, 208, 214, 0.86)', boxShadow: '0 10px 28px rgba(26, 31, 36, 0.07)' },
-    overlay: { bg: 'rgba(255, 255, 255, 0.82)', backdropFilter: 'blur(24px) saturate(130%)', border: '1px solid rgba(203, 208, 214, 0.86)', borderRadius: '18px', boxShadow: '0 18px 44px rgba(26, 31, 36, 0.10)' },
+    overlay: { bg: 'rgba(255, 255, 255, 0.82)', backdropFilter: 'blur(24px) saturate(130%)', border: '1px solid rgba(203, 208, 214, 0.86)', borderRadius: '10px', boxShadow: '0 18px 44px rgba(26, 31, 36, 0.10)' },
   },
   typography: {
     fontFamily: '"Geist", "SF Pro Text", "SF Pro Display", "Avenir Next", "Inter", system-ui, -apple-system, sans-serif',

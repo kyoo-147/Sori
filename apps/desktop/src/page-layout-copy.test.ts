@@ -44,8 +44,8 @@ describe('production page layout and copy contracts', () => {
     expect(css).toContain('max-width: 44rem;');
     expect(css).toContain('margin-top: var(--sori-title-description-gap);');
     expect(css).toContain('--sori-shell-radius: 15px;');
-    expect(css).toContain('border-radius: 15px 0 var(--sori-shell-radius) 15px;');
-    expect(css).toContain('border-radius: 5px !important;');
+    expect(css).toContain('border-radius: var(--sori-radius-md) 0 var(--sori-shell-radius) var(--sori-radius-md);');
+    expect(css).toContain('border-radius: var(--sori-card-radius) !important;');
   });
 
   it('removes the old documentation-style headers and setup eyebrow', () => {

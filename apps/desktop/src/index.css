@@ -1058,9 +1058,8 @@
   color: var(--sori-text-secondary);
 }
 /* Tailwind utility classes on legacy screens must not reintroduce competing
- * vertical margins around the shared frame. */
+ * vertical margins around the shared frame. The flex gap owns this rhythm. */
 .sori-page-layout > * { margin-block-start: 0 !important; }
-.sori-page-layout > header + * { margin-block-start: var(--sori-header-content-gap) !important; }
 
 
 /* Final shell feedback pass: the resize rail is a transparent hit target;
@@ -1288,7 +1287,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   border: 0;
-  border-radius: 12px 0 0 12px;
+  border-radius: var(--sori-card-radius) 0 0 var(--sori-card-radius);
   background: var(--sori-bg-app);
   box-shadow: none;
 }
@@ -1320,7 +1319,6 @@
   gap: var(--sori-section-gap);
   padding: var(--sori-page-top) var(--sori-page-horizontal-padding);
 }
-.sori-page-layout > header + * { margin-block-start: var(--sori-header-content-gap) !important; }
 
 @media (max-width: 767px) {
   .sori-shell { border-radius: 0; }
@@ -1372,9 +1370,6 @@
 }
 .sori-page-layout > header .sori-body-text {
   margin-top: var(--sori-title-description-gap) !important;
-}
-.sori-page-layout > header + * {
-  margin-top: var(--sori-header-content-gap) !important;
 }
 .sori-pane,
 .sori-card {

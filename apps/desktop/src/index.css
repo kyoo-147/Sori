@@ -1405,3 +1405,49 @@
     padding-inline: var(--sori-space-4);
   }
 }
+
+/* Final surface contract: chrome is one connected family; the workspace is
+ * the only content surface. The resize rail stays a transparent hit target. */
+.sori-shell,
+.sori-shell__titlebar,
+.sori-shell__body,
+.sori-shell__sidebar,
+.sori-shell__sidebar-footer {
+  background: var(--sori-surface-chrome);
+}
+.sori-shell__workspace {
+  background: var(--sori-surface-canvas);
+  border: 0;
+  border-radius: var(--sori-card-radius) 0 0 var(--sori-card-radius);
+  box-shadow: none;
+}
+.sori-shell__body {
+  grid-template-columns: minmax(0, var(--sori-sidebar-width-live, var(--sori-sidebar-width))) minmax(0, 1fr);
+  grid-template-areas: 'sidebar workspace';
+}
+.sori-sidebar-divider {
+  position: absolute;
+  inset-block: 0;
+  left: var(--sori-sidebar-width-live, var(--sori-sidebar-width));
+  width: 10px;
+  z-index: 3;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sori-sidebar-divider::after,
+.sori-sidebar-divider:hover::after,
+.sori-sidebar-divider:active::after { display: none; }
+.sori-shell__titlebar { border: 0; box-shadow: none; }
+
+/* Overview icon tiles share one optical box so glyphs sit on the same center. */
+.sori-icon-tile {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+}
+.sori-icon-tile svg { display: block; }
+
+@media (max-width: 767px) {
+  .sori-shell__workspace { border-radius: 0; }
+}

@@ -22,7 +22,7 @@
   border-radius: var(--sori-settings-modal-radius);
   box-shadow: var(--sori-shadow-lg);
 }
-.settings-header { display:flex; align-items:flex-start; justify-content:space-between; gap:var(--sori-space-4); padding:var(--sori-space-1) 0 var(--sori-space-5); border-bottom:1px solid color-mix(in srgb, var(--sori-settings-border) 58%, transparent); }
+.settings-header { display:flex; align-items:center; justify-content:space-between; gap:var(--sori-space-4); padding:var(--sori-space-1) 0 var(--sori-space-5); }
 .settings-panel--modal .settings-header { padding:var(--sori-space-6) var(--sori-space-6) var(--sori-space-4); }
 .settings-title { margin:0; font-size:clamp(1.4rem,2vw,1.75rem); font-weight:600; line-height:1.2; letter-spacing:-.02em; }
 .settings-subtitle { margin:var(--sori-space-1) 0 0; color:var(--sori-text-secondary); font-size:.82rem; }
@@ -30,11 +30,11 @@
 .settings-close:hover { background:var(--sori-settings-hover); color:var(--sori-text-primary); border-color:var(--sori-border-strong); }
 .settings-close:active { transform:translateY(1px); }
 .settings-close svg { width:17px; }
-.settings-layout { display:grid; grid-template-columns: 196px minmax(0, 1fr); margin-top:var(--sori-space-5); border:1px solid var(--sori-settings-border); border-radius:var(--sori-settings-radius); overflow:hidden; background:var(--sori-settings-surface); }
+.settings-layout { display:grid; grid-template-columns: 196px minmax(0, 1fr); margin-top:var(--sori-space-5); border:0; border-radius:var(--sori-settings-radius); overflow:hidden; background:var(--sori-settings-surface); }
 .settings-panel--modal .settings-layout { margin:0; border:0; border-radius:0; }
 .settings-nav { padding:var(--sori-space-3) var(--sori-space-2); background:var(--sori-settings-sidebar); border-right: 1px solid var(--sori-settings-border); }
 .settings-nav__label { padding:var(--sori-space-1) var(--sori-space-2) var(--sori-space-2); color:var(--sori-settings-muted); font-size:.65rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
-.settings-nav__label--spaced { margin-top:var(--sori-space-3); padding-top:var(--sori-space-4); border-top:1px solid var(--sori-border-soft); }
+.settings-nav__label--spaced { margin-top:var(--sori-space-3); padding-top:var(--sori-space-4); }
 .settings-tab { display:flex; align-items:center; gap:var(--sori-space-2); width:100%; min-height:36px; padding:var(--sori-space-2) var(--sori-space-2); border:1px solid transparent; border-radius:var(--sori-settings-radius); background:transparent; color:var(--sori-text-secondary); text-align:left; font-size:.77rem; font-weight:550; cursor:pointer; transition:background-color var(--sori-motion-fast) ease, color var(--sori-motion-fast) ease, border-color var(--sori-motion-fast) ease; }
 .settings-tab:hover { background:var(--sori-settings-hover); color:var(--sori-text-primary); }
 .settings-tab--active { border-color:transparent; background:var(--sori-settings-active); color:var(--sori-text-primary); box-shadow:none; font-weight:600; }
@@ -42,7 +42,7 @@
 .settings-tab svg { width:15px; height:15px; }
 .settings-tab--active .settings-tab__icon { color:var(--sori-accent-primary); }
 .settings-content { min-width:0; padding:var(--sori-space-6) var(--sori-space-6) var(--sori-space-7); }
-.settings-content__heading { display:flex; align-items:center; justify-content:space-between; gap:var(--sori-space-3); margin-bottom:var(--sori-space-6); padding-bottom:var(--sori-space-4); border-bottom:1px solid var(--sori-border-soft); }
+.settings-content__heading { display:flex; align-items:center; justify-content:space-between; gap:var(--sori-space-3); margin-bottom:var(--sori-space-6); padding-bottom:0; }
 .settings-content__heading h2 { margin:0; font-size:1.08rem; letter-spacing:-.02em; }
 .settings-content__meta { display:block; margin-top:var(--sori-space-1); color:var(--sori-text-tertiary); font-size:.68rem; }
 .settings-chip { display:inline-flex; align-items:center; gap:var(--sori-space-1); padding:var(--sori-space-1) var(--sori-space-2); border-radius:var(--sori-radius-pill); background:var(--sori-success-bg); color:var(--sori-success-text); font-size:.68rem; font-weight:500; }

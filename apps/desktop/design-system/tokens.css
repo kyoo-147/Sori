@@ -24,8 +24,8 @@
   --sori-bg-elevated: rgba(255, 255, 255, 0.72);
 
   /* Three quiet material layers: connected chrome, clean canvas, elevated cards. */
-  --sori-surface-chrome: color-mix(in srgb, var(--sori-bg-sidebar) 94%, var(--sori-text-primary));
-  --sori-surface-canvas: var(--sori-bg-canvas);
+  --sori-surface-chrome: #F7F7F7;
+  --sori-surface-canvas: #FFFFFF;
   --sori-surface-card: var(--sori-bg-panel);
   --sori-surface-card-subtle: var(--sori-bg-panel-subtle);
   --sori-text-primary: #161616;
@@ -199,7 +199,8 @@
 /* User-adjustable palettes. Theme names are stable API values mirrored in tokens.ts. */
 [data-sori-theme='clear'], [data-sori-theme='light'] {
   --sori-primary: #2F6F91; --sori-accent: #2F6F91; --sori-filled-control-foreground: #FFFFFF; --sori-primary-hover: #245A78; --sori-primary-pressed: #1B475F; --sori-accent-soft: #EAF4FA;
-  --sori-bg-canvas: #FCFDFE; --sori-bg-app: #FCFDFE; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FCFDFE; --sori-bg-sidebar: #F5F8FA;
+  --sori-bg-canvas: #FFFFFF; --sori-bg-app: #FFFFFF; --sori-bg-panel: #FFFFFF; --sori-bg-panel-subtle: #FFFFFF; --sori-bg-sidebar: #F7F7F7;
+  --sori-surface-chrome: #F7F7F7; --sori-surface-canvas: #FFFFFF; --sori-surface-card: #FFFFFF; --sori-surface-card-subtle: #FFFFFF;
   --sori-text-primary: #17202A; --sori-text-secondary: #66717D; --sori-text-tertiary: #66717D; --sori-border-default: #E1E7EC; --sori-border-soft: #E1E7EC; --sori-border-strong: #E1E7EC; --sori-border-focus: #2F6F91;
   --sori-fill-hover: #EAF4FA; --sori-fill-active: #EAF4FA; --sori-fill-selected: #EAF4FA; --sori-button-hover: #245A78; --sori-accent-primary: var(--sori-primary); --sori-accent-primary-soft: #EAF4FA; --sori-accent-primary-border: #E1E7EC;
 }

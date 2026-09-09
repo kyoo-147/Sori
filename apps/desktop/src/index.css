@@ -1058,9 +1058,8 @@
   color: var(--sori-text-secondary);
 }
 /* Tailwind utility classes on legacy screens must not reintroduce competing
- * vertical margins around the shared frame. */
+ * vertical margins around the shared frame. The flex gap owns this rhythm. */
 .sori-page-layout > * { margin-block-start: 0 !important; }
-.sori-page-layout > header + * { margin-block-start: var(--sori-header-content-gap) !important; }
 
 
 /* Final shell feedback pass: the resize rail is a transparent hit target;
@@ -1288,7 +1287,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   border: 0;
-  border-radius: 12px 0 0 12px;
+  border-radius: var(--sori-card-radius) 0 0 var(--sori-card-radius);
   background: var(--sori-bg-app);
   box-shadow: none;
 }
@@ -1320,7 +1319,6 @@
   gap: var(--sori-section-gap);
   padding: var(--sori-page-top) var(--sori-page-horizontal-padding);
 }
-.sori-page-layout > header + * { margin-block-start: var(--sori-header-content-gap) !important; }
 
 @media (max-width: 767px) {
   .sori-shell { border-radius: 0; }
@@ -1352,3 +1350,58 @@
 .sori-meta-text { font-weight: var(--sori-type-weight-regular); }
 .sori-titlebar__brand,
 .sori-sidebar-brand strong { font-weight: var(--sori-type-weight-semibold); }
+
+/* Layout and surface polish: one gutter, one 4px rhythm, three quiet layers. */
+.sori-shell,
+.sori-shell__titlebar,
+.sori-shell__sidebar,
+.sori-shell__sidebar-footer {
+  background: var(--sori-surface-chrome);
+}
+.sori-shell__workspace {
+  background: var(--sori-surface-canvas);
+}
+.sori-page-layout {
+  gap: var(--sori-section-gap);
+  padding: var(--sori-page-top) var(--sori-page-horizontal-padding);
+}
+.sori-page-layout > header {
+  gap: var(--sori-card-gap);
+}
+.sori-page-layout > header .sori-body-text {
+  margin-top: var(--sori-title-description-gap) !important;
+}
+.sori-pane,
+.sori-card {
+  background: var(--sori-surface-card);
+  border-color: var(--sori-border-soft);
+  border-radius: var(--sori-card-radius);
+  box-shadow: var(--sori-shadow-xs);
+}
+.sori-screen-home > .grid,
+.sori-screen-models > .sori-pane,
+.sori-screen-models > .grid,
+.sori-screen-benchmarks > .grid {
+  gap: var(--sori-section-gap);
+}
+.sori-screen-home aside {
+  gap: var(--sori-card-gap);
+}
+.sori-screen-home aside > section {
+  background: var(--sori-surface-card);
+}
+.sori-screen-home aside > section:last-child {
+  background: var(--sori-surface-card-subtle);
+}
+.sori-sidebar-item[aria-current='page'],
+.sori-sidebar-item-active,
+.sori-selected-neutral,
+.settings-tab--active {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+@media (max-width: 767px) {
+  .sori-page-layout {
+    padding-inline: var(--sori-space-4);
+  }
+}

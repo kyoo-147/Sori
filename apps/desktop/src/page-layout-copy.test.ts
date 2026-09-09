@@ -34,7 +34,7 @@ describe('production page layout and copy contracts', () => {
     for (const token of ['--sori-page-top', '--sori-header-title-gap', '--sori-title-description-gap', '--sori-header-content-gap', '--sori-section-gap', '--sori-card-gap', '--sori-page-horizontal-padding']) expect(tokens).toContain(token);
     expect(css).toContain('gap: var(--sori-section-gap);');
     expect(css).toContain('padding: var(--sori-page-top) var(--sori-page-horizontal-padding);');
-    expect(css).toContain('header + * { margin-block-start: var(--sori-header-content-gap) !important; }');
+    expect(css).not.toContain('header + * { margin-block-start: var(--sori-header-content-gap) !important; }');
   });
 
   it('keeps one shared page geometry and the approved shell radii', () => {
@@ -44,7 +44,7 @@ describe('production page layout and copy contracts', () => {
     expect(css).toContain('max-width: 44rem;');
     expect(css).toContain('margin-top: var(--sori-title-description-gap);');
     expect(read('../design-system/tokens.css')).toContain('--sori-shell-radius: 15px;');
-    expect(css).toContain('border-radius: var(--sori-radius-md) 0 var(--sori-shell-radius) var(--sori-radius-md);');
+    expect(css).toContain('border-radius: var(--sori-card-radius) 0 0 var(--sori-card-radius);');
     expect(css).toContain('border-radius: var(--sori-card-radius) !important;');
   });
 

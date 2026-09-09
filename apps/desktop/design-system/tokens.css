@@ -22,6 +22,12 @@
   --sori-bg-panel: #FFFFFF;
   --sori-bg-panel-subtle: #F8F8F7;
   --sori-bg-elevated: rgba(255, 255, 255, 0.72);
+
+  /* Three quiet material layers: connected chrome, clean canvas, elevated cards. */
+  --sori-surface-chrome: color-mix(in srgb, var(--sori-bg-sidebar) 94%, var(--sori-text-primary));
+  --sori-surface-canvas: var(--sori-bg-canvas);
+  --sori-surface-card: var(--sori-bg-panel);
+  --sori-surface-card-subtle: var(--sori-bg-panel-subtle);
   --sori-text-primary: #161616;
   --sori-text-secondary: #5F6368;
   --sori-text-tertiary: #858A90;
@@ -167,13 +173,13 @@
 
   /* Shared production page rhythm. Screens consume these tokens through the
    * page frame instead of inventing per-screen margin values. */
-  --sori-page-top: 16px;
-  --sori-page-horizontal-padding: 16px;
+  --sori-page-top: 20px;
+  --sori-page-horizontal-padding: 24px;
   --sori-header-title-gap: 0px;
   --sori-title-description-gap: 4px;
-  --sori-header-content-gap: 14px;
-  --sori-section-gap: 20px;
-  --sori-card-gap: 12px;
+  --sori-header-content-gap: 16px;
+  --sori-section-gap: 24px;
+  --sori-card-gap: 16px;
 
   /* Motion */
   --sori-motion-fast: 120ms;

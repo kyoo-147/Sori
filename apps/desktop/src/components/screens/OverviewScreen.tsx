@@ -63,7 +63,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ settings, isList
       </header>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="rounded-[18px] border border-[var(--sori-border-soft)] bg-[var(--sori-bg-panel)] p-5 shadow-[var(--sori-shadow-sm)] md:p-6">
+        <section className="rounded-[18px] border border-[var(--sori-border-soft)] bg-[var(--sori-bg-panel)] p-4 shadow-[var(--sori-shadow-sm)]">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--sori-border-soft)] pb-4">
             <div className="flex gap-3">
               <div className="rounded-xl bg-[var(--sori-fill-hover)] p-2.5 text-[var(--sori-text-tertiary)]"><Target className="h-5 w-5" /></div>

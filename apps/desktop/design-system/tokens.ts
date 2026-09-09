@@ -94,7 +94,7 @@ export interface ThemePalette {
 
 /** One neutral base and one accent family per preset; status colors remain global. */
 export const themePalettes: Record<SoriTheme, ThemePalette> = {
-  clear: { primary: '#2F6F91', accent: '#2F6F91', hover: '#245A78', pressed: '#1B475F', soft: '#EAF4FA', background: '#FCFDFE', surface: '#FFFFFF', sidebar: '#F5F8FA', border: '#E1E7EC', text: '#17202A', muted: '#66717D', filledForeground: '#FFFFFF' },
+  clear: { primary: '#2F6F91', accent: '#2F6F91', hover: '#245A78', pressed: '#1B475F', soft: '#EAF4FA', background: '#FFFFFF', surface: '#FFFFFF', sidebar: '#F7F7F7', border: '#E1E7EC', text: '#17202A', muted: '#66717D', filledForeground: '#FFFFFF' },
   blue: { primary: '#2563EB', accent: '#2563EB', hover: '#1D4ED8', pressed: '#1E40AF', soft: '#EAF2FF', background: '#FCFDFF', surface: '#FFFFFF', sidebar: '#F5F8FC', border: '#DDE4EC', text: '#18212B', muted: '#5E6975', filledForeground: '#FFFFFF' },
   azure: { primary: '#0787D1', accent: '#0787D1', hover: '#006FAE', pressed: '#005A8E', soft: '#E5F5FF', background: '#FCFEFF', surface: '#FFFFFF', sidebar: '#F3F9FC', border: '#D9E8F0', text: '#13232D', muted: '#60717B', filledForeground: '#071117' },
   green: { primary: '#159466', accent: '#159466', hover: '#0C7C55', pressed: '#086445', soft: '#E7F7F0', background: '#FCFEFD', surface: '#FFFFFF', sidebar: '#F3F8F5', border: '#DAE5DF', text: '#18231E', muted: '#606B65', filledForeground: '#07140D' },
